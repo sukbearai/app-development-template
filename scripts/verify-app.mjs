@@ -20,6 +20,7 @@ const adminPassword = randomBytes(24).toString('base64url');
 const log = createWriteStream(path.join(output, 'run.log'));
 let containerCreated = false;
 let server;
+let serverOutput = '';
 let interrupted = false;
 const commands = new Set();
 const childEnv = { ...process.env };
@@ -95,9 +96,10 @@ try {
   } else {
     if (production) await command('pnpm', ['build']);
     async function launchServer() {
+    serverOutput = '';
     server = spawn('pnpm', ['--filter', '@pstack/web', production ? 'start' : 'dev', '--hostname', '127.0.0.1', '--port', String(port)], { cwd: root, env: { ...childEnv, ...(production ? { NODE_ENV: 'production', APP_ENV: 'production' } : {}) }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    server.stdout.on('data', chunk => log.write(chunk));
-    server.stderr.on('data', chunk => log.write(chunk));
+    server.stdout.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
+    server.stderr.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
     const deadline = Date.now() + 60_000;
     while (true) {
       if (interrupted) throw new Error('Verification interrupted');
@@ -113,6 +115,13 @@ try {
     await launchServer();
     await command('node', ['apps/web/scripts/smoke.mjs']);
     if (production) {
+      const failures = serverOutput.split('\n').flatMap(line => {
+        try {
+          const entry = JSON.parse(line);
+          return entry.message === 'http request failed' ? [entry] : [];
+        } catch { return []; }
+      });
+      assert.ok(failures.some(entry => entry.fields?.error?.frames?.some(frame => /^(?:apps\/web\/)?dist\/server\//.test(frame.file))), 'Production HTTP failures must retain application bundle source locations');
       await stopServer();
       childEnv.POSTGRES_TOOLS = 'docker';
       childEnv.POSTGRES_TOOL_IMAGE = process.env.PSTACK_TEST_POSTGRES_IMAGE || 'postgres:17-bullseye';

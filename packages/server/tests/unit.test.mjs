@@ -1,11 +1,99 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { hashPassword, verifyPassword } from "../src/password.ts";
 import { envSchema } from "../src/env.ts";
 import { readBoundedFormData } from "../src/upload-memory-limits.ts";
-import { fail, readJson } from "../src/api-response.ts";
+import { ApiError, fail, readJson } from "../src/api-response.ts";
 import { redact, withAccessLog } from "../src/logger.ts";
 import { verifyRequestOrigin, setSessionCookie } from "../src/request-auth.ts";
+
+test("production login logs a database failure without exposing credentials to logs or clients", () => {
+  const source = `
+    const { POST } = await import(${JSON.stringify(new URL("../../../apps/web/app/api/auth/login/route.ts", import.meta.url).href)});
+    const response = await POST(new Request('https://app.example/api/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ account: 'failure-proof', password: 'synthetic-password-never-log' })
+    }));
+    console.log(JSON.stringify({ responseStatus: response.status, responseBody: await response.json() }));
+    const { closeDatabase } = await import('@pstack/database/client');
+    await closeDatabase();
+  `;
+  const output = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
+    encoding: "utf8",
+    env: { ...process.env, NODE_ENV: "production", APP_ORIGIN: "https://app.example", DATABASE_URL: "postgres://proof-user:synthetic-db-secret@127.0.0.1:1/proof", RATE_LIMIT_DRIVER: "memory", WEB_REPLICAS: "1", LOG_LEVEL: "error" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(output.status, 0, output.stderr);
+  const response = output.stdout.trim().split("\n").map(line => JSON.parse(line)).find(line => line.responseStatus);
+  assert.equal(response.responseStatus, 500);
+  assert.equal(response.responseBody.error.code, "INTERNAL_ERROR");
+  const errors = output.stderr.split("\n").filter(line => line.startsWith("{")).map(line => JSON.parse(line));
+  assert.equal(errors.length, 1, "the actual route must log its unknown failure once at LOG_LEVEL=error");
+  assert.equal(errors[0].level, "error");
+  assert.equal(errors[0].fields.traceId, response.responseBody.traceId);
+  assert.match(JSON.stringify(errors[0]), /ECONNREFUSED/);
+  assert.ok(errors[0].fields.error.frames.length > 0, "the real database failure retains source locations");
+  assert.doesNotMatch(output.stdout + output.stderr, /synthetic-db-secret|synthetic-password-never-log/);
+});
+test("production diagnostics keep bounded causes and source locations without error payloads", () => {
+  const source = `
+    const { redact, withAccessLog } = await import(${JSON.stringify(new URL("../src/logger.ts", import.meta.url).href)});
+    const location = ${JSON.stringify(new URL("../src/auth-service.ts", import.meta.url).pathname)};
+    const secret = 'synthetic-error-secret';
+    const cause = Object.assign(new Error('SQL password=' + secret), {
+      code: '23505', detail: secret, query: 'SELECT ' + secret, parameters: [secret]
+    });
+    const wrapped = new Error('Failed query: ' + secret, { cause });
+    wrapped.name = secret;
+    wrapped.stack = [
+      secret,
+      '    at ' + secret + ' (' + location + ':42:9)',
+      '    at https://user:' + secret + '@host/file.js:1:1',
+      '    at /outside/' + secret + '.js:1:1',
+      '    at ' + location + '?token=' + secret + ':1:1',
+      ...Array(20).fill('    at ' + location + ':43:2')
+    ].join('\\n');
+    const cyclic = new Error(secret);
+    cyclic.cause = cyclic;
+    const deep = new Error(secret, { cause: new Error(secret, { cause: new Error(secret, { cause }) }) });
+    const hostile = new Error(secret);
+    for (const key of ['name', 'message', 'code', 'stack', 'cause'])
+      Object.defineProperty(hostile, key, { get() { throw new Error(secret); } });
+    const nonError = { get name() { throw new Error(secret); }, raw: secret };
+    const values = [wrapped, cyclic, deep, hostile, nonError, secret, null, 12n, undefined];
+    const responses = [];
+    for (const value of values) {
+      const response = await withAccessLog(new Request('https://app.example/api/auth/login', { method: 'POST' }), 'trace-safe', async () => { throw value; });
+      responses.push({ status: response.status, body: await response.json() });
+    }
+    const unknownCode = Object.assign(new Error(secret), { code: secret });
+    console.log(JSON.stringify({ direct: redact(wrapped), hostile: redact(hostile), unknownCode: redact(unknownCode), responses }));
+  `;
+  const output = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
+    encoding: "utf8",
+    env: { ...process.env, NODE_ENV: "production", LOG_LEVEL: "error" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(output.status, 0, output.stderr);
+  assert.doesNotMatch(output.stdout + output.stderr, /synthetic-error-secret|Failed query|SELECT/);
+  const result = JSON.parse(output.stdout);
+  assert.equal(result.direct.message, "Operation failed");
+  assert.equal(result.direct.cause.code, "23505");
+  assert.deepEqual(result.direct.frames[0], { file: "packages/server/src/auth-service.ts", line: 42, column: 9 });
+  assert.equal(result.direct.frames.length, 8);
+  assert.equal(result.hostile.message, "Operation failed");
+  assert.equal(result.unknownCode.code, undefined);
+  const errors = output.stderr.trim().split("\n").filter(line => line.startsWith("{")).map(line => JSON.parse(line));
+  assert.equal(errors.length, result.responses.length);
+  assert.equal(errors[1].fields.error.cause.message, "[CIRCULAR]");
+  assert.equal(errors[2].fields.error.cause.cause.cause, undefined);
+  for (const response of result.responses) {
+    assert.equal(response.status, 500);
+    assert.equal(response.body.error.code, "INTERNAL_ERROR");
+    assert.equal(response.body.traceId, "trace-safe");
+  }
+});
 test("passwords require scrypt and verify the complete digest", async () => {
   assert.equal(await verifyPassword("admin", "plain:admin"), false);
   const encoded = await hashPassword("a-strong-generated-password");
@@ -112,6 +200,38 @@ test("HTTP boundary rejects an invalid success body", async () => {
       Response.json({ traceId: "trace", data: { broken: true }, meta: {} }),
   );
   assert.equal(response.status, 500);
+});
+
+test("HTTP boundary validates thrown API failures and preserves valid client errors", async () => {
+  const request = new Request("http://localhost/api/auth/login", { method: "POST" });
+  const valid = await withAccessLog(request, "trace-client", async () => {
+    throw new ApiError(401, "INVALID_CREDENTIALS", "凭据无效", { remaining: 2 });
+  });
+  assert.equal(valid.status, 401);
+  assert.deepEqual(await valid.json(), {
+    traceId: "trace-client", error: { code: "INVALID_CREDENTIALS", message: "凭据无效", details: { remaining: 2 } },
+  });
+  for (const error of [new ApiError(401, "INVALID_CREDENTIALS", "凭据无效", "invalid-details"), new ApiError(418, "UNDECLARED", "未声明状态")]) {
+    const response = await withAccessLog(request, "trace-invalid", async () => { throw error; });
+    assert.equal(response.status, 500);
+    assert.equal((await response.json()).error.code, "INTERNAL_ERROR");
+  }
+});
+
+test("login route keeps origin and input rejection ahead of authentication", async () => {
+  const { POST } = await import("../../../apps/web/app/api/auth/login/route.ts");
+  const forbidden = await POST(new Request("https://app.example/api/auth/login", {
+    method: "POST", headers: { cookie: "pstack_session=synthetic", origin: "https://evil.example" },
+  }));
+  assert.equal(forbidden.status, 403);
+  assert.equal((await forbidden.json()).error.code, "CSRF_ORIGIN_INVALID");
+  assert.equal(forbidden.headers.get("set-cookie"), null);
+  const invalid = await POST(new Request("https://app.example/api/auth/login", {
+    method: "POST", headers: { "content-type": "text/plain" }, body: "invalid",
+  }));
+  assert.equal(invalid.status, 415);
+  assert.equal((await invalid.json()).error.code, "UNSUPPORTED_MEDIA_TYPE");
+  assert.equal(invalid.headers.get("set-cookie"), null);
 });
 
 test("HTTP boundary removes undeclared output fields and preserves cookies", async () => {

@@ -1,4 +1,4 @@
-import { fail, getTraceId, ok } from "@pstack/server/api-response";
+import { getTraceId, ok } from "@pstack/server/api-response";
 import { requireApiPermission } from "@/lib/api-authz";
 import { withAccessLog } from "@pstack/server/logger";
 import { listAuditEvents } from "@pstack/server/product-service";
@@ -6,11 +6,7 @@ import { listAuditEvents } from "@pstack/server/product-service";
 export async function GET(request: Request) {
   const traceId = getTraceId(request);
   return withAccessLog(request, traceId, async () => {
-    try {
-      await requireApiPermission(request, "admin.read");
-      return ok(await listAuditEvents(), traceId);
-    } catch (error) {
-      return fail(error, traceId);
-    }
+    await requireApiPermission(request, "admin.read");
+    return ok(await listAuditEvents(), traceId);
   });
 }

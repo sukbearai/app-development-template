@@ -12,6 +12,8 @@ Redis uses the maintained client, URL authentication/database selection and a Lu
 
 `withAccessLog` validates response bodies against the endpoint registry, preserves response cookies, maps unknown errors to a generic 500 and logs redacted fields. Cookie write origins use `APP_ORIGIN` when configured; forwarded headers cannot authorize an origin.
 
+HTTP routes let exceptions reach `withAccessLog` instead of converting them with a local catch. This boundary records unexpected failures with the request trace ID before returning a generic error response. Production error diagnostics retain approved error codes, bounded source locations and Error causes. They omit arbitrary error messages, SQL details, parameters and request credentials.
+
 Run `test:unit` for local behavior and `test:integration` for disposable PostgreSQL and Redis service checks. Existing databases are never used by integration tests.
 
 
