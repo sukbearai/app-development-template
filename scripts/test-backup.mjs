@@ -36,11 +36,18 @@ try {
   server = new URL(`postgres://app@localhost:${port}/postgres`);
   server.password = encodeURIComponent(password);
   for (let attempt = 0; ; attempt++) {
-    try { await run("docker", ["exec", containerId, "pg_isready", "-U", "app", "-d", "postgres"], { stdio: "ignore" }); break; }
-    catch (error) { if (attempt >= 59) throw error; await new Promise((resolve) => setTimeout(resolve, 500)); }
+    const candidate = new Client({ connectionString: server.href, connectionTimeoutMillis: 1000 });
+    try {
+      await candidate.connect();
+      await candidate.query("SELECT 1");
+      control = candidate;
+      break;
+    } catch (error) {
+      await candidate.end().catch(() => undefined);
+      if (attempt >= 59) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
   }
-  control = new Client({ connectionString: server.href });
-  await control.connect();
   for (const database of [source, target, conflict]) await control.query(`CREATE DATABASE "${database}"`);
   const client = new Client({ connectionString: url(source) });
   await client.connect();
