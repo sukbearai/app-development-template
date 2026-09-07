@@ -37,7 +37,7 @@ DATABASE_URL=postgres://app:password@localhost:55432/restored_app pnpm backup:re
 
 Restore verifies the backup first, refuses nonempty target schemas, and uses a single PostgreSQL transaction with exit-on-error. It omits the archive entry that recreates the default public schema and never drops existing objects. A conflicting object created after the precheck aborts the transaction. It then compares the restored ledger and structural schema hash. Run `pnpm db:migrate` against the restored database to apply newer template migrations. Switch application traffic only after application checks pass. The tool does not overwrite an existing application database.
 
-Install matching PostgreSQL client tools or set `POSTGRES_TOOLS=docker` and `POSTGRES_TOOL_IMAGE=postgres:17-alpine`. Docker tools map host loopback to `host.docker.internal`; remote hostnames remain unchanged. Passwords are passed in process environment, not command arguments. Backup archives contain sensitive application data and need access-controlled storage. This backup covers PostgreSQL, not uploaded objects, Kafka offsets or a distributed snapshot.
+Install matching PostgreSQL client tools or set `POSTGRES_TOOLS=docker` and `POSTGRES_TOOL_IMAGE=postgres:17-alpine`. Docker tools use host networking for loopback databases on Linux. On Docker Desktop they map loopback to `host.docker.internal`; remote hostnames remain unchanged. Passwords are passed in process environment, not command arguments. Backup archives contain sensitive application data and need access-controlled storage. This backup covers PostgreSQL, not uploaded objects, Kafka offsets or a distributed snapshot.
 
 ## Verification
 

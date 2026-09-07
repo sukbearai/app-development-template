@@ -83,3 +83,13 @@ test("restore selection omits only the default public schema creation", () => {
   assert.ok(selected.includes("SCHEMA - drizzle"));
   assert.ok(selected.includes("TABLE public backup_probe"));
 });
+
+test("Docker PostgreSQL tools use host networking for Linux loopback databases", async () => {
+  const { dockerPostgresNetwork } = await import("../db-backup.mjs");
+  for (const host of ["localhost", "127.0.0.1", "::1"]) {
+    assert.deepEqual(dockerPostgresNetwork(host, "linux"), { host, args: ["--network=host"] });
+    assert.deepEqual(dockerPostgresNetwork(host, "darwin"), { host: "host.docker.internal", args: ["--add-host=host.docker.internal:host-gateway"] });
+  }
+  assert.deepEqual(dockerPostgresNetwork("db.example", "linux"), { host: "db.example", args: [] });
+  assert.deepEqual(dockerPostgresNetwork(undefined, "linux"), { host: undefined, args: [] });
+});

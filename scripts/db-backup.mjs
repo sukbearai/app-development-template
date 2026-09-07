@@ -51,12 +51,20 @@ export function postgresEnvironment(database) {
   return env;
 }
 
+export function dockerPostgresNetwork(host, platform = process.platform) {
+  if (!["localhost", "127.0.0.1", "::1"].includes(host)) return { host, args: [] };
+  return platform === "linux"
+    ? { host, args: ["--network=host"] }
+    : { host: "host.docker.internal", args: ["--add-host=host.docker.internal:host-gateway"] };
+}
+
 async function postgresTool(command, args, database, directories = []) {
   const connection = database ? postgresEnvironment(database) : {};
-  if (process.env.POSTGRES_TOOLS === "docker" && ["localhost", "127.0.0.1", "::1"].includes(connection.PGHOST)) connection.PGHOST = "host.docker.internal";
+  const network = dockerPostgresNetwork(connection.PGHOST);
+  if (process.env.POSTGRES_TOOLS === "docker" && network.host) connection.PGHOST = network.host;
   const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PG"))), ...connection };
   if (process.env.POSTGRES_TOOLS === "docker") {
-    return run("docker", ["run", "--rm", "--add-host=host.docker.internal:host-gateway",
+    return run("docker", ["run", "--rm", ...network.args,
       ...Object.keys(connection).flatMap((key) => ["-e", key]),
       ...[...new Set(directories)].flatMap((dir) => ["--mount", `type=bind,source=${dir},target=${dir}`]),
       process.env.POSTGRES_TOOL_IMAGE || "postgres:17-alpine", command, ...args], { env, stdio: ["ignore", "pipe", "inherit"] });

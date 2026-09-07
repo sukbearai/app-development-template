@@ -58,7 +58,7 @@ async function freePort() {
   return address.port;
 }
 async function stopServer() {
-  if (!server || server.exitCode !== null) return;
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
   const exited = new Promise(resolve => server.once('exit', resolve));
   try { process.kill(-server.pid, 'SIGTERM'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
   const timer = setTimeout(() => { try { process.kill(-server.pid, 'SIGKILL'); } catch {} }, 10_000);
