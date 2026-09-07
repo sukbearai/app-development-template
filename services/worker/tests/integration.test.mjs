@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { readFile, readdir } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import { Pool } from "pg";
 import { Kafka, logLevel } from "kafkajs";
@@ -13,6 +13,7 @@ import {
 import {
   createPostgresAsyncTaskStore,
   parseAsyncTaskMessage,
+  payloadHash,
   processAsyncConsumerMessage,
   runKafkaConsumer,
   StaleLeaseError,
@@ -153,6 +154,116 @@ test("concurrent identical delivery executes one transactional domain effect and
     ).rows[0].status,
     "succeeded",
   );
+});
+
+test("Unicode payload survives JSONB durable retry and later duplicate delivery", async () => {
+  const id = randomUUID();
+  const consumerGroup = `unicode-${id}`;
+  const input = message(id, { "e\u0301": 2, "\u00e9": 1 });
+  let executions = 0;
+  const handler = async () => {
+    executions++;
+    if (executions === 1) throw new Error("temporary handler failure");
+    return { recovered: true };
+  };
+  const settings = { ...options, consumerGroup, handler };
+  assert.equal((await processAsyncConsumerMessage(input, settings)).status, "failed");
+  await sleep(30);
+  const recreated = createPostgresAsyncTaskStore({ pool });
+  const [retry] = await recreated.dueMessages(consumerGroup);
+  assert.ok(retry);
+  assert.deepEqual(JSON.parse(retry.value).payload, JSON.parse(input.value).payload);
+  assert.equal((await processAsyncConsumerMessage(retry, { ...settings, store: recreated })).status, "succeeded");
+  assert.equal((await processAsyncConsumerMessage(input, settings)).status, "skipped_duplicate");
+  assert.equal((await processAsyncConsumerMessage(message(id, { "\u00e9": 2, "e\u0301": 1 }), settings)).errorCode, "IDEMPOTENCY_CONFLICT");
+  assert.equal(executions, 2);
+  assert.equal((await recreated.dueMessages(consumerGroup)).length, 0);
+});
+
+function legacyHash(task) {
+  const canonical = (value) => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    if (value && typeof value === "object")
+      return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
+    return JSON.stringify(value) ?? "null";
+  };
+  return createHash("sha256").update(canonical({ type: task.taskType, payload: task.payload })).digest("hex");
+}
+
+async function seedIdentity(input, { status = "failed", compact = false, hash, stored } = {}) {
+  const task = parseAsyncTaskMessage(input, group);
+  const key = JSON.stringify([group, task.idempotencyKey]);
+  hash ??= legacyHash(task);
+  await pool.query(
+    "INSERT INTO app_idempotency_keys(key,scope,request_hash,response_data,status,expires_at) VALUES($1,$2,$3,$4::jsonb,$5,now())",
+    [key, group, hash, compact ? null : JSON.stringify(stored ?? { ...task, status }), status],
+  );
+  return { task, key, hash };
+}
+
+test("legacy failed Unicode JSONB task recovers without rewriting historical receipt identity", async () => {
+  const input = message(randomUUID(), { "e\u0301": 2, "\u00e9": 1 });
+  const { key, hash } = await seedIdentity(input);
+  const recreated = createPostgresAsyncTaskStore({ pool });
+  const retry = (await recreated.dueMessages(group, 1000)).find((item) => JSON.parse(item.value).eventId === JSON.parse(input.value).eventId);
+  assert.ok(retry);
+  assert.notEqual(legacyHash(parseAsyncTaskMessage(retry, group)), hash);
+  let executions = 0;
+  const settings = { ...options, store: recreated, handler: async () => { executions++; } };
+  assert.equal((await processAsyncConsumerMessage(retry, settings)).status, "succeeded");
+  assert.equal((await processAsyncConsumerMessage(input, settings)).status, "skipped_duplicate");
+  const row = (await pool.query("SELECT request_hash FROM app_idempotency_keys WHERE key=$1", [key])).rows[0];
+  const receipt = (await pool.query("SELECT payload_hash FROM app_async_receipts WHERE idempotency_key=$1", [key])).rows[0];
+  assert.equal(row.request_hash, hash);
+  assert.equal(receipt.payload_hash, hash);
+  assert.equal(executions, 1);
+});
+
+test("legacy terminal payload proves equality and detects contradictions even when the legacy hash matches", async () => {
+  const id = randomUUID();
+  const input = message(id, { "e\u0301": 2, "\u00e9": 1 });
+  const { key, hash } = await seedIdentity(input, { status: "succeeded" });
+  const settings = { ...options, handler: async () => assert.fail("terminal task must not execute") };
+  const reordered = message(id, { "\u00e9": 1, "e\u0301": 2 });
+  assert.notEqual(legacyHash(parseAsyncTaskMessage(reordered, group)), hash);
+  assert.equal((await processAsyncConsumerMessage(reordered, settings)).status, "skipped_duplicate");
+  await pool.query("UPDATE app_idempotency_keys SET response_data=jsonb_set(response_data,'{payload}', '{\"changed\":true}') WHERE key=$1", [key]);
+  assert.equal((await processAsyncConsumerMessage(input, settings)).errorCode, "IDEMPOTENCY_CONFLICT");
+  assert.equal((await pool.query("SELECT request_hash FROM app_idempotency_keys WHERE key=$1", [key])).rows[0].request_hash, hash);
+});
+
+test("compacted legacy identities only accept exact old hash matches", async () => {
+  const id = randomUUID();
+  const input = message(id, { "e\u0301": 2, "\u00e9": 1 });
+  await seedIdentity(input, { status: "succeeded", compact: true });
+  const settings = { ...options, handler: async () => assert.fail("compacted task must not execute") };
+  assert.equal((await processAsyncConsumerMessage(input, settings)).status, "skipped_duplicate");
+  for (const payload of [{ "\u00e9": 1, "e\u0301": 2 }, { changed: true }]) {
+    const result = await processAsyncConsumerMessage(message(id, payload), settings);
+    assert.equal(result.status, "quarantined");
+    assert.equal(result.errorCode, "IDEMPOTENCY_UNVERIFIABLE");
+  }
+});
+
+test("unsupported hashes and incomplete nonterminal stored tasks cannot execute", async () => {
+  const settings = { ...options, handler: async () => assert.fail("unverifiable task must not execute") };
+  for (const fixture of [
+    { hash: `v3:${"0".repeat(64)}` },
+    { hash: "invalid" },
+    { compact: true },
+    { stored: {} },
+    { stored: { payload: { value: 1 }, taskType: "demo.echo" } },
+  ]) {
+    const input = message();
+    await seedIdentity(input, fixture);
+    assert.equal((await processAsyncConsumerMessage(input, settings)).errorCode, "IDEMPOTENCY_UNVERIFIABLE");
+    await pool.query("DELETE FROM app_idempotency_keys WHERE key=$1", [JSON.stringify([group, parseAsyncTaskMessage(input, group).idempotencyKey])]);
+  }
+  const input = message();
+  await seedIdentity(input, { compact: true, hash: payloadHash(parseAsyncTaskMessage(input, group)) });
+  assert.equal((await processAsyncConsumerMessage(input, settings)).errorCode, "IDEMPOTENCY_UNVERIFIABLE");
+  await pool.query("DELETE FROM app_idempotency_keys WHERE key=$1", [JSON.stringify([group, parseAsyncTaskMessage(input, group).idempotencyKey])]);
 });
 
 test("payload key order is canonical but changed values are quarantined without modifying success", async () => {
@@ -356,6 +467,169 @@ test("malformed and null messages persist quarantine before acknowledgement", as
   );
 });
 
+test("oversized indexed identifiers are quarantined before PostgreSQL claim and acknowledged", async () => {
+  for (const [index, field] of ["idempotencyKey", "eventId", "eventType", "traceId", "taskId"].entries()) {
+    const input = {
+      ...message(randomUUID(), {}, { [field]: randomBytes(4000).toString("hex") }),
+      offset: String(index),
+      topic: "oversized-identifiers",
+    };
+    const result = await processAsyncConsumerMessage(input, {
+      ...options,
+      commitOffset: async () => {
+        const durable = await pool.query(
+          "SELECT error_code FROM app_message_quarantine WHERE consumer_group=$1 AND topic=$2 AND source_offset=$3",
+          [group, input.topic, input.offset],
+        );
+        assert.equal(durable.rows[0]?.error_code, "INVALID_MESSAGE");
+      },
+      handler: async () => { assert.fail("oversized message reached handler"); },
+    });
+    assert.equal(result.status, "quarantined");
+    assert.equal(result.committed, true);
+  }
+});
+
+test("index budget boundary succeeds and legacy serialized terminal keys still deduplicate", async () => {
+  const overhead = Buffer.byteLength(JSON.stringify([group, ""]));
+  const idempotencyKey = randomBytes(1000).toString("hex").slice(0, 2000 - overhead);
+  const input = message(randomUUID(), {}, {
+    idempotencyKey,
+    eventType: randomBytes(1000).toString("hex"),
+    traceId: randomBytes(1000).toString("hex"),
+    taskId: randomBytes(1000).toString("hex"),
+  });
+  const result = await processAsyncConsumerMessage(input, {
+    ...options, handler: async () => ({ ok: true }),
+  });
+  assert.equal(result.status, "succeeded");
+  const stored = await pool.query(
+    "SELECT octet_length(key) AS bytes FROM app_idempotency_keys WHERE key=$1",
+    [JSON.stringify([group, idempotencyKey])],
+  );
+  assert.equal(stored.rows[0].bytes, 2000);
+
+  const legacyInput = message(randomUUID());
+  const task = parseAsyncTaskMessage(legacyInput, group);
+  const legacyKey = JSON.stringify([group, task.idempotencyKey]);
+  await pool.query(
+    "INSERT INTO app_idempotency_keys(key,scope,request_hash,status,expires_at) VALUES($1,$2,$3,'succeeded',now())",
+    [legacyKey, group, payloadHash(task)],
+  );
+  const duplicate = await processAsyncConsumerMessage(legacyInput, {
+    ...options, handler: async () => { assert.fail("legacy successful key executed again"); },
+  });
+  assert.equal(duplicate.status, "skipped_duplicate");
+  assert.equal(duplicate.safeToCommit, true);
+});
+
+test("quarantined legacy oversized retries cannot starve later valid durable work", async () => {
+  const legacyGroup = `legacy-${randomUUID()}`;
+  for (let index = 0; index < 11; index++) {
+    const input = { ...message(randomUUID()), offset: String(index) };
+    const task = parseAsyncTaskMessage(input, legacyGroup);
+    if (index < 10) task.idempotencyKey = `${"x".repeat(4000)}:${index}`;
+    await pool.query(
+      "INSERT INTO app_idempotency_keys(key,scope,request_hash,response_data,status,expires_at,created_at) VALUES($1,$2,$3,$4::jsonb,'pending',now(),now()+$5*interval '1 millisecond')",
+      [JSON.stringify([legacyGroup, task.idempotencyKey]), legacyGroup, payloadHash(task), JSON.stringify(task), index],
+    );
+  }
+  const first = await store.dueMessages(legacyGroup);
+  assert.equal(first.length, 10);
+  await pool.query(`
+    CREATE FUNCTION reject_quarantine_test() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'quarantine storage unavailable'; END $$;
+    CREATE TRIGGER reject_quarantine_test BEFORE INSERT ON app_message_quarantine
+    FOR EACH ROW EXECUTE FUNCTION reject_quarantine_test();
+  `);
+  let acknowledged = false;
+  try {
+    await assert.rejects(processAsyncConsumerMessage(first[0], {
+      ...options, consumerGroup: legacyGroup,
+      commitOffset: async () => { acknowledged = true; },
+    }), /quarantine storage unavailable/);
+    assert.equal(acknowledged, false);
+    assert.equal((await store.dueMessages(legacyGroup)).length, 10);
+  } finally {
+    await pool.query("DROP TRIGGER reject_quarantine_test ON app_message_quarantine; DROP FUNCTION reject_quarantine_test()");
+  }
+  for (const input of first) {
+    const result = await processAsyncConsumerMessage(input, { ...options, consumerGroup: legacyGroup });
+    assert.equal(result.status, "quarantined");
+  }
+  const next = await store.dueMessages(legacyGroup);
+  assert.equal(next.length, 1, "already quarantined legacy entries must leave room for later valid work");
+  const result = await processAsyncConsumerMessage(next[0], { ...options, consumerGroup: legacyGroup });
+  assert.equal(result.status, "succeeded");
+  assert.equal((await store.dueMessages(legacyGroup)).length, 0);
+  const preserved = await pool.query(
+    "SELECT count(*)::int AS count FROM app_idempotency_keys WHERE scope=$1 AND status='pending' AND length(key)>4000",
+    [legacyGroup],
+  );
+  assert.equal(preserved.rows[0].count, 10);
+});
+
+test("unverifiable durable tasks leave the retry window only after quarantine commits", async () => {
+  const consumerGroup = `unverifiable-${randomUUID()}`;
+  const keys = [];
+  for (let index = 0; index < 11; index++) {
+    const input = { ...message(), offset: String(index) };
+    const task = { ...parseAsyncTaskMessage(input, consumerGroup), status: "failed" };
+    const key = JSON.stringify([consumerGroup, task.idempotencyKey]);
+    keys.push(key);
+    await pool.query(
+      "INSERT INTO app_idempotency_keys(key,scope,request_hash,response_data,status,expires_at,created_at) VALUES($1,$2,$3,$4::jsonb,'failed',now(),now()+$5*interval '1 millisecond')",
+      [key, consumerGroup, index < 10 ? `v3:${"a".repeat(64)}` : payloadHash(task), JSON.stringify(task), index],
+    );
+  }
+  const first = await store.dueMessages(consumerGroup);
+  assert.equal(first.length, 10);
+  const settings = { ...options, consumerGroup };
+  await assert.rejects(processAsyncConsumerMessage(first[0], {
+    ...settings,
+    store: { ...store, quarantine: async () => { throw new Error("quarantine unavailable"); } },
+    handler: async () => assert.fail("unverifiable task must not execute"),
+  }), /quarantine unavailable/);
+  assert.equal((await store.dueMessages(consumerGroup)).length, 10);
+  for (const input of first) {
+    const result = await processAsyncConsumerMessage(input, {
+      ...settings, handler: async () => assert.fail("unverifiable task must not execute"),
+    });
+    assert.equal(result.errorCode, "IDEMPOTENCY_UNVERIFIABLE");
+    assert.equal(result.safeToCommit, true);
+  }
+  assert.equal(await store.replay(consumerGroup, JSON.parse(keys[0])[1]), true);
+  const next = await store.dueMessages(consumerGroup);
+  assert.equal(next.length, 1, "quarantine remains effective after replay and permits later work");
+  assert.equal((await processAsyncConsumerMessage(next[0], settings)).status, "succeeded");
+  assert.equal((await store.dueMessages(consumerGroup)).length, 0);
+  const preserved = await pool.query("SELECT request_hash,response_data FROM app_idempotency_keys WHERE key=ANY($1::text[])", [keys.slice(0, 10)]);
+  assert.equal(preserved.rows.length, 10);
+  for (const row of preserved.rows) {
+    assert.equal(row.request_hash, `v3:${"a".repeat(64)}`);
+    assert.ok(row.response_data.payload);
+  }
+});
+
+test("conflict quarantine and other Kafka sources do not hide a recoverable task", async () => {
+  const recoveryGroup = `recovery-${randomUUID()}`;
+  const input = message();
+  const task = parseAsyncTaskMessage(input, recoveryGroup);
+  await pool.query(
+    "INSERT INTO app_idempotency_keys(key,scope,request_hash,response_data,status,expires_at) VALUES($1,$2,$3,$4::jsonb,'pending',now())",
+    [JSON.stringify([recoveryGroup, task.idempotencyKey]), recoveryGroup, payloadHash(task), JSON.stringify(task)],
+  );
+  await store.quarantine(input, recoveryGroup, "IDEMPOTENCY_CONFLICT", new Error("another payload"));
+  for (const [index, code] of ["INVALID_MESSAGE", "IDEMPOTENCY_UNVERIFIABLE"].entries()) {
+    for (const extra of [{ topic: `other.topic${index}` }, { partition: index + 1 }, { offset: String(index + 1) }])
+      await store.quarantine({ ...input, ...extra }, recoveryGroup, code, new Error("invalid"));
+    await store.quarantine(input, `${recoveryGroup}-other${index}`, code, new Error("invalid"));
+  }
+  const due = await store.dueMessages(recoveryGroup);
+  assert.equal(due.length, 1);
+  assert.equal((await processAsyncConsumerMessage(due[0], { ...options, consumerGroup: recoveryGroup })).status, "succeeded");
+});
+
 test("real Kafka outbox delivery retries exact offset then advances and quarantines poison", async () => {
   if (!process.env.WORKER_TEST_KAFKA_BROKERS)
     throw new Error(
@@ -397,8 +671,12 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
         { value: message("unicode-low", { ["\udc00"]: true }).value },
         { value: message("unicode-nul", "\u0000").value },
         { value: message("unicode-valid", { "😀": ["a😀z"] }).value },
+        { value: message("long-key", {}, { idempotencyKey: randomBytes(4000).toString("hex") }).value },
+        { value: message("after-long-key").value },
+        { value: message("after-long-key").value },
       ],
     });
+    let afterLongKeyCalls = 0;
     let overdueCalls = 0;
     let calls = 0;
     const offsets = [];
@@ -406,7 +684,7 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
       topic,
       brokers,
       groupId: kafkaGroup,
-      maxMessages: 7,
+      maxMessages: 10,
       maxWaitMs: 30000,
       eachMessage: async (input) => {
         offsets.push(input.offset);
@@ -415,6 +693,7 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
           consumerGroup: kafkaGroup,
           now: input.offset === "2" ? new Date(Date.now() - 1000) : undefined,
           handler: async (task) => {
+            if (task.sourceEventId === "after-long-key") afterLongKeyCalls++;
             if (task.sourceEventId === id && ++calls === 1)
               throw new Error("retry once");
             if (task.sourceEventId === overdueId && ++overdueCalls === 1)
@@ -424,17 +703,18 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
         });
       },
     });
-    assert.equal(runner.processed, 7);
+    assert.equal(runner.processed, 10);
+    assert.equal(afterLongKeyCalls, 1);
     assert.equal(calls, 2);
     assert.equal(overdueCalls, 2);
-    assert.deepEqual(offsets, ["0", "0", "1", "2", "2", "3", "4", "5", "6"]);
+    assert.deepEqual(offsets, ["0", "0", "1", "2", "2", "3", "4", "5", "6", "7", "8", "9"]);
     const quarantined = await pool.query(
       "SELECT source_offset FROM app_message_quarantine WHERE consumer_group=$1 ORDER BY source_offset",
       [kafkaGroup],
     );
     assert.deepEqual(
       quarantined.rows.map((row) => row.source_offset),
-      ["1", "3", "4", "5"],
+      ["1", "3", "4", "5", "7"],
     );
     const emoji = await pool.query(
       "SELECT response_data->'payload' AS payload FROM app_idempotency_keys WHERE key=$1",
@@ -445,7 +725,12 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
       groupId: kafkaGroup,
       topics: [topic],
     });
-    assert.equal(fetched[0].partitions[0].offset, "7");
+    assert.equal(fetched[0].partitions[0].offset, "10");
+    const receipt = await pool.query(
+      "SELECT idempotency_key FROM app_async_receipts WHERE idempotency_key=$1",
+      [JSON.stringify([kafkaGroup, "demo.echo:after-long-key"])],
+    );
+    assert.equal(receipt.rowCount, 1);
   } finally {
     await producer.disconnect();
     await admin.disconnect();
@@ -662,7 +947,9 @@ test("retention compacts worker history while preserving duplicate and conflict 
   const previousDatabase = process.env.DATABASE_URL;
   process.env.DATABASE_URL = process.env.WORKER_TEST_DATABASE_URL;
   try {
-    const input = message();
+    const input = message(randomUUID(), { "e\u0301": 2, "\u00e9": 1 });
+    const legacy = await seedIdentity(message(), { status: "succeeded" });
+    await pool.query("UPDATE app_idempotency_keys SET created_at='2000-01-01',expires_at='2000-01-02' WHERE key=$1", [legacy.key]);
     let executions = 0;
     const handler = async () => {
       executions++;
@@ -767,10 +1054,13 @@ test("retention compacts worker history while preserving duplicate and conflict 
       ).rows[0].status,
       "succeeded",
     );
+    const legacyAfter = (await pool.query("SELECT request_hash,response_data FROM app_idempotency_keys WHERE key=$1", [legacy.key])).rows[0];
+    assert.equal(legacyAfter.request_hash, legacy.hash);
+    assert.deepEqual(legacyAfter.response_data.payload, legacy.task.payload);
     const recreated = createPostgresAsyncTaskStore({ pool });
     assert.equal(
       (
-        await processAsyncConsumerMessage(input, {
+        await processAsyncConsumerMessage(message(JSON.parse(input.value).eventId, { "\u00e9": 1, "e\u0301": 2 }), {
           ...options,
           store: recreated,
           handler,

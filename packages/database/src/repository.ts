@@ -726,7 +726,7 @@ export async function runRetention(options: RetentionOptions) {
       id: "key",
       date: "created_at",
       predicate:
-        "status in ('succeeded','canceled') and expires_at <= now() and response_data is not null",
+        "status in ('succeeded','canceled') and request_hash ~ '^v2:[a-f0-9]{64}$' and expires_at <= now() and response_data is not null",
       update: "response_data=null",
     },
     {

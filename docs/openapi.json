@@ -2555,23 +2555,33 @@
         "properties": {
           "eventId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes."
           },
           "eventType": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes."
           },
           "traceId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes."
           },
           "taskId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes."
           },
           "idempotencyKey": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000,
+            "description": "At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes."
           },
           "attemptCount": {
             "type": "integer",
@@ -2608,20 +2618,26 @@
         "properties": {
           "topic": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 249,
+            "pattern": "^[A-Za-z0-9._-]+$"
           },
           "partition": {
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 2147483647
           },
           "offset": {
             "type": "string",
-            "minLength": 1
+            "maxLength": 19,
+            "pattern": "^(0|[1-9][0-9]{0,18})$"
           },
           "consumerGroup": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^\\u0000\\uD800-\\uDFFF]+$",
+            "description": "At most 256 UTF-8 bytes. Whitespace is preserved as part of the consumer group identity."
           }
         },
         "required": [

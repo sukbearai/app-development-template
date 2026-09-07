@@ -1,3 +1,4 @@
+import { asyncConsumerGroupSchema } from "@pstack/contracts";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,7 +119,8 @@ export function loadWorkerEnv(): WorkerEnv {
       .map((item) => item.trim())
       .filter(Boolean),
     kafkaClientId: process.env.KAFKA_CLIENT_ID || "app-template-worker",
-    kafkaConsumerGroupId:
+    kafkaConsumerGroupId: asyncConsumerGroupSchema.parse(
       process.env.KAFKA_CONSUMER_GROUP_ID || "app-template-worker-consumer",
+    ),
   };
 }

@@ -4,6 +4,10 @@ import type { Pool, PoolClient } from "pg";
 import { getPool } from "@pstack/database/client";
 import {
   asyncTaskEventMessageSchema,
+  asyncTaskStatusSchema,
+  asyncIdentifierSchema,
+  asyncConsumerGroupSchema,
+  kafkaConsumerOffsetSchema,
   type AsyncTaskEnvelope,
   type AsyncTaskEventMessage,
   type AsyncTaskKind,
@@ -68,6 +72,7 @@ export type AsyncConsumerOptions<T = unknown> = {
   commitOffset?: (offset: KafkaConsumerOffset) => Promise<void>;
 };
 export class PayloadConflictError extends Error {}
+export class PayloadUnverifiableError extends Error {}
 export class StaleLeaseError extends Error {}
 
 export function quoteIdent(identifier: string) {
@@ -165,12 +170,12 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
   const eventType = stringField(parsed, "eventType") as AsyncTaskKind;
   const traceId = stringField(parsed, "traceId");
   const taskId = optionalStringField(parsed, "taskId") || eventId;
-  const sourceOffset = {
+  const sourceOffset = kafkaConsumerOffsetSchema.parse({
     topic: message.topic,
     partition: message.partition,
     offset: message.offset,
     consumerGroup,
-  };
+  });
   const eventMessage: AsyncTaskEventMessage<TPayload> = {
     eventId,
     eventType,
@@ -186,6 +191,8 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
     occurredAt: optionalStringField(parsed, "occurredAt"),
     payload: parsed.payload as TPayload,
   };
+  const idempotencyKey = asyncTaskIdempotencyKey(eventMessage);
+  asyncIdentifierSchema.parse(JSON.stringify([consumerGroup, idempotencyKey]));
   const nowIso = (defaults.now || new Date()).toISOString();
   return {
     taskId: eventMessage.taskId!,
@@ -193,7 +200,7 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
     traceId: eventMessage.traceId,
     status: "pending",
     payload: eventMessage.payload,
-    idempotencyKey: asyncTaskIdempotencyKey(eventMessage),
+    idempotencyKey,
     attemptCount: eventMessage.attemptCount!,
     maxAttempts: eventMessage.maxAttempts!,
     nextRetryAt: eventMessage.nextRetryAt,
@@ -235,22 +242,64 @@ export function failAsyncTask<TPayload>(
   };
 }
 
+function canonicalPayload(value: unknown, legacy = false): string {
+  if (Array.isArray(value))
+    return `[${value.map((item) => canonicalPayload(item, legacy)).join(",")}]`;
+  if (value && typeof value === "object") {
+    const keys = Object.keys(value);
+    if (legacy) keys.sort((a, b) => a.localeCompare(b));
+    else keys.sort();
+    return `{${keys
+      .map((key) => `${JSON.stringify(key)}:${canonicalPayload(Reflect.get(value, key), legacy)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function legacyPayloadHash(task: Pick<AsyncTaskEnvelope, "taskType" | "payload">) {
+  return createHash("sha256")
+    .update(canonicalPayload({ type: task.taskType, payload: task.payload }, true))
+    .digest("hex");
+}
+
 export function payloadHash(
   task: Pick<AsyncTaskEnvelope, "taskType" | "payload">,
 ) {
-  function canonical(value: unknown): string {
-    if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-    if (value && typeof value === "object") {
-      return `{${Object.entries(value)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`)
-        .join(",")}}`;
-    }
-    return JSON.stringify(value) ?? "null";
-  }
-  return createHash("sha256")
-    .update(canonical({ type: task.taskType, payload: task.payload }))
-    .digest("hex");
+  return `v2:${createHash("sha256")
+    .update(canonicalPayload({ type: task.taskType, payload: task.payload }))
+    .digest("hex")}`;
+}
+
+function storedTask<T>(value: unknown): AsyncTaskEnvelope<T> {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new PayloadUnverifiableError("Stored task envelope is missing or invalid");
+  const record = value as Record<string, unknown>;
+  const source = record.source;
+  const validDate = (date: unknown) =>
+    typeof date === "string" && Number.isFinite(Date.parse(date));
+  if (
+    !source || typeof source !== "object" || Array.isArray(source) ||
+    !Object.hasOwn(record, "payload") ||
+    !asyncTaskStatusSchema.safeParse(record.status).success ||
+    !["taskId", "taskType", "traceId", "idempotencyKey", "sourceEventId"].every(
+      (field) => asyncIdentifierSchema.safeParse(record[field]).success,
+    ) ||
+    ![record.attemptCount, record.maxAttempts].every(
+      (count) => typeof count === "number" && Number.isInteger(count) && count > 0,
+    ) ||
+    !validDate(record.createdAt) || !validDate(record.updatedAt) ||
+    (record.nextRetryAt !== undefined && !validDate(record.nextRetryAt))
+  ) throw new PayloadUnverifiableError("Stored task envelope is missing or invalid");
+  const origin = source as Record<string, unknown>;
+  if (
+    !kafkaConsumerOffsetSchema.safeParse(origin.offset).success ||
+    origin.eventId !== record.sourceEventId || origin.eventType !== record.taskType ||
+    (origin.occurredAt !== undefined && !validDate(origin.occurredAt)) ||
+    ![record.lockedBy, record.lockedUntil, record.errorCode, record.errorMessage].every(
+      (field) => field === undefined || typeof field === "string",
+    )
+  ) throw new PayloadUnverifiableError("Stored task source or metadata is invalid");
+  return record as unknown as AsyncTaskEnvelope<T>;
 }
 
 export async function processAsyncConsumerMessage<T = unknown>(
@@ -258,12 +307,12 @@ export async function processAsyncConsumerMessage<T = unknown>(
   options: AsyncConsumerOptions<T>,
 ): Promise<AsyncConsumerResult> {
   let task: AsyncTaskEnvelope<T>;
-  const offset = {
+  const offset = kafkaConsumerOffsetSchema.parse({
     topic: message.topic,
     partition: message.partition,
     offset: message.offset,
     consumerGroup: options.consumerGroup,
-  };
+  });
   async function acknowledge(result: AsyncConsumerResult) {
     if (result.safeToCommit && options.commitOffset) {
       await options.commitOffset(offset);
@@ -295,6 +344,8 @@ export async function processAsyncConsumerMessage<T = unknown>(
   } catch (error) {
     if (error instanceof PayloadConflictError)
       return quarantine("IDEMPOTENCY_CONFLICT", error);
+    if (error instanceof PayloadUnverifiableError)
+      return quarantine("IDEMPOTENCY_UNVERIFIABLE", error);
     throw error;
   }
   const base = {
@@ -459,13 +510,27 @@ export function createPostgresAsyncTaskStore<T = unknown>(
           `SELECT *, lease_until>now() AS active_lease FROM ${keys} WHERE key=$1 FOR UPDATE`,
           [key(incoming)],
         );
-        if (!row || row.request_hash !== hash)
-          throw new PayloadConflictError(
-            "Idempotency key is already bound to another payload",
-          );
-        if (["succeeded", "dead_letter", "canceled"].includes(row.status))
+        if (!row) throw new Error("Claimed idempotency row is missing");
+        const terminal = ["succeeded", "dead_letter", "canceled"].includes(row.status);
+        const persistedHash: unknown = row.request_hash;
+        if (typeof persistedHash !== "string")
+          throw new PayloadUnverifiableError("Stored payload hash is invalid");
+        const legacy = /^[a-f0-9]{64}$/.test(persistedHash);
+        if (!legacy && !/^v2:[a-f0-9]{64}$/.test(persistedHash))
+          throw new PayloadUnverifiableError("Stored payload hash version is unsupported");
+        if (!legacy && persistedHash !== hash)
+          throw new PayloadConflictError("Idempotency key is already bound to another payload");
+        if (terminal && row.response_data === null) {
+          if (legacy && legacyPayloadHash(incoming) !== persistedHash)
+            throw new PayloadUnverifiableError("Compacted legacy task cannot prove payload identity");
           return { kind: "terminal", task: incoming };
-        const stored = row.response_data as AsyncTaskEnvelope<T>;
+        }
+        const stored = storedTask<T>(row.response_data);
+        if (payloadHash(stored) !== hash)
+          throw new PayloadConflictError("Idempotency key is already bound to another payload");
+        if (key(stored) !== key(incoming))
+          throw new PayloadUnverifiableError("Stored task belongs to another idempotency key");
+        if (terminal) return { kind: "terminal", task: incoming };
         if (row.status === "processing" && row.active_lease)
           return {
             kind: "deferred",
@@ -484,7 +549,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
           status: "running",
           lockedBy: workerId,
           generation,
-          requestHash: hash,
+          requestHash: persistedHash,
           updatedAt: new Date().toISOString(),
         };
         await client.query(
@@ -545,7 +610,15 @@ export function createPostgresAsyncTaskStore<T = unknown>(
     },
     async dueMessages(group, limit = 10) {
       const result = await pool.query(
-        `SELECT response_data FROM ${keys} WHERE scope=$1 AND ((status IN ('pending','failed') AND COALESCE((response_data->>'nextRetryAt')::timestamptz,'-infinity'::timestamptz)<=now()) OR (status='processing' AND lease_until<=now())) ORDER BY created_at LIMIT $2`,
+        `SELECT response_data FROM ${keys} AS task
+        WHERE scope=$1 AND ((status IN ('pending','failed') AND COALESCE((response_data->>'nextRetryAt')::timestamptz,'-infinity'::timestamptz)<=now()) OR (status='processing' AND lease_until<=now()))
+        AND NOT EXISTS (
+          SELECT 1 FROM ${table("app_message_quarantine")} AS quarantine
+          WHERE quarantine.consumer_group=task.scope AND quarantine.error_code IN ('INVALID_MESSAGE','IDEMPOTENCY_UNVERIFIABLE')
+            AND quarantine.topic=task.response_data#>>'{source,offset,topic}'
+            AND quarantine.partition::text=task.response_data#>>'{source,offset,partition}'
+            AND quarantine.source_offset=task.response_data#>>'{source,offset,offset}'
+        ) ORDER BY created_at LIMIT $2`,
         [group, limit],
       );
       return result.rows.map((row) => {
@@ -635,6 +708,7 @@ export async function runKafkaConsumer(options: {
   signal?: AbortSignal;
   eachMessage: (message: ConsumerMessage) => Promise<AsyncConsumerResult>;
 }) {
+  const groupId = asyncConsumerGroupSchema.parse(options.groupId);
   const brokers =
     options.brokers ??
     (process.env.KAFKA_BROKERS ?? "").split(",").filter(Boolean);
@@ -644,7 +718,7 @@ export async function runKafkaConsumer(options: {
     clientId: options.clientId ?? "pstack-worker",
     brokers,
     logLevel: logLevel.NOTHING,
-  }).consumer({ groupId: options.groupId });
+  }).consumer({ groupId });
   let processed = 0;
   let completed!: () => void;
   let failed!: (error: unknown) => void;

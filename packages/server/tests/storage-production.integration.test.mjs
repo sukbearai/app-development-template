@@ -463,11 +463,15 @@ test(
           await query(
             "insert into app_task_events(id,task_id,trace_id,event_type,created_at) values('old-terminal','terminal','t','done',now()-interval '90 days'),('old-retry','retry','t','failed',now()-interval '90 days')",
           );
+          const v2Hash = `v2:${"a".repeat(64)}`;
+          const legacyHash = "b".repeat(64);
           await query(
-            "insert into app_idempotency_keys(key,scope,request_hash,response_data,status,created_at,expires_at) values('compact','scope','hash','{\"large\":true}','succeeded',now()-interval '90 days',now()-interval '1 day'),('unexpired','scope','hash','{\"large\":true}','succeeded',now()-interval '90 days',now()+interval '1 day')",
+            "insert into app_idempotency_keys(key,scope,request_hash,response_data,status,created_at,expires_at) values('compact','scope',$1,'{\"large\":true}','succeeded',now()-interval '90 days',now()-interval '1 day'),('unexpired','scope',$1,'{\"large\":true}','succeeded',now()-interval '90 days',now()+interval '1 day'),('legacy','scope',$2,'{\"large\":true}','succeeded',now()-interval '90 days',now()-interval '1 day'),('unknown','scope','v3:unknown','{\"large\":true}','succeeded',now()-interval '90 days',now()-interval '1 day'),('malformed-v2','scope','v2:bad','{\"large\":true}','succeeded',now()-interval '90 days',now()-interval '1 day')",
+            [v2Hash, legacyHash],
           );
           await query(
-            "insert into app_async_receipts(idempotency_key,task_id,consumer_group,event_type,payload_hash,result,created_at) values('compact','terminal','group','test','hash','{\"large\":true}',now()-interval '90 days')",
+            "insert into app_async_receipts(idempotency_key,task_id,consumer_group,event_type,payload_hash,result,created_at) values('compact','terminal','group','test',$1,'{\"large\":true}',now()-interval '90 days')",
+            [v2Hash],
           );
           await query(
             "insert into app_telemetry_events(id,event,trace_id,occurred_at) select 'old-tel-'||i,'old','t',now()-interval '90 days' from generate_series(1,3) i",
@@ -490,7 +494,7 @@ test(
               "select * from app_async_receipts where idempotency_key='compact'",
             )
           ).rows;
-          assert.equal(receipt.payload_hash, "hash");
+          assert.equal(receipt.payload_hash, v2Hash);
           assert.deepEqual(receipt.result, {});
           assert.equal(
             (
@@ -508,6 +512,10 @@ test(
             ).rows[0].response_data,
             null,
           );
+          const retained = (await query("select key,request_hash,response_data from app_idempotency_keys where key in ('legacy','unknown','malformed-v2') order by key")).rows;
+          assert.equal(retained.length, 3);
+          assert.equal(retained.find((row) => row.key === "legacy").request_hash, legacyHash);
+          for (const row of retained) assert.deepEqual(row.response_data, { large: true });
           assert.equal(
             (
               await query(

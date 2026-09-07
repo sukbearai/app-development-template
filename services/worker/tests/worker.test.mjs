@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { spawnSync } from "node:child_process";
 import {
   asyncTaskIdempotencyKey,
   failAsyncTask,
   nextKafkaOffset,
   parseAsyncTaskMessage,
+  payloadHash,
   processAsyncConsumerMessage,
   processConsumerMessagesSequentially,
 } from "../src/async-consumer.ts";
@@ -26,6 +28,35 @@ import {
 import { outboxKafkaMessageKey } from "../src/outbox.ts";
 
 process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = "1";
+
+test("payload identity is independent of Unicode key order at every depth", () => {
+  const first = { taskType: "demo.echo", payload: { items: [{ "e\u0301": 2, "\u00e9": 1 }], z: true } };
+  const reordered = { taskType: "demo.echo", payload: { z: true, items: [{ "\u00e9": 1, "e\u0301": 2 }] } };
+  assert.deepEqual(first, reordered);
+  assert.equal(payloadHash(first), payloadHash(reordered));
+  assert.notEqual(payloadHash(first), payloadHash({ ...first, payload: { items: [{ "e\u0301": 1, "\u00e9": 2 }], z: true } }));
+  assert.notEqual(payloadHash(first), payloadHash({ ...first, taskType: "file.uploaded" }));
+});
+
+test("v2 payload hash has a fixed UTF-16 vector across process locales", () => {
+  const task = { taskType: "demo.echo", payload: { "2": 2, "10": 10, "a": 2, "A": 1, "é": 4, "e\u0301": 3, "😀": [1, 2], "\ue000": 5 } };
+  const expected = "v2:2b029f5217a2a866434d28b9fed839960e520c9b4219e9d1315e4b2ff5815747";
+  assert.equal(payloadHash(task), expected);
+  assert.notEqual(payloadHash({ ...task, payload: { ...task.payload, "😀": [2, 1] } }), expected);
+  assert.notEqual(payloadHash({ taskType: "demo.echo", payload: { "é": 1 } }), payloadHash({ taskType: "demo.echo", payload: { "e\u0301": 1 } }));
+  const locales = [];
+  for (const locale of ["en_US.UTF-8", "sv_SE.UTF-8", "tr_TR.UTF-8"]) {
+    const child = spawnSync(process.execPath, [
+      "--import", import.meta.resolve("tsx"), "--input-type=module", "--eval",
+      `import { payloadHash } from ${JSON.stringify(new URL("../src/async-consumer.ts", import.meta.url).href)}; process.stdout.write(JSON.stringify({ hash: payloadHash(${JSON.stringify(task)}), locale: Intl.DateTimeFormat().resolvedOptions().locale }));`,
+    ], { env: { ...process.env, LANG: locale, LC_ALL: locale }, encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    const result = JSON.parse(child.stdout);
+    assert.equal(result.hash, expected);
+    locales.push(result.locale);
+  }
+  assert.equal(new Set(locales).size, 3);
+});
 
 test("worker health returns ok", () => {
   assert.equal(workerHealth().status, "ok");
@@ -453,4 +484,77 @@ test("JSON storage rejects lone surrogates in nested strings and keys but accept
     parseAsyncTaskMessage(input({ "😀": ["a😀z"] }), "unicode").payload,
     { "😀": ["a😀z"] },
   );
+});
+
+test("async identifiers and the serialized consumer key fit PostgreSQL index budgets", () => {
+  const input = (extra = {}) => ({
+    topic: "tests",
+    partition: 0,
+    offset: "0",
+    value: JSON.stringify({
+      eventId: "evt", eventType: "demo.echo", traceId: "trace", payload: {}, ...extra,
+    }),
+  });
+  const group = "group";
+  const overhead = Buffer.byteLength(JSON.stringify([group, ""]));
+  const key = "x".repeat(2000 - overhead);
+  assert.equal(
+    parseAsyncTaskMessage(input({ idempotencyKey: key }), group).idempotencyKey,
+    key,
+  );
+  for (const extra of [
+    { idempotencyKey: key + "x" },
+    { eventType: "x".repeat(1000), eventId: "y".repeat(1000) },
+    { idempotencyKey: "😀".repeat(500) },
+    { idempotencyKey: '"'.repeat(1000) },
+    { idempotencyKey: "a\u0001".repeat(400) },
+    ...["eventId", "eventType", "traceId", "taskId"].map((field) => ({
+      [field]: "😀".repeat(501),
+    })),
+  ])
+    assert.throws(() => parseAsyncTaskMessage(input(extra), group), /2000|UTF-8/);
+  assert.equal(
+    parseAsyncTaskMessage(input({ idempotencyKey: "legacy" }), " group ").source.offset.consumerGroup,
+    " group ",
+  );
+});
+
+test("invalid Kafka metadata fails before quarantine or acknowledgement", async () => {
+  const input = { topic: "tests", partition: 0, offset: "0", value: "broken" };
+  let writes = 0;
+  const options = {
+    consumerGroup: "group",
+    workerId: "worker",
+    store: {
+      async quarantine() { writes++; },
+    },
+    handler: async () => {},
+    commitOffset: async () => { writes++; },
+  };
+  for (const extra of [
+    { topic: "x".repeat(250) }, { topic: "bad\u0000topic" },
+    { offset: "1".repeat(20) }, { offset: "invalid" }, { partition: -1 },
+  ])
+    await assert.rejects(processAsyncConsumerMessage({ ...input, ...extra }, options));
+  for (const consumerGroup of ["x".repeat(257), "😀".repeat(65), "bad\u0000group", "bad\ud800group"])
+    await assert.rejects(processAsyncConsumerMessage(input, { ...options, consumerGroup }));
+  assert.equal(writes, 0);
+});
+
+test("worker configuration rejects oversized groups and preserves existing group identity", async () => {
+  const { loadWorkerEnv } = await import("../src/env.ts");
+  const previous = process.env.KAFKA_CONSUMER_GROUP_ID;
+  const skip = process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES;
+  process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = "1";
+  try {
+    process.env.KAFKA_CONSUMER_GROUP_ID = " existing-group ";
+    assert.equal(loadWorkerEnv().kafkaConsumerGroupId, " existing-group ");
+    process.env.KAFKA_CONSUMER_GROUP_ID = "😀".repeat(65);
+    assert.throws(() => loadWorkerEnv(), /256 UTF-8 bytes/);
+  } finally {
+    if (previous === undefined) delete process.env.KAFKA_CONSUMER_GROUP_ID;
+    else process.env.KAFKA_CONSUMER_GROUP_ID = previous;
+    if (skip === undefined) delete process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES;
+    else process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = skip;
+  }
 });
