@@ -5,6 +5,7 @@
 - [生成的 HTTP 契约](api.md)
 - [数据库迁移](../packages/database/README.md)
 - [后台任务与恢复](../services/worker/README.md)
+- [生产评估修复结果](production-repair-results.md)
 - [实施记录](implementation-plan.md)
 - [改造前分析](analysis/README.md)
 

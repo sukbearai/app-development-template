@@ -319,6 +319,8 @@ test("malformed and null messages persist quarantine before acknowledgement", as
     "{broken",
     null,
     "\u0000",
+    message("high-surrogate", { nested: ["\ud800"] }).value,
+    message("low-surrogate", { ["\udc00"]: true }).value,
     JSON.stringify({
       eventId: "nul",
       eventType: "demo.echo",
@@ -332,6 +334,11 @@ test("malformed and null messages persist quarantine before acknowledgement", as
       {
         ...options,
         commitOffset: async () => {
+          const durable = await pool.query(
+            "SELECT error_code FROM app_message_quarantine WHERE consumer_group=$1 AND topic='poison' AND source_offset=$2",
+            [group, String(index)],
+          );
+          assert.equal(durable.rows[0]?.error_code, "INVALID_MESSAGE");
           committed = true;
         },
       },
@@ -345,7 +352,7 @@ test("malformed and null messages persist quarantine before acknowledgement", as
         "SELECT count(*)::int n FROM app_message_quarantine WHERE topic='poison'",
       )
     ).rows[0].n,
-    4,
+    6,
   );
 });
 
@@ -383,7 +390,14 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
     const overdueId = randomUUID();
     await producer.send({
       topic,
-      messages: [{ value: "broken" }, { value: message(overdueId).value }],
+      messages: [
+        { value: "broken" },
+        { value: message(overdueId).value },
+        { value: message("unicode-high", { nested: ["\ud800"] }).value },
+        { value: message("unicode-low", { ["\udc00"]: true }).value },
+        { value: message("unicode-nul", "\u0000").value },
+        { value: message("unicode-valid", { "😀": ["a😀z"] }).value },
+      ],
     });
     let overdueCalls = 0;
     let calls = 0;
@@ -392,7 +406,7 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
       topic,
       brokers,
       groupId: kafkaGroup,
-      maxMessages: 3,
+      maxMessages: 7,
       maxWaitMs: 30000,
       eachMessage: async (input) => {
         offsets.push(input.offset);
@@ -410,15 +424,28 @@ test("real Kafka outbox delivery retries exact offset then advances and quaranti
         });
       },
     });
-    assert.equal(runner.processed, 3);
+    assert.equal(runner.processed, 7);
     assert.equal(calls, 2);
     assert.equal(overdueCalls, 2);
-    assert.deepEqual(offsets, ["0", "0", "1", "2", "2"]);
+    assert.deepEqual(offsets, ["0", "0", "1", "2", "2", "3", "4", "5", "6"]);
+    const quarantined = await pool.query(
+      "SELECT source_offset FROM app_message_quarantine WHERE consumer_group=$1 ORDER BY source_offset",
+      [kafkaGroup],
+    );
+    assert.deepEqual(
+      quarantined.rows.map((row) => row.source_offset),
+      ["1", "3", "4", "5"],
+    );
+    const emoji = await pool.query(
+      "SELECT response_data->'payload' AS payload FROM app_idempotency_keys WHERE key=$1",
+      [JSON.stringify([kafkaGroup, "demo.echo:unicode-valid"])],
+    );
+    assert.deepEqual(emoji.rows[0].payload, { "😀": ["a😀z"] });
     const fetched = await admin.fetchOffsets({
       groupId: kafkaGroup,
       topics: [topic],
     });
-    assert.equal(fetched[0].partitions[0].offset, "3");
+    assert.equal(fetched[0].partitions[0].offset, "7");
   } finally {
     await producer.disconnect();
     await admin.disconnect();
@@ -523,6 +550,9 @@ test("runtime SIGTERM stops claims, closes Kafka and pool, and marks heartbeat s
     `./.heartbeat-${randomUUID()}.json`,
     import.meta.url,
   ).pathname;
+  const runtimeTopic = `shutdown-${randomUUID()}`;
+  const runtimeGroup = `shutdown-${randomUUID()}`;
+  const eventId = randomUUID();
   const child = spawn(
     process.execPath,
     [
@@ -539,8 +569,10 @@ test("runtime SIGTERM stops claims, closes Kafka and pool, and marks heartbeat s
         DATABASE_URL: process.env.WORKER_TEST_DATABASE_URL,
         KAFKA_BROKERS: process.env.WORKER_TEST_KAFKA_BROKERS,
         OUTBOX_PUBLISHER: "kafka",
-        ASYNC_RUNTIME_TOPICS: `shutdown-${randomUUID()}`,
-        KAFKA_CONSUMER_GROUP_ID: `shutdown-${randomUUID()}`,
+        ASYNC_RUNTIME_TOPICS: runtimeTopic,
+        KAFKA_CONSUMER_GROUP_ID: runtimeGroup,
+        ASYNC_TASK_DEFAULT_MAX_ATTEMPTS: "1",
+        ASYNC_TASK_IDEMPOTENCY_TTL_HOURS: "3",
         WORKER_HEARTBEAT_PATH: heartbeat,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -564,6 +596,44 @@ test("runtime SIGTERM stops claims, closes Kafka and pool, and marks heartbeat s
       output.includes('"iteration":1'),
       `runtime did not start: ${stderr}`,
     );
+    const producer = new Kafka({
+      brokers: process.env.WORKER_TEST_KAFKA_BROKERS.split(","),
+      logLevel: logLevel.NOTHING,
+    }).producer();
+    await producer.connect();
+    try {
+      await producer.send({
+        topic: runtimeTopic,
+        messages: [
+          {
+            value: message(eventId, {}, { eventType: "unsupported.test" })
+              .value,
+          },
+        ],
+      });
+    } finally {
+      await producer.disconnect();
+    }
+    let stored;
+    const taskDeadline = Date.now() + 15000;
+    while (Date.now() < taskDeadline) {
+      const result = await pool.query(
+        "SELECT status,response_data,extract(epoch from expires_at-created_at)/3600 AS ttl FROM app_idempotency_keys WHERE key=$1",
+        [JSON.stringify([runtimeGroup, `unsupported.test:${eventId}`])],
+      );
+      stored = result.rows[0];
+      if (stored?.status === "dead_letter") break;
+      await sleep(50);
+    }
+    assert.equal(stored?.status, "dead_letter");
+    assert.equal(stored.response_data.maxAttempts, 1);
+    assert.equal(stored.response_data.attemptCount, 1);
+    assert.equal(Number(stored.ttl), 3);
+    // Cross at least two periodic heartbeat ticks while the outbox loop also writes.
+    await sleep(6500);
+    const { inspectWorkerHeartbeat } = await import("../src/heartbeat.ts");
+    assert.equal((await inspectWorkerHeartbeat(heartbeat)).status, "ok");
+    assert.equal(child.exitCode, null, stderr);
     const exit = new Promise((resolve, reject) => {
       const timer = setTimeout(
         () => reject(new Error("SIGTERM drain timeout")),
@@ -583,5 +653,158 @@ test("runtime SIGTERM stops claims, closes Kafka and pool, and marks heartbeat s
   } finally {
     child.kill("SIGKILL");
     await rm(heartbeat, { force: true });
+  }
+});
+
+test("retention compacts worker history while preserving duplicate and conflict protection", async () => {
+  const { runRetention } = await import("@pstack/database/repository");
+  const { closeDatabase } = await import("@pstack/database/client");
+  const previousDatabase = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = process.env.WORKER_TEST_DATABASE_URL;
+  try {
+    const input = message();
+    let executions = 0;
+    const handler = async () => {
+      executions++;
+      return { effect: "once" };
+    };
+    await processAsyncConsumerMessage(input, { ...options, handler });
+    const task = parseAsyncTaskMessage(input, group);
+    const key = JSON.stringify([group, task.idempotencyKey]);
+    const receiptBefore = (
+      await pool.query(
+        "SELECT * FROM app_async_receipts WHERE idempotency_key=$1",
+        [key],
+      )
+    ).rows[0];
+    const taskBefore = (
+      await pool.query(
+        "SELECT id FROM app_tasks WHERE object_type='async_task' AND object_id=$1",
+        [task.taskId],
+      )
+    ).rows[0];
+    assert.equal(receiptBefore.task_id, task.taskId);
+    assert.notEqual(receiptBefore.task_id, taskBefore.id);
+    await pool.query(
+      "UPDATE app_idempotency_keys SET created_at='2000-01-01',expires_at='2000-01-02' WHERE key=$1",
+      [key],
+    );
+    await pool.query(
+      "UPDATE app_async_receipts SET created_at='2000-01-01' WHERE idempotency_key=$1",
+      [key],
+    );
+    await pool.query(
+      "UPDATE app_task_events SET created_at='2000-01-01' WHERE task_id=$1",
+      [taskBefore.id],
+    );
+    const retention = {
+      before: new Date("2001-01-01"),
+      batchSize: 100,
+      dryRun: true,
+    };
+    const preview = await runRetention(retention);
+    assert.equal(preview.receipts, 1);
+    assert.equal(preview.idempotency, 1);
+    assert.equal(preview.taskEvents, 2);
+    assert.deepEqual(
+      (
+        await pool.query(
+          "SELECT result FROM app_async_receipts WHERE idempotency_key=$1",
+          [key],
+        )
+      ).rows[0].result,
+      { effect: "once" },
+    );
+    assert.deepEqual(
+      await runRetention({ ...retention, dryRun: false }),
+      preview,
+    );
+    assert.deepEqual(await runRetention({ ...retention, dryRun: false }), {
+      taskEvents: 0,
+      outbox: 0,
+      telemetry: 0,
+      audit: 0,
+      idempotency: 0,
+      receipts: 0,
+    });
+    const receiptAfter = (
+      await pool.query(
+        "SELECT * FROM app_async_receipts WHERE idempotency_key=$1",
+        [key],
+      )
+    ).rows[0];
+    for (const field of [
+      "idempotency_key",
+      "task_id",
+      "consumer_group",
+      "event_type",
+      "payload_hash",
+    ])
+      assert.equal(receiptAfter[field], receiptBefore[field]);
+    assert.deepEqual(receiptAfter.result, {});
+    const tombstone = (
+      await pool.query(
+        "SELECT response_data,status FROM app_idempotency_keys WHERE key=$1",
+        [key],
+      )
+    ).rows[0];
+    assert.equal(tombstone.response_data, null);
+    assert.equal(tombstone.status, "succeeded");
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS n FROM app_task_events WHERE task_id=$1",
+          [taskBefore.id],
+        )
+      ).rows[0].n,
+      0,
+    );
+    assert.equal(
+      (
+        await pool.query("SELECT status FROM app_tasks WHERE id=$1", [
+          taskBefore.id,
+        ])
+      ).rows[0].status,
+      "succeeded",
+    );
+    const recreated = createPostgresAsyncTaskStore({ pool });
+    assert.equal(
+      (
+        await processAsyncConsumerMessage(input, {
+          ...options,
+          store: recreated,
+          handler,
+        })
+      ).status,
+      "skipped_duplicate",
+    );
+    const conflict = message(JSON.parse(input.value).eventId, {
+      changed: true,
+    });
+    conflict.offset = "999";
+    assert.equal(
+      (
+        await processAsyncConsumerMessage(conflict, {
+          ...options,
+          store: recreated,
+          handler,
+        })
+      ).errorCode,
+      "IDEMPOTENCY_CONFLICT",
+    );
+    assert.equal(executions, 1);
+    assert.equal(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS n FROM app_async_receipts WHERE idempotency_key=$1",
+          [key],
+        )
+      ).rows[0].n,
+      1,
+    );
+  } finally {
+    await closeDatabase();
+    if (previousDatabase === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabase;
   }
 });

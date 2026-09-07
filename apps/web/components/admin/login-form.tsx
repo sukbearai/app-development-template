@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { LogIn } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useHydrated } from "@/components/use-hydrated";
 import { loginResponseSchema } from "@pstack/contracts";
 import { requestJson } from "@/components/api-client";
 
@@ -18,9 +19,7 @@ export function LoginForm() {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => { setReady(true); }, []);
+  const ready = useHydrated();
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

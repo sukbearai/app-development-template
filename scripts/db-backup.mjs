@@ -116,7 +116,7 @@ export async function verifyBackup(options) {
   return { file, manifest, list };
 }
 
-async function createBackup(options) {
+export async function createBackup(options, captureSnapshot) {
   const database = postgresUrl(process.env.DATABASE_URL).href;
   const id = options.id || `BKP-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}`;
   const output = path.resolve(options.output || path.join(root, "backups", id));
@@ -127,6 +127,7 @@ async function createBackup(options) {
   try {
     await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
     const snapshot = (await client.query("SELECT pg_export_snapshot() AS snapshot")).rows[0].snapshot;
+    if (captureSnapshot) await captureSnapshot(client);
     const migrations = await ledger(client);
     const schemaSha256 = await schemaFingerprint(client);
     const databaseVersion = (await client.query("SHOW server_version")).rows[0].server_version;
@@ -155,7 +156,7 @@ export async function restoreArchive(file, list, database) {
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-async function restoreBackup(options) {
+export async function restoreBackup(options) {
   const { file, manifest, list } = await verifyBackup(options);
   if (!options.confirm) throw new Error("Restore requires --confirm and an empty target database");
   const database = postgresUrl(process.env.DATABASE_URL).href;

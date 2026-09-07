@@ -1,6 +1,6 @@
 import { ApiError } from "./api-response";
 import { env } from "./env";
-import { redisDel, redisWindowCount } from "./redis-client";
+import { redisWindowCount } from "./redis-client";
 
 interface Bucket {
   count: number;
@@ -15,24 +15,23 @@ function pruneExpiredBuckets(now: number) {
   }
 }
 
-function pruneOverflowBuckets() {
-  while (buckets.size > env.LOGIN_RATE_LIMIT_MEMORY_MAX_KEYS) {
-    const oldestKey = buckets.keys().next().value;
-    if (!oldestKey) break;
-    buckets.delete(oldestKey);
-  }
-}
-
 export function assertRateLimit(
   key: string,
   options?: { limit?: number; windowMs?: number },
 ) {
-  const limit = options?.limit || env.LOGIN_RATE_LIMIT_MAX;
+  const limit = options?.limit ?? env.LOGIN_RATE_LIMIT_MAX;
   const windowMs =
-    options?.windowMs || env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
+    options?.windowMs ?? env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
   const now = Date.now();
   pruneExpiredBuckets(now);
   const current = buckets.get(key);
+  if (!current && buckets.size >= env.LOGIN_RATE_LIMIT_MEMORY_MAX_KEYS) {
+    let resetAt = Infinity;
+    for (const bucket of buckets.values()) resetAt = Math.min(resetAt, bucket.resetAt);
+    throw new ApiError(429, "RATE_LIMITED", "请求过于频繁，请稍后再试", {
+      retryAfterSeconds: Math.max(1, Math.ceil((resetAt - now) / 1000)),
+    });
+  }
   const bucket =
     current && current.resetAt > now
       ? current
@@ -40,16 +39,11 @@ export function assertRateLimit(
   bucket.count += 1;
   buckets.delete(key);
   buckets.set(key, bucket);
-  pruneOverflowBuckets();
   if (bucket.count > limit) {
     throw new ApiError(429, "RATE_LIMITED", "请求过于频繁，请稍后再试", {
       retryAfterSeconds: Math.ceil((bucket.resetAt - now) / 1000),
     });
   }
-}
-
-export function resetRateLimit(key: string) {
-  buckets.delete(key);
 }
 
 export async function assertRequestRateLimit(
@@ -77,14 +71,10 @@ export async function assertRequestRateLimit(
   assertRateLimit(key, { limit, windowMs });
 }
 
-export async function resetLoginRateLimit(key: string) {
-  if (env.RATE_LIMIT_DRIVER === "redis") {
-    if (env.REDIS_URL) await redisDel(env.REDIS_URL, key);
-    return;
-  }
-  resetRateLimit(key);
-}
-
 export async function assertLoginRateLimit(key: string) {
   return assertRequestRateLimit(key);
+}
+
+export async function assertOverallLoginRateLimit() {
+  await assertRequestRateLimit("login:overall", { limit: env.LOGIN_RATE_LIMIT_GLOBAL_MAX });
 }

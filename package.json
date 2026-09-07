@@ -29,7 +29,7 @@
     "pr:verify": "node scripts/pr-verify.mjs",
     "smoke": "pnpm --filter @pstack/web smoke",
     "test": "pnpm test:unit && pnpm test:integration",
-    "verify": "pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:production && pnpm test:ui",
+    "verify": "pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:production && pnpm test:ui && pnpm test:app-backup",
     "local:init": "node scripts/local.mjs init",
     "local:up": "node scripts/local.mjs up",
     "local:down": "node scripts/local.mjs down",
@@ -42,7 +42,14 @@
     "test:production": "node scripts/verify-app.mjs --production",
     "boundary:check": "node scripts/check-boundaries.mjs",
     "db:migrate:legacy": "node scripts/with-env.mjs pnpm --filter @pstack/database db:migrate:legacy",
-    "test:containers": "node scripts/test-containers.mjs"
+    "test:containers": "node scripts/test-containers.mjs",
+    "admin:recover": "node scripts/with-env.mjs pnpm --filter @pstack/server admin:recover",
+    "app:backup:create": "node scripts/app-backup.mjs create",
+    "app:backup:verify": "node scripts/app-backup.mjs verify",
+    "app:backup:restore": "node scripts/app-backup.mjs restore",
+    "test:app-backup": "node scripts/test-app-backup.mjs",
+    "history:prune": "node --import tsx scripts/history-prune.mjs",
+    "storage:resolve": "node --import tsx scripts/resolve-upload.mjs"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {

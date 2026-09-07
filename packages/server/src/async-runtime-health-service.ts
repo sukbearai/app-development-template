@@ -1,15 +1,18 @@
 import { getAsyncRuntimeHealthRows } from "@pstack/database/repository";
 
 type AsyncRuntimeOutboxEvent = {
-  id: string;
+  id?: string;
+  count?: number;
   topic: string;
   status: string;
   createdAt: Date;
   lockedAt?: Date | null;
+  staleCount?: number;
 };
 
 type AsyncRuntimeTask = {
-  id: string;
+  id?: string;
+  count?: number;
   status: string;
 };
 
@@ -182,16 +185,18 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
   let staleLockCount = 0;
   for (const event of input.outboxEvents) {
     const bucket = ensureTopic(event.topic);
-    bucket.total += 1;
-    if (event.status === "pending") bucket.pending += 1;
+    const count = event.count ?? 1;
+    bucket.total += count;
+    staleLockCount += event.staleCount ?? 0;
+    if (event.status === "pending") bucket.pending += count;
     else if (event.status === "processing") {
-      bucket.processing += 1;
+      bucket.processing += count;
       if (event.lockedAt && nowMs - event.lockedAt.getTime() > staleLockMs) {
         staleLockCount += 1;
       }
-    } else if (event.status === "failed") bucket.failed += 1;
-    else if (event.status === "dead_letter") bucket.deadLetter += 1;
-    else if (event.status === "published") bucket.published += 1;
+    } else if (event.status === "failed") bucket.failed += count;
+    else if (event.status === "dead_letter") bucket.deadLetter += count;
+    else if (event.status === "published") bucket.published += count;
 
     if (event.status === "pending" || event.status === "failed") {
       const age = Math.max(0, nowMs - event.createdAt.getTime());
@@ -203,13 +208,14 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
 
   const tasks = emptyTaskCounts();
   for (const task of input.tasks) {
-    tasks.total += 1;
-    if (task.status === "pending") tasks.pending += 1;
-    else if (task.status === "running") tasks.running += 1;
-    else if (task.status === "succeeded") tasks.succeeded += 1;
-    else if (task.status === "failed") tasks.failed += 1;
-    else if (task.status === "dead_letter") tasks.deadLetter += 1;
-    else if (task.status === "canceled") tasks.canceled += 1;
+    const count = task.count ?? 1;
+    tasks.total += count;
+    if (task.status === "pending") tasks.pending += count;
+    else if (task.status === "running") tasks.running += count;
+    else if (task.status === "succeeded") tasks.succeeded += count;
+    else if (task.status === "failed") tasks.failed += count;
+    else if (task.status === "dead_letter") tasks.deadLetter += count;
+    else if (task.status === "canceled") tasks.canceled += count;
   }
 
   for (const bucket of topicMap.values()) {
@@ -290,8 +296,15 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
 }
 
 export async function readAdminAsyncRuntimeHealth() {
-  const rows = await getAsyncRuntimeHealthRows();
+  const now = new Date();
+  const staleLockMs = positiveIntegerEnv("OUTBOX_STALE_LOCK_MS", 300000);
+  const rows = await getAsyncRuntimeHealthRows(
+    undefined,
+    new Date(now.getTime() - staleLockMs),
+  );
   return buildAsyncRuntimeHealthSnapshot({
+    now,
+    staleLockMs,
     outboxEvents: rows.outboxEvents,
     tasks: rows.tasks,
     runtimePlan: buildRuntimePlanFromEnv(),

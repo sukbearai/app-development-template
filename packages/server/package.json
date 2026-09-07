@@ -9,11 +9,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx --test tests/unit.test.mjs",
+    "test:unit": "tsx --test tests/unit.test.mjs tests/s3-retry.test.mjs",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
-    "test:integration": "tsx --test tests/integration.test.mjs tests/s3.integration.test.mjs",
+    "test:integration": "tsx --test tests/integration.test.mjs tests/s3.integration.test.mjs tests/auth-production.test.mjs tests/storage-production.integration.test.mjs",
     "config:check": "tsx scripts/config-check.ts",
-    "storage:cleanup": "tsx scripts/cleanup-uploads.ts"
+    "storage:cleanup": "tsx scripts/cleanup-uploads.ts",
+    "admin:recover": "tsx scripts/recover-admin.ts",
+    "test:auth-production": "tsx --test tests/auth-production.test.mjs"
   },
   "dependencies": {
     "zod": "4.4.3",

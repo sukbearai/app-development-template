@@ -25,6 +25,9 @@ export function validateProductionConfig() {
     }
   }
 
+  if (Number(process.env.WEB_REPLICAS ?? "1") > 1 && process.env.RATE_LIMIT_DRIVER !== "redis")
+    issues.push("RATE_LIMIT_DRIVER=redis is required when WEB_REPLICAS > 1");
+
   if (
     process.env.RATE_LIMIT_DRIVER === "redis" &&
     !process.env.REDIS_URL?.trim()

@@ -61,7 +61,7 @@ test(
           (await query("select count(*) from drizzle.drizzle_migrations"))
             .rows[0].count,
         ),
-        2,
+        JSON.parse(await readFile(path.join(workspace, "packages/database/migrations/template/meta/_journal.json"), "utf8")).entries.length,
       );
       const { bootstrapAdministrator } = await import(
         "../src/bootstrap-admin.ts"
@@ -396,7 +396,7 @@ test(
               "select * from app_upload_intents where state='deleted'",
             )
           ).rows;
-          assert.equal(failed.length, 2);
+          assert.equal(failed.length, 1);
           assert.deepEqual(await readdir(storage), [good.storageKey]);
           const before = (
             await query("select * from app_upload_intents order by id")

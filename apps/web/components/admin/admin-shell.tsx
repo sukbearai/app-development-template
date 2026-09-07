@@ -74,6 +74,7 @@ export function AdminShell({ accountName, displayName, permissions, children }: 
           </div>
         </div>
         <div className="admin-topbar-actions">
+          <Link className="icon-button" href="/account" aria-label="个人账号" title="个人账号"><KeyRound size={18} /></Link>
           {logoutError && <span role="alert">{logoutError}</span>}
           <div className="admin-user-pill" title={accountName}>
             <span>{displayName.slice(0, 1).toUpperCase()}</span>

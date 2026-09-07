@@ -520,26 +520,36 @@ export async function getAdminCounts(context: DatabaseContext = getDatabase()) {
 
 export async function getAsyncRuntimeHealthRows(
   context: DatabaseContext = getDatabase(),
+  staleBefore = new Date(Date.now() - 300000),
 ) {
-  const database = context;
-  const [outboxEvents, tasks] = await Promise.all([
-    database
-      .select({
-        id: appOutboxEvents.id,
-        topic: appOutboxEvents.topic,
-        status: appOutboxEvents.status,
-        createdAt: appOutboxEvents.createdAt,
-        lockedAt: appOutboxEvents.lockedAt,
-      })
-      .from(appOutboxEvents),
-    database
-      .select({
-        id: appTasks.id,
-        status: appTasks.status,
-      })
-      .from(appTasks),
+  const [outbox, tasks] = await Promise.all([
+    context.execute<{
+      topic: string;
+      status: string;
+      count: string;
+      oldest: Date | string;
+      stale: string;
+    }>(sql`
+      select topic,status,count(*) as count,min(created_at) as oldest,
+        count(*) filter (where status='processing' and locked_at < ${staleBefore}) as stale
+      from app_outbox_events group by topic,status`),
+    context.execute<{ status: string; count: string }>(
+      sql`select status,count(*) as count from app_tasks group by status`,
+    ),
   ]);
-  return { outboxEvents, tasks };
+  return {
+    outboxEvents: outbox.rows.map((row) => ({
+      topic: row.topic,
+      status: row.status,
+      count: Number(row.count),
+      createdAt: new Date(row.oldest),
+      staleCount: Number(row.stale),
+    })),
+    tasks: tasks.rows.map((row) => ({
+      status: row.status,
+      count: Number(row.count),
+    })),
+  };
 }
 
 export async function lockIdentity(context: TransactionContext) {
@@ -577,24 +587,32 @@ export async function setUploadIntentState(
   id: string,
   state: (typeof appUploadIntents.$inferSelect)["state"],
   tx: TransactionContext,
+  blockedReason: string | null = null,
 ) {
   await tx
     .update(appUploadIntents)
-    .set({ state, updatedAt: new Date() })
+    .set({ state, blockedReason, updatedAt: new Date() })
     .where(eq(appUploadIntents.id, id));
 }
-export async function getStaleUploadIntents(before: Date) {
+export async function getStaleUploadIntents(
+  before: Date,
+  limit = 100,
+  cursor?: { updatedAt: Date; id: string },
+) {
   return getDatabase()
     .select()
     .from(appUploadIntents)
     .where(
       and(
         lte(appUploadIntents.updatedAt, before),
-        sql`${appUploadIntents.state} in ('pending','cleanup','deleted')`,
+        sql`${appUploadIntents.state} in ('pending','writing','cleanup')`,
+        cursor
+          ? sql`(${appUploadIntents.updatedAt}, ${appUploadIntents.id}) > (${cursor.updatedAt}, ${cursor.id})`
+          : undefined,
       ),
     )
-    .orderBy(asc(appUploadIntents.updatedAt))
-    .limit(100);
+    .orderBy(asc(appUploadIntents.updatedAt), asc(appUploadIntents.id))
+    .limit(limit);
 }
 export async function storageKeyReferenced(
   storageKey: string,
@@ -620,4 +638,133 @@ export async function recoverLegacyUser(
     .update(appUsers)
     .set({ passwordHash, status: "enabled", updatedAt: new Date() })
     .where(eq(appUsers.id, id));
+}
+
+export async function getUserCredentialsById(
+  userId: string,
+  context: DatabaseContext = getDatabase(),
+) {
+  const [row] = await context
+    .select()
+    .from(appUsers)
+    .where(eq(appUsers.id, userId))
+    .limit(1);
+  if (!row) return undefined;
+  const roles = await context
+    .select()
+    .from(appUserRoles)
+    .where(eq(appUserRoles.userId, userId));
+  return {
+    user: mapUser(
+      row,
+      roles.map((role) => role.roleId),
+    ),
+    passwordHash: row.passwordHash,
+  };
+}
+export async function updateUserPassword(
+  userId: string,
+  passwordHash: string,
+  tx: TransactionContext,
+) {
+  await tx
+    .update(appUsers)
+    .set({ passwordHash, updatedAt: new Date() })
+    .where(eq(appUsers.id, userId));
+}
+
+export type RetentionOptions = {
+  before: Date;
+  batchSize: number;
+  dryRun: boolean;
+};
+export async function runRetention(options: RetentionOptions) {
+  if (
+    !Number.isInteger(options.batchSize) ||
+    options.batchSize < 1 ||
+    options.batchSize > 1000 ||
+    !Number.isFinite(options.before.getTime())
+  )
+    throw new Error("Invalid retention cutoff or batch size");
+  const specs = [
+    {
+      key: "taskEvents",
+      table: "app_task_events",
+      id: "id",
+      date: "created_at",
+      predicate:
+        "task_id in (select id from app_tasks where status in ('succeeded','canceled'))",
+      update: null,
+    },
+    {
+      key: "outbox",
+      table: "app_outbox_events",
+      id: "id",
+      date: "updated_at",
+      predicate: "status='published'",
+      update: null,
+    },
+    {
+      key: "telemetry",
+      table: "app_telemetry_events",
+      id: "id",
+      date: "occurred_at",
+      predicate: "true",
+      update: null,
+    },
+    {
+      key: "audit",
+      table: "app_audit_logs",
+      id: "id",
+      date: "created_at",
+      predicate: "true",
+      update: null,
+    },
+    {
+      key: "idempotency",
+      table: "app_idempotency_keys",
+      id: "key",
+      date: "created_at",
+      predicate:
+        "status in ('succeeded','canceled') and expires_at <= now() and response_data is not null",
+      update: "response_data=null",
+    },
+    {
+      key: "receipts",
+      table: "app_async_receipts",
+      id: "idempotency_key",
+      date: "created_at",
+      predicate:
+        "result <> '{}'::jsonb and idempotency_key in (select key from app_idempotency_keys where status in ('succeeded','canceled'))",
+      update: "result='{}'::jsonb",
+    },
+  ] as const;
+  return getDatabase().transaction(async (tx) => {
+    const counts = {
+      taskEvents: 0,
+      outbox: 0,
+      telemetry: 0,
+      audit: 0,
+      idempotency: 0,
+      receipts: 0,
+    };
+    for (const spec of specs) {
+      const selected = sql`select ${sql.identifier(spec.id)} from ${sql.identifier(spec.table)} where ${sql.identifier(spec.date)} < ${options.before} and ${sql.raw(spec.predicate)} order by ${sql.identifier(spec.date)},${sql.identifier(spec.id)} limit ${options.batchSize}`;
+      if (options.dryRun) {
+        const result = await tx.execute<{ count: string }>(
+          sql`select count(*) from (${selected}) selected`,
+        );
+        counts[spec.key] = Number(result.rows[0].count);
+      } else {
+        const action = spec.update
+          ? sql`update ${sql.identifier(spec.table)} set ${sql.raw(spec.update)} where ${sql.identifier(spec.id)} in (select ${sql.identifier(spec.id)} from selected)`
+          : sql`delete from ${sql.identifier(spec.table)} where ${sql.identifier(spec.id)} in (select ${sql.identifier(spec.id)} from selected)`;
+        const result = await tx.execute(
+          sql`with selected as (${selected} for update skip locked) ${action} returning ${sql.identifier(spec.id)}`,
+        );
+        counts[spec.key] = result.rowCount ?? 0;
+      }
+    }
+    return counts;
+  });
 }

@@ -22,7 +22,8 @@ function getClient() {
       accessKeyId: env.OBJECT_STORAGE_ACCESS_KEY,
       secretAccessKey: env.OBJECT_STORAGE_SECRET_KEY,
     },
-    maxAttempts: 2,
+    // A retried PUT can succeed while an earlier disconnected attempt still writes.
+    maxAttempts: 1,
   });
   return client;
 }

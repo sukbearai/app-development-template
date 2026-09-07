@@ -27,6 +27,8 @@ export const envSchema = z.object({
     .positive()
     .default(5000),
   RATE_LIMIT_DRIVER: z.enum(["memory", "redis"]).default("memory"),
+  LOGIN_RATE_LIMIT_GLOBAL_MAX: z.coerce.number().int().positive().default(200),
+  WEB_REPLICAS: z.coerce.number().int().positive().default(1),
   LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
   LOGIN_RATE_LIMIT_WINDOW_SECONDS: z.coerce
     .number()
@@ -52,3 +54,5 @@ export const envSchema = z.object({
 });
 // Entrypoints load .env.local then .env without overriding the process environment.
 export const env = envSchema.parse(loadEnvironment());
+if (env.WEB_REPLICAS > 1 && env.RATE_LIMIT_DRIVER !== "redis")
+  throw new Error("RATE_LIMIT_DRIVER=redis is required when WEB_REPLICAS > 1");

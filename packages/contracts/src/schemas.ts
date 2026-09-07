@@ -34,9 +34,20 @@ export const authSessionSchema = z.object({
   lastUsedAt: isoDateTimeSchema,
 });
 
+export const passwordSchema = z.string().min(1);
+export const newPasswordSchema = passwordSchema.min(8).max(256);
+
+export const changePasswordRequestSchema = z.object({
+  currentPassword: passwordSchema,
+  newPassword: newPasswordSchema,
+});
+export const resetUserPasswordRequestSchema = z.object({ newPassword: newPasswordSchema });
+export const changePasswordResponseSchema = z.object({ reauthenticate: z.literal(true) });
+export const resetUserPasswordResponseSchema = z.object({ updated: z.literal(true) });
+
 export const loginRequestSchema = z.object({
   account: nonEmptyStringSchema,
-  password: nonEmptyStringSchema,
+  password: passwordSchema,
 });
 
 export const loginResponseSchema = z.object({
@@ -50,7 +61,7 @@ export const loginResponseSchema = z.object({
 export const createUserRequestSchema = z.object({
   account: nonEmptyStringSchema,
   displayName: nonEmptyStringSchema,
-  password: nonEmptyStringSchema.min(8),
+  password: newPasswordSchema,
   roleIds: z.array(nonEmptyStringSchema).default([]),
   status: z.enum(["enabled", "disabled"]).default("enabled"),
 });
@@ -299,3 +310,6 @@ export interface AsyncTaskEnvelope<TPayload = unknown> {
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }
+
+export type ChangePasswordRequest = z.infer<typeof changePasswordRequestSchema>;
+export type ResetUserPasswordRequest = z.infer<typeof resetUserPasswordRequestSchema>;

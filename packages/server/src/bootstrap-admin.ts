@@ -1,3 +1,4 @@
+import { passwordSchema } from "@pstack/contracts";
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "@pstack/database/client";
 import * as repo from "@pstack/database/repository";
@@ -7,7 +8,7 @@ import { recordAudit } from "./product-service";
 import { z } from "zod";
 const inputSchema = z.object({
   account: z.string().trim().min(3).max(100),
-  password: z.string().min(16).max(256),
+  password: passwordSchema.min(16).max(256),
   displayName: z.string().trim().min(1).max(100).default("管理员"),
 });
 export async function bootstrapAdministrator(
@@ -15,6 +16,10 @@ export async function bootstrapAdministrator(
   options: { recoverLegacy?: boolean } = {},
 ) {
   const parsed = inputSchema.parse(input);
+  const previous = await repo.getUserByAccount(parsed.account);
+  const matchesPrevious = previous
+    ? await verifyPassword(parsed.password, previous.passwordHash)
+    : false;
   const passwordHash = await hashPassword(parsed.password);
   return withTransaction(async (tx) => {
     await repo.lockIdentity(tx);
@@ -51,7 +56,8 @@ export async function bootstrapAdministrator(
       if (
         existing.user.status !== "enabled" ||
         !admin ||
-        !(await verifyPassword(parsed.password, existing.passwordHash))
+        existing.passwordHash !== previous?.passwordHash ||
+        !matchesPrevious
       )
         throw new Error(
           "Bootstrap account exists with different credentials or privileges",

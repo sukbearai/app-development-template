@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Check, Plus, RefreshCw, Upload } from "lucide-react";
 import { useState } from "react";
+import { useHydrated } from "@/components/use-hydrated";
 import { fileAssetSchema, roleSchema, userSchema, type Permission, type Role, type User } from "@pstack/contracts";
 import { requestForm, requestJson } from "@/components/api-client";
 
@@ -16,6 +17,7 @@ function selectedValues(data: FormData, name: string) {
 
 export function CreateUserForm({ roles }: { roles: Role[] }) {
   const router = useRouter();
+  const ready = useHydrated();
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -47,7 +49,7 @@ export function CreateUserForm({ roles }: { roles: Role[] }) {
   }
 
   return (
-    <form className="admin-form compact" onSubmit={submit}>
+    <form className="admin-form compact" method="post" onSubmit={submit}>
       <label>
         <span>账号</span>
         <input name="account" autoComplete="username" required />
@@ -76,7 +78,7 @@ export function CreateUserForm({ roles }: { roles: Role[] }) {
           </label>
         ))}
       </fieldset>
-      <button className="button primary" type="submit" disabled={pending}>
+      <button className="button primary" type="submit" disabled={!ready || pending}>
         <Plus size={16} />
         创建用户
       </button>
@@ -120,6 +122,7 @@ export function UserStatusButton({ user }: { user: User }) {
 
 export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
   const router = useRouter();
+  const ready = useHydrated();
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -150,7 +153,7 @@ export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
   }
 
   return (
-    <form className="admin-form" onSubmit={submit}>
+    <form className="admin-form" method="post" onSubmit={submit}>
       <div className="form-grid two">
         <label>
           <span>角色 ID</span>
@@ -178,7 +181,7 @@ export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
           </label>
         ))}
       </fieldset>
-      <button className="button primary" type="submit" disabled={pending}>
+      <button className="button primary" type="submit" disabled={!ready || pending}>
         <Plus size={16} />
         创建角色
       </button>
@@ -222,6 +225,7 @@ export function RoleStatusButton({ role }: { role: Role }) {
 
 export function UploadAssetForm() {
   const router = useRouter();
+  const ready = useHydrated();
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -244,12 +248,12 @@ export function UploadAssetForm() {
   }
 
   return (
-    <form className="admin-form inline" onSubmit={submit}>
+    <form className="admin-form inline" method="post" onSubmit={submit}>
       <label>
         <span>选择文件</span>
         <input name="file" type="file" required />
       </label>
-      <button className="button primary" type="submit" disabled={pending}>
+      <button className="button primary" type="submit" disabled={!ready || pending}>
         <Upload size={16} />
         上传
       </button>

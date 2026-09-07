@@ -140,10 +140,19 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
     parseJsonValue(message.value),
   );
   function validateJsonStorage(value: unknown): void {
-    if (typeof value === "string" && value.includes("\u0000"))
-      throw new Error(
-        "Message contains a null character unsupported by PostgreSQL JSON",
-      );
+    if (typeof value === "string") {
+      if (value.includes("\u0000"))
+        throw new Error(
+          "Message contains a null character unsupported by PostgreSQL JSON",
+        );
+      for (const character of value) {
+        const code = character.charCodeAt(0);
+        if (character.length === 1 && code >= 0xd800 && code <= 0xdfff)
+          throw new Error(
+            "Message contains an unpaired surrogate unsupported by PostgreSQL JSON",
+          );
+      }
+    }
     if (Array.isArray(value)) value.forEach(validateJsonStorage);
     else if (value && typeof value === "object")
       for (const [key, item] of Object.entries(value)) {
@@ -454,9 +463,9 @@ export function createPostgresAsyncTaskStore<T = unknown>(
           throw new PayloadConflictError(
             "Idempotency key is already bound to another payload",
           );
-        const stored = row.response_data as AsyncTaskEnvelope<T>;
         if (["succeeded", "dead_letter", "canceled"].includes(row.status))
-          return { kind: "terminal", task: stored };
+          return { kind: "terminal", task: incoming };
+        const stored = row.response_data as AsyncTaskEnvelope<T>;
         if (row.status === "processing" && row.active_lease)
           return {
             kind: "deferred",

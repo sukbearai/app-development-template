@@ -1,6 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type {
   AuthSession,
+  ChangePasswordRequest,
+  ResetUserPasswordRequest,
   CreateRoleRequest,
   CreateUserRequest,
   Role,
@@ -8,6 +10,14 @@ import type {
   UpdateUserRequest,
   User,
 } from "@pstack/contracts";
+import {
+  changePasswordRequestSchema,
+  resetUserPasswordRequestSchema,
+  loginRequestSchema,
+  createUserRequestSchema,
+} from "@pstack/contracts";
+import { parseInput } from "./validation";
+import { assertRequestRateLimit } from "./rate-limit";
 import { ApiError } from "./api-response";
 import { env } from "./env";
 import { hashPassword, verifyPassword } from "./password";
@@ -107,10 +117,7 @@ export async function requireWritePermission(
 }
 
 export async function login(input: { account?: string; password?: string }) {
-  const account = String(input.account || "").trim();
-  const password = String(input.password || "");
-  if (!account) throw new ApiError(400, "ACCOUNT_REQUIRED", "请输入账号");
-  if (!password) throw new ApiError(400, "PASSWORD_REQUIRED", "请输入密码");
+  const { account, password } = parseInput(loginRequestSchema, input);
   const accountRecord = await repo.getUserByAccount(account);
   const user = accountRecord?.user;
   const passwordHash = accountRecord?.passwordHash || "";
@@ -204,6 +211,9 @@ export async function createManagedUser(
   token: string | undefined,
   traceId = "admin",
 ) {
+  input = parseInput(createUserRequestSchema, input);
+  await requirePermission(token, "admin.write");
+  const passwordHash = await hashPassword(input.password);
   return identityTransaction(async (tx) => {
     const actorId = (await requireWritePermission(token, "admin.write", tx)).id;
     if (await repo.getUserByAccount(input.account, tx)) {
@@ -218,7 +228,6 @@ export async function createManagedUser(
       roleIds: input.roleIds,
       createdAt: now,
     };
-    const passwordHash = await hashPassword(input.password);
     await repo.createUser({ ...user, passwordHash }, tx);
     await recordAudit(
       {
@@ -434,4 +443,76 @@ async function identityTransaction<T>(
     }
     throw error;
   }
+}
+
+export async function changePassword(
+  input: ChangePasswordRequest,
+  token: string | undefined,
+  traceId = "password-change",
+): Promise<{ reauthenticate: true }> {
+  const parsed = parseInput(changePasswordRequestSchema, input);
+  const initial = await sessionActorAsync(token);
+  if (!initial) throw new ApiError(401, "UNAUTHENTICATED", "请先登录");
+  await assertRequestRateLimit(`password-change:${initial.user.id}`);
+  const previous = await repo.getUserCredentialsById(initial.user.id);
+  if (
+    !previous ||
+    !(await verifyPassword(parsed.currentPassword, previous.passwordHash))
+  )
+    throw new ApiError(403, "INVALID_CURRENT_PASSWORD", "当前密码错误");
+  const passwordHash = await hashPassword(parsed.newPassword);
+  return withTransaction(async (tx) => {
+    await repo.lockIdentity(tx);
+    const actor = await sessionActor(token, tx);
+    if (!actor || actor.user.id !== initial.user.id)
+      throw new ApiError(401, "UNAUTHENTICATED", "请先登录");
+    const current = await repo.getUserCredentialsById(actor.user.id, tx);
+    if (current?.passwordHash !== previous.passwordHash)
+      throw new ApiError(409, "CREDENTIALS_CHANGED", "密码已变更，请重新登录");
+    await replacePassword(
+      actor.user.id, passwordHash, actor.user.id, "auth.password.change", traceId, tx,
+    );
+    return { reauthenticate: true };
+  });
+}
+
+export async function resetManagedUserPassword(
+  userId: string,
+  input: ResetUserPasswordRequest,
+  token: string | undefined,
+  traceId = "password-reset",
+): Promise<{ updated: true }> {
+  const parsed = parseInput(resetUserPasswordRequestSchema, input);
+  const initial = await requirePermission(token, "admin.write");
+  if (initial.id === userId)
+    throw new ApiError(403, "CURRENT_PASSWORD_REQUIRED", "修改自己的密码需要验证当前密码");
+  const previous = await repo.getUserCredentialsById(userId);
+  if (!previous) throw new ApiError(404, "USER_NOT_FOUND", "用户不存在");
+  const passwordHash = await hashPassword(parsed.newPassword);
+  return withTransaction(async (tx) => {
+    const actor = await requireWritePermission(token, "admin.write", tx);
+    if (actor.id === userId)
+      throw new ApiError(403, "CURRENT_PASSWORD_REQUIRED", "修改自己的密码需要验证当前密码");
+    const current = await repo.getUserCredentialsById(userId, tx);
+    if (!current) throw new ApiError(404, "USER_NOT_FOUND", "用户不存在");
+    if (current.passwordHash !== previous.passwordHash)
+      throw new ApiError(409, "CREDENTIALS_CHANGED", "密码已变更，请刷新后重试");
+    await replacePassword(
+      userId, passwordHash, actor.id, "admin.user.password.reset", traceId, tx,
+    );
+    return { updated: true };
+  });
+}
+
+async function replacePassword(
+  userId: string,
+  passwordHash: string,
+  actorId: string,
+  action: string,
+  traceId: string,
+  tx: TransactionContext,
+) {
+  await repo.updateUserPassword(userId, passwordHash, tx);
+  await repo.revokeUserSessions(userId, tx);
+  await recordAudit({ actorId, action, targetType: "user", targetId: userId, traceId }, tx);
 }

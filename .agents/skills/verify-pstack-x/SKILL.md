@@ -21,7 +21,7 @@ pnpm test:production
 
 Each command creates its own ephemeral PostgreSQL container on a random loopback port, generates a test administrator password, migrates the database, and runs the real application. It closes owned processes and removes that container afterward. It does not use an existing DATABASE_URL. Evidence remains under `.verification/app/run-*`; browser traces, screenshots, source hashes and doctor output remain under `.verification/pstack-x/run-*`.
 
-`test:e2e` exercises API persistence and rejection paths. `test:ui` exercises login, role and user creation, status changes, upload, navigation and logout. `test:production` builds and serves the production artifact, then runs API checks. Redis, Kafka, S3 and backup recovery have separate integration tests; passing the browser checks does not prove those services.
+`test:e2e` exercises API persistence and rejection paths. `test:ui` exercises login, pre-hydration submission rejection, role and user creation, status changes, password reset/rotation, upload, navigation and logout. `test:production` builds and serves the production artifact, then runs API checks. Redis, Kafka, S3 and backup recovery have separate integration tests; passing the browser checks does not prove those services.
 
 ## Existing isolated test setup
 

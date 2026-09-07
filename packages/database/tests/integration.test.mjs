@@ -124,12 +124,33 @@ test(
             )
           ).rows[0].count,
         ),
-        5,
+        journal.entries.length +
+          JSON.parse(
+            await readFile(
+              new URL(
+                "../migrations/template/meta/_journal.json",
+                import.meta.url,
+              ),
+              "utf8",
+            ),
+          ).entries.length,
       );
       const { assertDatabaseSchema } = await import("../src/schema-check.ts");
       const connection = await getPool().connect();
       try {
         const cases = [
+          [
+            "alter table app_users add column unmanaged text",
+            /unexpected column/,
+          ],
+          [
+            "alter table app_users add constraint extra_check check (length(account)>1)",
+            /unexpected constraint/,
+          ],
+          [
+            "create unique index extra_unique on app_users(display_name)",
+            /unexpected unique index/,
+          ],
           [
             "alter table app_users drop constraint app_users_account_key",
             /unique constraint/,
@@ -195,6 +216,17 @@ test(
           templateJournal.entries[0].when,
         ],
       );
+      await getPool().query("alter table app_users add column unmanaged text");
+      await assert.rejects(run(), /unexpected column/);
+      assert.equal(
+        (
+          await getPool().query(
+            "select count(*) from drizzle.drizzle_migrations",
+          )
+        ).rows[0].count,
+        "1",
+      );
+      await getPool().query("alter table app_users drop column unmanaged");
       await getPool().query(
         "alter table app_users drop constraint app_users_account_unique",
       );

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  changePasswordRequestSchema, resetUserPasswordRequestSchema, changePasswordResponseSchema, resetUserPasswordResponseSchema,
   nonEmptyStringSchema, jsonRecordSchema, loginRequestSchema, loginResponseSchema,
   createUserRequestSchema, updateUserRequestSchema, createRoleRequestSchema,
   updateRoleRequestSchema, telemetryRequestSchema, telemetryEventSchema,
@@ -62,6 +63,18 @@ function json(name: string, schema: z.ZodType) {
 }
 
 export const apiOperations = [
+  {
+    operationId: "postApiAuthPassword", method: "POST", path: "/api/auth/password",
+    routeFile: "app/api/auth/password/route.ts", tag: "Auth", summary: "验证当前密码并修改密码，撤销所有会话",
+    authenticated: true, request: json("ChangePasswordRequest", changePasswordRequestSchema),
+    responses: { 200: response("ChangePasswordSuccess", apiSuccessSchema(changePasswordResponseSchema)), ...failures(400, 401, 403, 409, 413, 415, 429, 500, 503) },
+  },
+  {
+    operationId: "postApiAdminUsersIdPassword", method: "POST", path: "/api/admin/users/{id}/password",
+    routeFile: "app/api/admin/users/[id]/password/route.ts", tag: "Admin", summary: "管理员重置其他用户密码并撤销其所有会话",
+    authenticated: true, request: json("ResetUserPasswordRequest", resetUserPasswordRequestSchema),
+    responses: { 200: response("ResetUserPasswordSuccess", apiSuccessSchema(resetUserPasswordResponseSchema)), ...failures(400, 401, 403, 404, 409, 413, 415, 500, 503) },
+  },
   {
     operationId: "postApiAuthLogin", method: "POST", path: "/api/auth/login",
     routeFile: "app/api/auth/login/route.ts", tag: "Auth", summary: "账号密码登录",

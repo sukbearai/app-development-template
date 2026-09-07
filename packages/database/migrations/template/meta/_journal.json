@@ -15,6 +15,13 @@
       "when": 1788767722198,
       "tag": "0001_glorious_firebird",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1788783052579,
+      "tag": "0002_productive_glorian",
+      "breakpoints": true
     }
   ]
 }

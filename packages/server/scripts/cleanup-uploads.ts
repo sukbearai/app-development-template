@@ -1,5 +1,6 @@
 import { reconcileUploads } from "../src/product-service";
 import { closeDatabase } from "@pstack/database/client";
+import { closeS3 } from "../src/s3-client";
 import { closeRedis } from "../src/redis-client";
 
 const args = process.argv.slice(2).filter((arg) => arg !== "--");
@@ -10,4 +11,5 @@ try {
 } finally {
   await closeDatabase();
   await closeRedis();
+  closeS3();
 }

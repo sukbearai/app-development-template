@@ -1,3 +1,4 @@
+import { loginRequestSchema, changePasswordRequestSchema } from "../src/schemas.ts";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
@@ -121,4 +122,11 @@ test("generic success constructor validates its concrete payload", () => {
   assert.equal(schema.safeParse(wrap({ count: -1 })).success, false);
   assert.deepEqual(schema.parse(wrap({ count: 0 })), wrap({ count: 0 }));
   assert.equal(apiOperation("getApiHello").responses[200].schema.safeParse({ message: "Hello from vinext" }).success, true);
+});
+
+test("existing credentials above 256 characters remain usable for login and rotation", () => {
+  const password = 'legacy-'.repeat(40);
+  assert.equal(loginRequestSchema.parse({ account: 'legacy-user', password }).password, password);
+  assert.equal(changePasswordRequestSchema.parse({ currentPassword: password, newPassword: 'replacement-value' }).currentPassword, password);
+  assert.equal(createUserRequestSchema.safeParse({ account: 'new', displayName: 'New', password }).success, false);
 });

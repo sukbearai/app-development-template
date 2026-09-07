@@ -323,6 +323,43 @@ async function assertTables(
           `Database schema differs at ${config.name}: missing ${kind === "p" ? "primary key" : "unique constraint"} (${names.join(",")})`,
         );
     }
+    const expectedColumns = new Set(Object.keys(config.columns));
+    for (const row of result.rows.filter(
+      (row) => row.table_name === config.name,
+    )) {
+      if (!expectedColumns.has(row.column_name))
+        throw new Error(
+          `Database schema has unexpected column ${config.name}.${row.column_name}`,
+        );
+    }
+    const expectedConstraintCount =
+      Object.values(config.columns).filter((column) => column.primaryKey)
+        .length +
+      Object.keys(config.compositePrimaryKeys).length +
+      Object.keys(config.uniqueConstraints).length +
+      Object.keys(config.foreignKeys).length +
+      Object.keys(config.checkConstraints).length;
+    // PostgreSQL 18 represents NOT NULL separately; column nullability is checked below.
+    if (
+      actualConstraints.filter((row) => row.kind !== "n").length >
+      expectedConstraintCount
+    )
+      throw new Error(
+        `Database schema has unexpected constraint on ${config.name}`,
+      );
+    const constraintIndexes = new Set(
+      actualConstraints
+        .filter((row) => row.kind === "p" || row.kind === "u")
+        .map((row) => row.name),
+    );
+    for (const index of indexes.rows.filter(
+      (row) => row.table_name === config.name && row.unique,
+    )) {
+      if (!constraintIndexes.has(index.name) && !config.indexes[index.name])
+        throw new Error(
+          `Database schema has unexpected unique index ${config.name}.${index.name}`,
+        );
+    }
     for (const column of Object.values(config.columns)) {
       const key = `${config.name}.${column.name}`;
       const actual = columns.get(key);
@@ -394,7 +431,8 @@ async function assertTables(
         actual.method !== index.method ||
         actual.included !== 0 ||
         !sameColumns(actual.columns.map(expression), expectedColumns) ||
-        expression(actual.predicate || "") !== expression(index.where || "")
+        checkExpression(actual.predicate || "") !==
+          checkExpression(index.where || "")
       )
         throw new Error(
           `Database schema differs at ${config.name}: index ${index.name}`,

@@ -63,7 +63,7 @@ test("buildAsyncRuntimePlan exposes outbox, kafka, and async task defaults", () 
     "app.tasks",
     "telemetry.events",
     "files.events",
-  "audit.events",
+    "audit.events",
   ]);
 });
 
@@ -380,4 +380,77 @@ test("failAsyncTask calculates retry and dead-letter states", () => {
   assert.equal(deadLetter.status, "dead_letter");
   assert.equal(deadLetter.attemptCount, 2);
   assert.equal(deadLetter.errorCode, "ASYNC_TASK_DEAD_LETTER");
+});
+
+test("heartbeat serializes overlapping writes and shutdown is terminal", async () => {
+  const { mkdtemp, readFile, readdir, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createHeartbeatWriter, inspectWorkerHeartbeat } = await import(
+    "../src/heartbeat.ts"
+  );
+  const directory = await mkdtemp(join(tmpdir(), "worker-heartbeat-"));
+  try {
+    const destination = join(directory, "heartbeat.json");
+    const writer = createHeartbeatWriter(destination);
+    const writes = Array.from({ length: 100 }, (_, index) =>
+      writer.write("running", Date.now() + index),
+    );
+    const stopped = writer.write("stopped", 123);
+    const late = writer.write("running", 456);
+    await Promise.all([...writes, stopped, late]);
+    const record = JSON.parse(await readFile(destination, "utf8"));
+    assert.equal(record.state, "stopped");
+    assert.equal(record.lastProgressAt, 123);
+    assert.equal(
+      (await inspectWorkerHeartbeat(destination)).status,
+      "degraded",
+    );
+    assert.deepEqual(await readdir(directory), ["heartbeat.json"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("heartbeat default destinations identify separate runtime instances", async () => {
+  const { createHeartbeatWriter } = await import("../src/heartbeat.ts");
+  const previous = process.env.WORKER_HEARTBEAT_PATH;
+  delete process.env.WORKER_HEARTBEAT_PATH;
+  try {
+    assert.notEqual(
+      createHeartbeatWriter().destination,
+      createHeartbeatWriter().destination,
+    );
+  } finally {
+    if (previous !== undefined) process.env.WORKER_HEARTBEAT_PATH = previous;
+  }
+});
+
+test("JSON storage rejects lone surrogates in nested strings and keys but accepts paired emoji", () => {
+  const input = (payload) => ({
+    topic: "unicode",
+    partition: 0,
+    offset: "0",
+    value: JSON.stringify({
+      eventId: "unicode",
+      eventType: "demo.echo",
+      traceId: "unicode",
+      payload,
+    }),
+  });
+  for (const payload of [
+    "\ud800",
+    "\udc00",
+    { nested: ["\ud800x"] },
+    { ["\udc00"]: true },
+    "\u0000",
+  ])
+    assert.throws(
+      () => parseAsyncTaskMessage(input(payload), "unicode"),
+      /unsupported by PostgreSQL JSON/,
+    );
+  assert.deepEqual(
+    parseAsyncTaskMessage(input({ "😀": ["a😀z"] }), "unicode").payload,
+    { "😀": ["a😀z"] },
+  );
 });

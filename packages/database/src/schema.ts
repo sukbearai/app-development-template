@@ -129,6 +129,10 @@ export const appAuditLogs = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    retentionIdx: index("app_audit_logs_retention_idx").on(
+      table.createdAt,
+      table.id,
+    ),
     traceIdx: index("app_audit_logs_trace_idx").on(table.traceId),
   }),
 );
@@ -146,6 +150,10 @@ export const appTelemetryEvents = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    retentionIdx: index("app_telemetry_events_retention_idx").on(
+      table.occurredAt,
+      table.id,
+    ),
     traceIdx: index("app_telemetry_events_trace_idx").on(table.traceId),
   }),
 );
@@ -191,6 +199,15 @@ export const appOutboxEvents = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    dueIdx: index("app_outbox_events_due_idx")
+      .on(table.nextAttemptAt, table.id)
+      .where(sql`${table.status} in ('pending','failed')`),
+    leaseIdx: index("app_outbox_events_lease_idx")
+      .on(table.leaseUntil, table.id)
+      .where(sql`${table.status} = 'processing'`),
+    retentionIdx: index("app_outbox_events_retention_idx")
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.status} = 'published'`),
     statusNextIdx: index("app_outbox_events_status_next_idx").on(
       table.status,
       table.nextAttemptAt,
@@ -219,6 +236,12 @@ export const appIdempotencyKeys = pgTable(
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => ({
+    retentionIdx: index("app_idempotency_keys_retention_idx")
+      .on(table.createdAt, table.key)
+      .where(sql`${table.responseData} is not null`),
+    recoveryIdx: index("app_idempotency_keys_recovery_idx")
+      .on(table.leaseUntil, table.key)
+      .where(sql`${table.status} in ('pending','processing','failed')`),
     scopeIdx: index("app_idempotency_keys_scope_idx").on(table.scope),
     expiresAtIdx: index("app_idempotency_keys_expires_at_idx").on(
       table.expiresAt,
@@ -274,6 +297,10 @@ export const appTaskEvents = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    retentionIdx: index("app_task_events_retention_idx").on(
+      table.createdAt,
+      table.id,
+    ),
     taskCreatedAtIdx: index("app_task_events_task_created_at_idx").on(
       table.taskId,
       table.createdAt,
@@ -291,8 +318,17 @@ export const appUploadIntents = pgTable(
     storageLocation: text("storage_location")
       .notNull()
       .default("legacy-unbound"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    blockedReason: text("blocked_reason"),
     state: text("state", {
-      enum: ["pending", "committed", "cleanup", "deleted"],
+      enum: [
+        "pending",
+        "writing",
+        "committed",
+        "cleanup",
+        "deleted",
+        "blocked",
+      ],
     })
       .notNull()
       .default("pending"),
@@ -304,9 +340,12 @@ export const appUploadIntents = pgTable(
       .defaultNow(),
   },
   (table) => [
+    index("app_upload_intents_cleanup_idx")
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.state} in ('pending','writing','cleanup')`),
     check(
       "app_upload_intents_state_check",
-      sql`${table.state} in ('pending','committed','cleanup','deleted')`,
+      sql`${table.state} in ('pending','writing','committed','cleanup','deleted','blocked')`,
     ),
   ],
 );

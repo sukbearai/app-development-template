@@ -46,16 +46,25 @@ pnpm test:e2e
 pnpm test:ui
 pnpm test:production
 pnpm test:containers
+pnpm test:app-backup
 ```
 
 浏览器测试需要先执行 `pnpm exec playwright install chromium`。API 和浏览器验证创建自己的临时数据库，结果保存在 `.verification`。`pnpm verify` 汇总模板的验证入口。按实际结果判断通过，不能把配置存在当成中间件接入成功。
 
 新增业务时先定义角色、对象归属与验收流程，再添加契约、迁移、服务和页面。Effect 的资源管理与单一契约思想已纳入包边界，当前默认运行时使用 async/await；Effect worker 试点尚未纳入默认依赖。
 
-- [交付与验证结果](docs/verification.md)
+- [最新修复与验证结果](docs/production-repair-results.md)
+- [初始改造验证](docs/verification.md)
 - [开发架构](docs/architecture.md)
 - [运行、备份和中间件](docs/operations.md)
+- [联合备份与恢复](docs/recovery.md)
 - [HTTP 契约](docs/api.md)
 - [数据库迁移](packages/database/README.md)
 - [后台协议与恢复](services/worker/README.md)
 - [改造前设计对照](docs/analysis/template-effect-assessment.md)
+
+## 账号维护与数据保留
+
+用户通过 `/account` 修改自己的密码；管理员在用户页重置其他账号密码。两种操作都会撤销目标账号的全部旧会话。遗失现代管理员凭据时，受控运维入口为 `pnpm admin:recover -- --account ACCOUNT --confirm`，新密码只通过 `ADMIN_RECOVERY_PASSWORD` 环境变量传入。
+
+`pnpm history:prune -- --days 90` 预览保留策略，确认后增加 `--apply` 执行有界批次。`pnpm storage:cleanup -- --dry-run` 预览上传协调。写入结果不明的对象按恢复文档人工核查，不能仅因超时而删除。

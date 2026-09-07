@@ -8,7 +8,7 @@ import {
   runKafkaConsumer,
 } from "./async-consumer";
 import { handleDomainEvent } from "./domain-handler";
-import { writeHeartbeat } from "./heartbeat";
+import { createHeartbeatWriter } from "./heartbeat";
 import { loadWorkerEnv } from "./env";
 
 export const ASYNC_RUNTIME_TOPICS = [
@@ -147,15 +147,19 @@ async function runRuntime(args: string[], consume: boolean) {
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
   const pool = getPool();
-  const store = createPostgresAsyncTaskStore({ pool });
+  const store = createPostgresAsyncTaskStore({
+    pool,
+    ttlHours: env.asyncTaskIdempotencyTtlHours,
+  });
   const kafka =
     env.outboxPublisher === "kafka" && process.env.OUTBOX_DRY_RUN !== "1";
   let producer: Awaited<ReturnType<typeof createProducer>> | undefined;
   let consumer: Promise<unknown> | undefined;
   let failure: unknown;
   let progress = Date.now();
+  const heartbeatWriter = createHeartbeatWriter();
   const heartbeat = setInterval(() => {
-    void writeHeartbeat("running", progress).catch((error) => {
+    void heartbeatWriter.write("running", progress).catch((error) => {
       failure = error;
       stop();
     });
@@ -165,6 +169,7 @@ async function runRuntime(args: string[], consume: boolean) {
     workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
     store,
     handler: handleDomainEvent,
+    defaultMaxAttempts: env.asyncTaskDefaultMaxAttempts,
     retryBaseMs: env.asyncTaskRetryBaseMs,
     retryMaxMs: env.asyncTaskRetryMaxMs,
   };
@@ -214,7 +219,7 @@ async function runRuntime(args: string[], consume: boolean) {
         }
       }
       progress = Date.now();
-      await writeHeartbeat("running", progress);
+      await heartbeatWriter.write("running", progress);
       printJson({
         command: consume ? "async-runtime" : "outbox-loop",
         ...result,
@@ -238,7 +243,7 @@ async function runRuntime(args: string[], consume: boolean) {
         } finally {
           process.removeListener("SIGTERM", stop);
           process.removeListener("SIGINT", stop);
-          await writeHeartbeat("stopped", progress);
+          await heartbeatWriter.write("stopped", progress);
         }
       }
     }

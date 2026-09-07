@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { listPermissions, listRoles, listUsers, requirePermission } from "@pstack/server/auth-service";
 import { sessionCookieName } from "@pstack/server/request-auth";
+import { ResetUserPasswordForm } from "@/components/admin/password-actions";
 import { CreateUserForm, UserStatusButton } from "@/components/admin/admin-actions";
 import { EmptyState, PageHeader, PermissionNotice, Section, StatusBadge, formatDateTime } from "@/components/admin/admin-ui";
 
@@ -50,7 +51,7 @@ export default async function AdminUsersPage() {
                     </td>
                     <td>{user.roleIds.map((id) => roleName.get(id) || id).join("，") || "-"}</td>
                     <td>{formatDateTime(user.createdAt)}</td>
-                    <td>{canWrite ? <UserStatusButton user={user} /> : "-"}</td>
+                    <td>{canWrite ? <><UserStatusButton user={user} />{user.id !== actor.id && <ResetUserPasswordForm userId={user.id} account={user.account} />}</> : "-"}</td>
                   </tr>
                 ))}
               </tbody>

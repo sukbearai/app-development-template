@@ -12,6 +12,7 @@ export default function Home() {
           </div>
           <div className="hero-actions">
             <Link className="button primary" href="/admin">进入管理端</Link>
+            <Link className="button secondary" href="/account">个人账号</Link>
             <a className="button secondary" href="/api/system/health">服务健康</a>
           </div>
         </div>

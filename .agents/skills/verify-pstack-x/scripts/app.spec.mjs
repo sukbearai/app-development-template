@@ -158,3 +158,85 @@ test('login: delayed JavaScript enables submission only after hydration', async 
     await page.unrouteAll({ behavior: 'wait' });
   }
 });
+
+test('admin: new-user password cannot enter URL before hydration', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  const base = `http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}`;
+  const login = await context.request.post(`${base}/api/auth/login`, { data: { account, password } });
+  expect(login.status()).toBe(200);
+  const navigations = [];
+  page.on('request', request => {
+    if (!request.isNavigationRequest()) return;
+    const url = new URL(request.url());
+    navigations.push({ method: request.method(), path: url.pathname, queryKeys: [...url.searchParams.keys()] });
+  });
+  try {
+    await page.goto(`${base}/admin/users`);
+    await page.getByLabel('账号', { exact: true }).fill('hydration-user-probe');
+    await page.getByLabel('姓名').fill('Hydration user');
+    await page.getByLabel('初始密码').fill('Synthetic-Not-A-Credential');
+    const button = page.getByRole('button', { name: '创建用户', exact: true });
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.getByLabel('初始密码').press('Enter');
+    await expect(button).toBeDisabled();
+    expect(navigations.every(item => !item.queryKeys.includes('password') && !item.queryKeys.includes('account'))).toBe(true);
+    await expect(page).toHaveURL(/\/admin\/users$/);
+  } finally {
+    await testInfo.attach('admin-before-hydration.json', { body: JSON.stringify(navigations, null, 2), contentType: 'application/json' });
+    await context.close();
+  }
+});
+
+test('password: administrator reset and self-service rotation revoke old sessions', async ({ page, request }) => {
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error' && !message.text().includes('Failed to load resource')) errors.push(message.text()); });
+  const suffix = Date.now();
+  const userAccount = `password_${suffix}`;
+  const initialPassword = 'Initial-Password-43!';
+  const resetPassword = ' Reset-Password-43! ';
+  const changedPassword = ' Changed-Password-44! ';
+  const base = `http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}`;
+  const adminLogin = await page.request.post('/api/auth/login', { data: { account, password } });
+  expect(adminLogin.status()).toBe(200);
+  const adminToken = (await adminLogin.json()).data.token;
+  const headers = { authorization: `Bearer ${adminToken}` };
+  const roleId = `role_password_${suffix}`;
+  expect((await page.request.post('/api/admin/roles', { headers, data: { id: roleId, name: 'Password test', permissionIds: ['admin.read'], status: 'active' } })).status()).toBe(201);
+  const created = await page.request.post('/api/admin/users', { headers, data: { account: userAccount, displayName: 'Password test', password: initialPassword, roleIds: [roleId], status: 'enabled' } });
+  expect(created.status()).toBe(201);
+  const userId = (await created.json()).data.id;
+  const userLogin = await request.post('/api/auth/login', { data: { account: userAccount, password: initialPassword } });
+  expect(userLogin.status()).toBe(200);
+  const oldToken = (await userLogin.json()).data.token;
+
+  await page.goto('/admin/users');
+  const row = page.getByRole('row').filter({ hasText: userAccount });
+  await row.getByText('重置密码', { exact: true }).click();
+  await row.getByLabel(`${userAccount} 的新密码`).fill(resetPassword);
+  await row.getByRole('button', { name: '确认重置密码' }).click();
+  await expect(row.getByRole('status')).toContainText('原有会话已撤销');
+  expect((await request.get('/api/auth/me', { headers: { authorization: `Bearer ${oldToken}` } })).status()).toBe(401);
+  expect((await request.post('/api/auth/login', { headers: { origin: base }, data: { account: userAccount, password: initialPassword } })).status()).toBe(401);
+
+  await page.context().clearCookies();
+  await page.goto('/login?next=/account');
+  await page.getByLabel('账号', { exact: true }).fill(userAccount);
+  await page.getByLabel('密码', { exact: true }).fill(resetPassword);
+  await page.getByRole('button', { name: '登录管理端' }).click();
+  await expect(page).toHaveURL(/\/account$/);
+  await expect(page.getByRole('heading', { name: '个人账号' })).toBeVisible();
+  await page.getByLabel('当前密码').fill(resetPassword);
+  await page.getByLabel('新密码', { exact: true }).fill(changedPassword);
+  await page.getByLabel('确认新密码').fill(changedPassword);
+  await page.getByRole('button', { name: '修改密码', exact: true }).click();
+  await expect(page).toHaveURL(/\/login\?passwordChanged=1$/);
+  expect((await request.post('/api/auth/login', { headers: { origin: base }, data: { account: userAccount, password: resetPassword } })).status()).toBe(401);
+  const newLogin = await request.post('/api/auth/login', { headers: { origin: base }, data: { account: userAccount, password: changedPassword } });
+  expect(newLogin.status()).toBe(200);
+  expect((await newLogin.json()).data.user.id).toBe(userId);
+  expect(errors).toEqual([]);
+});

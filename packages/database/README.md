@@ -25,3 +25,7 @@ Back up the existing database, verify the backup, then explicitly run `pnpm --fi
 For a disabled legacy administrator with a `plain:` hash, set a strong `BOOTSTRAP_ADMIN_PASSWORD` and invoke `pnpm --filter @pstack/server admin:bootstrap --recover-legacy`. This explicit recovery changes only the named disabled legacy administrator, verifies administrator permissions, revokes previous sessions and records audit/outbox events atomically. Ordinary bootstrap cannot reset an existing account. Existing modern-password accounts are never reset by this option.
 
 Compatibility tests run only on disposable databases; they do not authorize changing an existing deployment.
+
+Production assessment repairs add migration `0002_productive_glorian`: upload writing leases/blocked reasons and bounded-recovery/retention indexes. Both live-schema and prior-snapshot checks reject unexpected owned columns, constraints and unique indexes. Existing migration bytes stay unchanged.
+
+Runtime health returns SQL aggregates. `runRetention` processes a bounded batch in one transaction, with dry-run by default at the CLI. It preserves idempotency key, group, payload hash and terminal state, and keeps receipt identity while compacting eligible payloads. Tasks and compact tombstones remain; their count grows with unique business events. Choose retention periods according to actual audit obligations and storage capacity.
