@@ -1,0 +1,63 @@
+name: Verify template
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: app
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://app:ci-only-password@localhost:5432/app
+      COMPOSE_DATABASE_URL: postgres://app:ci-only-password@postgres:5432/app
+      APP_ORIGIN: http://localhost:3100
+      BOOTSTRAP_ADMIN_ACCOUNT: admin
+      BOOTSTRAP_ADMIN_PASSWORD: ci-only-password-8791
+      E2E_USERNAME: admin
+      E2E_PASSWORD: ci-only-password-8791
+      POSTGRES_TOOLS: docker
+      POSTGRES_TOOL_IMAGE: postgres:17-alpine
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm db:migrate
+      - run: pnpm admin:bootstrap
+      - run: pnpm pr:verify --full
+      - run: pnpm test:backup
+      - run: docker compose --env-file .env.example -f deploy/compose/docker-compose.yml --profile '*' config --quiet
+      - run: pnpm test:containers
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verification-evidence
+          path: |
+            artifacts/
+            .verification/containers/
+            .verification/app/
+            .verification/pstack-x/
+            .verification/template-implementation/
+          include-hidden-files: true
+          if-no-files-found: error

@@ -1,0 +1,26 @@
+{
+  "name": "@pstack/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:unit": "tsx --test tests/worker.test.mjs",
+    "start": "tsx src/index.ts async-runtime",
+    "test:integration": "node scripts/test-integration.mjs",
+    "test:integration:external": "tsx --test tests/integration.test.mjs"
+  },
+  "dependencies": {
+    "@pstack/contracts": "workspace:*",
+    "kafkajs": "2.2.4",
+    "pg": "8.21.0",
+    "@pstack/database": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "@types/pg": "8.20.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

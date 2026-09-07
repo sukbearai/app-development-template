@@ -1,0 +1,23 @@
+{
+  "0000_swift_white_queen.sql": "46a6b3e17ff28828a17f5550c1a687b0cfe9d47c952a9406c51e6d998cccd818",
+  "0001_glorious_firebird.sql": "906659f131ac7d93aa4c805900709e6fb2df7feb5ac024bf2d5b97fc2abf2bad",
+  "meta/0000_snapshot.json": "4a8e1c2d8ba72e6b1411d1163efd44cd1ea18253fcdbe1d5f9989d05c5bd12bb",
+  "meta/0001_snapshot.json": "20b0f3de2111cc8217531a60138936d391a8bf26e7b2d8f264db7dfb4bc2d5b4",
+  "meta/_journal.json": "5e086a94e6e142645e83a040efce82625cc8468be349ae6068c19d11967667f2",
+  "$journal": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1788767159317,
+      "tag": "0000_swift_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1788767722198,
+      "tag": "0001_glorious_firebird",
+      "breakpoints": true
+    }
+  ]
+}

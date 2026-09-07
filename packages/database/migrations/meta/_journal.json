@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1782549000000,
+      "tag": "0001_core",
+      "breakpoints": false
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782549060000,
+      "tag": "0002_async_task_runtime",
+      "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782636000000,
+      "tag": "0003_outbox_runtime_state",
+      "breakpoints": false
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "debtCeilings": {
+    "maxSnapshotLag": 0,
+    "maxFallbackMigrations": 0
+  },
+  "knownSnapshotDebt": {},
+  "knownFallbackMigrations": []
+}

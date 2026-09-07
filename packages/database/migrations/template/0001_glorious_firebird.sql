@@ -1,0 +1,1 @@
+ALTER TABLE "app_upload_intents" ADD COLUMN "storage_location" text DEFAULT 'legacy-unbound' NOT NULL;

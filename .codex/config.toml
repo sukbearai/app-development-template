@@ -1,0 +1,5 @@
+[plugins."pstack@open-pstack"]
+enabled = true
+
+[features]
+multi_agent = true

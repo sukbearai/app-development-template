@@ -1,0 +1,33 @@
+{
+  "name": "@pstack/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx --test tests/unit.test.mjs",
+    "db:generate": "drizzle-kit generate && node scripts/migration-check.mjs --update",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "migration:check": "node scripts/migration-check.mjs",
+    "db:integration": "tsx scripts/integration.ts",
+    "db:migrate:legacy": "tsx scripts/migrate.ts --legacy-upgrade",
+    "test:integration": "tsx --test tests/integration.test.mjs"
+  },
+  "dependencies": {
+    "zod": "4.4.3",
+    "drizzle-orm": "0.45.2",
+    "pg": "8.21.0",
+    "@pstack/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "@types/node": "22.18.0",
+    "drizzle-kit": "0.31.10",
+    "@types/pg": "8.20.0"
+  }
+}

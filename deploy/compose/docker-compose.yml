@@ -1,0 +1,198 @@
+x-app: &app
+  image: ${COMPOSE_PROJECT_NAME:-pstack-local}-web:local
+  build:
+    context: ../..
+    target: web
+  environment: &environment
+    NODE_ENV: production
+    APP_NAME: ${APP_NAME:-Pstack App}
+    APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3100}
+    DATABASE_URL: ${COMPOSE_DATABASE_URL:?Run pnpm local:up or set an encoded internal PostgreSQL URL}
+    SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-pstack_session}
+    SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-86400}
+    SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+    RATE_LIMIT_DRIVER: ${RATE_LIMIT_DRIVER:-memory}
+    LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-20}
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
+    LOGIN_RATE_LIMIT_MEMORY_MAX_KEYS: ${LOGIN_RATE_LIMIT_MEMORY_MAX_KEYS:-5000}
+    REDIS_URL: redis://redis:6379
+    KAFKA_BROKERS: kafka:9092
+    UPLOAD_STORAGE_DRIVER: ${UPLOAD_STORAGE_DRIVER:-local}
+    UPLOAD_STORAGE_DIR: /app/uploads
+    UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-10485760}
+    OBJECT_STORAGE_ENDPOINT: http://minio:9000
+    OBJECT_STORAGE_REGION: us-east-1
+    OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-localadmin}
+    OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-local-development-only}
+    OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-app-files}
+    OBJECT_STORAGE_FORCE_PATH_STYLE: "true"
+  init: true
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    <<: *app
+    profiles: [app]
+    restart: "no"
+    command: [pnpm, --filter, "@pstack/database", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    profiles: [app]
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3100}:3000"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/system/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    profiles: [redis]
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-56379}:6379"
+    command: [redis-server, --appendonly, "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  kafka:
+    profiles: [kafka]
+    image: apache/kafka:3.9.1
+    ports:
+      - "127.0.0.1:${KAFKA_PORT:-59092}:19092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:19092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_PORT:-59092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: [CMD-SHELL, "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+  worker:
+    <<: *app
+    profiles: [worker]
+    image: ${COMPOSE_PROJECT_NAME:-pstack-local}-worker:local
+    build:
+      context: ../..
+      target: worker
+    environment:
+      <<: *environment
+      OUTBOX_PUBLISHER: kafka
+      ASYNC_RUNTIME_TOPICS: app.tasks,telemetry.events,files.events,audit.events
+      WORKER_HEARTBEAT_PATH: /tmp/pstack-worker-heartbeat.json
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, pnpm, --filter, "@pstack/worker", exec, tsx, src/index.ts, health, --live]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 40s
+
+  minio:
+    profiles: [storage]
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-localadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-local-development-only}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-59000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-59001}:9001"
+    volumes:
+      - minio-data:/data
+
+  storage-init:
+    profiles: [storage]
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_started
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-localadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-local-development-only}
+      OBJECT_STORAGE_BUCKET: ${OBJECT_STORAGE_BUCKET:-app-files}
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        attempts=0
+        until mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          attempts=$$((attempts + 1))
+          [ "$$attempts" -lt 60 ] || exit 1
+          sleep 1
+        done
+        mc mb --ignore-existing "local/$$OBJECT_STORAGE_BUCKET"
+
+  clickhouse:
+    profiles: [analytics]
+    image: clickhouse/clickhouse-server:25.6-alpine
+    environment:
+      CLICKHOUSE_DB: app_analytics
+      CLICKHOUSE_USER: app
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-local-development-only}
+    ports:
+      - "127.0.0.1:${CLICKHOUSE_HTTP_PORT:-58123}:8123"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:8123/ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres-data:
+  redis-data:
+  kafka-data:
+  minio-data:
+  clickhouse-data:
+  uploads:

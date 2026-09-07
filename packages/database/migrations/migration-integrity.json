@@ -1,0 +1,11 @@
+{
+  "migrations": {
+    "0001_core.sql": "3b0bc9f66150b289acf6f0bd7d132ca597405ebaf04fd06e2144e1544d0f44a7",
+    "0002_async_task_runtime.sql": "044cdb9f621722e0324ad1153074db8ed26523406a07041f58ff9f871c8ee590",
+    "0003_outbox_runtime_state.sql": "d1ba9023a2432f466c80e55759cb8e9400b8c228912e5b4d10c549fd2ef6508d"
+  },
+  "snapshots": {
+    "0002_snapshot.json": "0b2a522997852a0b35268d5a535fb40acacfd7ab5841e26b12b318a1c0f4c5c6",
+    "0003_snapshot.json": "26018c2f8ef3eb5b04a9ebb99030eaf20ba52f13161f012cd3ee8463a6b1a1d5"
+  }
+}

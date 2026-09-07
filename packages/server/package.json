@@ -1,0 +1,31 @@
+{
+  "name": "@pstack/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx --test tests/unit.test.mjs",
+    "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
+    "test:integration": "tsx --test tests/integration.test.mjs tests/s3.integration.test.mjs",
+    "config:check": "tsx scripts/config-check.ts",
+    "storage:cleanup": "tsx scripts/cleanup-uploads.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3",
+    "@pstack/contracts": "workspace:*",
+    "@pstack/database": "workspace:*",
+    "redis": "5.8.2",
+    "@aws-sdk/client-s3": "3.922.0",
+    "kafkajs": "2.2.4"
+  },
+  "devDependencies": {
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "@types/node": "22.18.0"
+  }
+}

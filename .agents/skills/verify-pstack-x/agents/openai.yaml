@@ -1,0 +1,3 @@
+interface:
+  display_name: "Verify pstack-x"
+  short_description: "Run browser and API checks for the local pstack-x app"

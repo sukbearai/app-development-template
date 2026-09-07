@@ -1,0 +1,22 @@
+{
+  "name": "@pstack/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "@types/node": "22.18.0"
+  }
+}
