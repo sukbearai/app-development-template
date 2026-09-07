@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { LogIn } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { loginResponseSchema } from "@pstack/contracts";
 import { requestJson } from "@/components/api-client";
 
@@ -18,6 +18,9 @@ export function LoginForm() {
   const router = useRouter();
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => { setReady(true); }, []);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -42,7 +45,7 @@ export function LoginForm() {
   }
 
   return (
-    <form className="login-form" onSubmit={submit}>
+    <form className="login-form" method="post" onSubmit={submit}>
       <label>
         <span>账号</span>
         <input name="account" autoComplete="username" required />
@@ -51,10 +54,11 @@ export function LoginForm() {
         <span>密码</span>
         <input name="password" type="password" autoComplete="current-password" required />
       </label>
-      <button className="button primary wide" type="submit" disabled={pending}>
+      <button className="button primary wide" type="submit" disabled={!ready || pending}>
         <LogIn size={16} />
         登录管理端
       </button>
+      <noscript><p className="form-error">请启用 JavaScript 后登录。</p></noscript>
       {message && <p role="alert" className="form-error">{message}</p>}
     </form>
   );

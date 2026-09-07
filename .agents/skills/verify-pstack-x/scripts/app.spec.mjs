@@ -99,3 +99,62 @@ test('admin: create, persist, revoke role, upload, audit and logout', async ({ p
   await expect(page).toHaveURL(/\/login/);
   expect(errors).toEqual([]);
 });
+
+test('login: credentials cannot enter a navigation URL before JavaScript is ready', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  const navigations = [];
+  page.on('request', request => {
+    if (!request.isNavigationRequest()) return;
+    const url = new URL(request.url());
+    navigations.push({ method: request.method(), pathname: url.pathname, queryKeys: [...url.searchParams.keys()] });
+  });
+  try {
+    await page.goto(`http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}/login`);
+    await page.getByLabel('账号').fill('hydration-probe');
+    await page.getByLabel('密码').fill('Synthetic-Not-A-Credential');
+    const button = page.getByRole('button', { name: '登录管理端' });
+    const box = await button.boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.getByLabel('密码').press('Enter');
+    await expect(button).toBeDisabled();
+    expect(navigations.every(request => !request.queryKeys.includes('password') && !request.queryKeys.includes('account'))).toBe(true);
+    await expect(page).toHaveURL(/\/login$/);
+  } finally {
+    await testInfo.attach('pre-hydration-navigations.json', { body: JSON.stringify(navigations, null, 2), contentType: 'application/json' });
+    await context.close();
+  }
+});
+
+test('login: delayed JavaScript enables submission only after hydration', async ({ page }, testInfo) => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let blockedScripts = 0;
+  await page.route('**/*', async route => {
+    if (route.request().resourceType() === 'script') {
+      blockedScripts++;
+      await gate;
+    }
+    await route.continue();
+  });
+  try {
+    await page.goto('/login', { waitUntil: 'commit' });
+    const button = page.getByRole('button', { name: '登录管理端' });
+    await expect(button).toBeVisible();
+    await expect(button).toBeDisabled();
+    expect(blockedScripts).toBeGreaterThan(0);
+    release();
+    await expect(button).toBeEnabled();
+    await page.getByLabel('账号').fill(account);
+    await page.getByLabel('密码').fill(password);
+    const response = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/login' && response.request().method() === 'POST');
+    await button.click();
+    expect((await response).status()).toBe(200);
+    await expect(page).toHaveURL(/\/admin$/);
+    await testInfo.attach('delayed-script-count.json', { body: JSON.stringify({ blockedScripts }), contentType: 'application/json' });
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
