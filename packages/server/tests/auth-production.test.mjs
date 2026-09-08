@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { loginRequestSchema, createUserRequestSchema } from "@pstack/contracts";
 import { hashPassword, verifyPassword } from "../src/password.ts";
+import { createHook } from "node:async_hooks";
 
 const workspace = path.resolve(import.meta.dirname, "../../..");
 const execute = promisify(execFile);
@@ -85,6 +86,29 @@ test("password lifecycle commits hashes, revocations, audit and outbox atomicall
     const userPassword = "  user-password-value  ";
     const user = await auth.createManagedUser(createUserRequestSchema.parse({ account: "regular", displayName: "Regular", password: userPassword }), adminToken);
     let userToken = (await auth.login({ account: user.account, password: userPassword })).token;
+
+    await t.test("every rejected account performs password work without creating a session", async () => {
+      const disabled = await auth.createManagedUser({ account: "disabled-login", displayName: "Disabled", password: "disabled-password", roleIds: [], status: "disabled" }, adminToken);
+      const before = (await query("select count(*) from app_user_sessions")).rows[0].count;
+      const attempts = [
+        { account: user.account, password: "wrong-password" },
+        { account: "missing-login", password: "wrong-password" },
+        { account: disabled.account, password: "disabled-password" },
+      ];
+      for (const legacy of [false, true]) {
+        if (legacy) await query("update app_users set password_hash='plain:disabled-password' where id=$1", [disabled.id]);
+        for (const attempt of legacy ? attempts.slice(2) : attempts) {
+          let passwordJobs = 0;
+          const hook = createHook({ init(_id, type) { if (type === "SCRYPTREQUEST") passwordJobs++; } });
+          hook.enable();
+          try {
+            await assert.rejects(auth.login(attempt), error => error.status === 401 && error.code === "INVALID_CREDENTIALS");
+          } finally { hook.disable(); }
+          assert.equal(passwordJobs, 1, `${attempt.account} must perform one password derivation`);
+        }
+      }
+      assert.equal((await query("select count(*) from app_user_sessions")).rows[0].count, before);
+    });
 
     await t.test("historical long credentials can log in and rotate", async () => {
       const oldPassword = 'legacy-'.repeat(40);

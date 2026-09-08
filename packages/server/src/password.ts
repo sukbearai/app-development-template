@@ -15,12 +15,12 @@ export async function hashPassword(password: string) {
 }
 
 export async function verifyPassword(password: string, passwordHash: string) {
-  if (!passwordHash.startsWith("scrypt:")) return false;
-  const [, salt, expectedHash, extra] = passwordHash.split(":");
-  if (!salt || !expectedHash || extra !== undefined) return false;
+  const [algorithm, salt, expectedHash, extra] = passwordHash.split(":");
+  const expected = Buffer.from(expectedHash || "", "base64url");
+  const valid = algorithm === "scrypt" && typeof salt === "string" &&
+    salt.length > 0 && expected.length === keyLength && extra === undefined;
   const actual = Buffer.from(
-    (await scrypt(password, salt, keyLength)) as Buffer,
+    (await scrypt(password, valid ? salt : "pstack-invalid-password", keyLength)) as Buffer,
   );
-  const expected = Buffer.from(expectedHash, "base64url");
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  return valid && timingSafeEqual(actual, expected);
 }

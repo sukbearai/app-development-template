@@ -121,10 +121,11 @@ export async function login(input: { account?: string; password?: string }) {
   const accountRecord = await repo.getUserByAccount(account);
   const user = accountRecord?.user;
   const passwordHash = accountRecord?.passwordHash || "";
+  const passwordMatches = await verifyPassword(password, passwordHash);
   if (
     !user ||
     user.status !== "enabled" ||
-    !(await verifyPassword(password, passwordHash))
+    !passwordMatches
   ) {
     throw new ApiError(401, "INVALID_CREDENTIALS", "账号或密码错误");
   }
