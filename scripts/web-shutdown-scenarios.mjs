@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { once } from 'node:events';
+import { on, once } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import net from 'node:net';
@@ -40,11 +40,26 @@ export async function verifyWebShutdown({ launch, env, output }) {
   }
   async function stopWhileBlocked(server) {
     const exited = exitResult(server);
-    server.kill('SIGTERM');
-    await delay(150);
-    assert.equal(server.exitCode, null, 'Web exited while admitted work was still blocked');
-    assert.equal(server.signalCode, null);
-    return { exited };
+    const chunks = on(server.stderr, 'data', { signal: AbortSignal.timeout(5000), close: ['end', 'close'] });
+    let pending = '';
+    try {
+      server.kill('SIGTERM');
+      for await (const [chunk] of chunks) {
+        const lines = (pending + chunk).split('\n');
+        pending = lines.pop();
+        for (const line of lines) {
+          let record;
+          try { record = JSON.parse(line); } catch { continue; }
+          if (record?.level !== 'info' || record?.message !== 'Web shutdown started') continue;
+          assert.equal(server.exitCode, null, 'Web exited while admitted work was still blocked');
+          assert.equal(server.signalCode, null);
+          return { exited, started: performance.now() };
+        }
+      }
+      throw new Error('Web stderr closed before shutdown started');
+    } finally {
+      await chunks.return();
+    }
   }
   try {
     let server = await launch();
@@ -106,13 +121,12 @@ export async function verifyWebShutdown({ launch, env, output }) {
 
     server = await launch({ WEB_SHUTDOWN_TIMEOUT_MS: '1200' });
     const hung = await incompleteBody();
-    const hungExit = exitResult(server);
-    const started = Date.now();
-    server.kill('SIGTERM');
+    const { exited: hungExit, started } = await stopWhileBlocked(server);
     await delay(800);
     server.kill('SIGTERM');
     assert.deepEqual(await hungExit, { code: 1, signal: null });
-    assert.ok(Date.now() - started >= 1100 && Date.now() - started < 1900, 'Repeated signal must not extend the single deadline');
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed >= 1100 && elapsed < 1900, 'Repeated signal must not extend the single deadline');
     await hung.closed;
     checks.push('hung request exits 1 within the configured absolute deadline; repeated SIGTERM does not reset it');
     server = await launch();
