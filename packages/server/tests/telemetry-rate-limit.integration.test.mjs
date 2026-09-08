@@ -16,6 +16,7 @@ const routeProcess = `
   import { POST as login } from './apps/web/app/api/auth/login/route.ts';
   import { closeDatabase } from './packages/database/src/client.ts';
   import { closeRedis } from './packages/server/src/redis-client.ts';
+  import { sessionCookieName } from './packages/server/src/request-auth.ts';
   const results = [];
   try {
     for (const [index, action] of JSON.parse(process.env.TEST_ACTIONS).entries()) {
@@ -30,12 +31,13 @@ const routeProcess = `
           controller.close();
         },
       }, { highWaterMark: 0 });
-      const request = new Request('http://localhost' + (action.login ? '/api/auth/login' : '/api/telemetry'), {
+      const request = new Request('http://localhost' + (action.login ? '/api/auth/login' : action.path ?? '/api/telemetry'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           'x-trace-id': process.env.TEST_TRACE_PREFIX + ':' + index,
           ...(action.spoof ? { 'x-forwarded-for': '198.51.100.' + index } : {}),
+          ...(action.unsafeOrigin ? { origin: 'https://evil.invalid', cookie: sessionCookieName + '=invalid' } : {}),
         },
         body: stream,
         duplex: 'half',
@@ -104,10 +106,29 @@ test("anonymous telemetry enforces its global budget before body reads and durab
     };
 
     const burst = (count) => Array.from({ length: count }, (_, index) => ({ spoof: index % 2 === 0 }));
+    const mixedBurst = (count) => burst(count).map((action, index) => ({
+      ...action,
+      path: index % 2 === 0 ? '/api/telemetry' : '/api//telemetry',
+    }));
     await t.test("memory accepts 120 requests and rejects request 121 without writing", async () => {
       const result = await run(burst(121));
       assert.deepEqual(result.responses.map(response => response.status), [...Array(120).fill(201), 429]);
       assertLimited(result.responses[120]);
+      assert.deepEqual(result.counts, { telemetry: 120, outbox: 120 });
+    });
+
+    await t.test("canonical and alias requests share the memory budget before origin and body checks", async () => {
+      const unsafe = await run([{ path: '/api//telemetry', unsafeOrigin: true }]);
+      assert.equal(unsafe.responses[0].status, 403);
+      assert.equal(unsafe.responses[0].reads, 0);
+      assert.deepEqual(unsafe.counts, { telemetry: 0, outbox: 0 });
+      const result = await run([
+        ...mixedBurst(120),
+        { path: '/api//telemetry', unsafeOrigin: true },
+        { path: '/api/telemetry' },
+      ]);
+      assert.deepEqual(result.responses.map(response => response.status), [...Array(120).fill(201), 429, 429]);
+      result.responses.slice(120).forEach(assertLimited);
       assert.deepEqual(result.counts, { telemetry: 120, outbox: 120 });
     });
 
@@ -124,9 +145,9 @@ test("anonymous telemetry enforces its global budget before body reads and durab
       assert.deepEqual(telemetryFirst.counts, { telemetry: 120, outbox: 120 });
     });
 
-    await t.test("two Web processes share 120 Redis admissions despite missing cookies and forged forwarding addresses", async () => {
+    await t.test("two Web processes share 120 Redis admissions across canonical and alias requests despite forged forwarding addresses", async () => {
       const config = { RATE_LIMIT_DRIVER: "redis", WEB_REPLICAS: "2", REDIS_URL: `redis://127.0.0.1:${redisPort}/7` };
-      const results = await Promise.all([run(burst(70), config), run(burst(70), config)]);
+      const results = await Promise.all([run(mixedBurst(70), config), run(mixedBurst(70), config)]);
       const responses = results.flatMap(result => result.responses);
       assert.equal(responses.filter(response => response.status === 201).length, 120);
       const rejected = responses.filter(response => response.status === 429);
@@ -134,13 +155,16 @@ test("anonymous telemetry enforces its global budget before body reads and durab
       rejected.forEach(assertLimited);
       assert.equal(results.reduce((count, result) => count + result.counts.telemetry, 0), 120);
       assert.equal(results.reduce((count, result) => count + result.counts.outbox, 0), 120);
+      assert.equal(docker("exec", redisName, "redis-cli", "-n", "7", "get", "telemetry:global"), "140");
     });
 
     await t.test("Redis outage fails closed before body consumption or writes", async () => {
       docker("stop", redisName);
-      const result = await run([{}], { RATE_LIMIT_DRIVER: "redis", WEB_REPLICAS: "2", REDIS_URL: `redis://127.0.0.1:${redisPort}/7` });
-      assert.ok(result.responses[0].status >= 500);
-      assert.equal(result.responses[0].reads, 0);
+      const result = await run(mixedBurst(2), { RATE_LIMIT_DRIVER: "redis", WEB_REPLICAS: "2", REDIS_URL: `redis://127.0.0.1:${redisPort}/7` });
+      for (const response of result.responses) {
+        assert.ok(response.status >= 500);
+        assert.equal(response.reads, 0);
+      }
       assert.deepEqual(result.counts, { telemetry: 0, outbox: 0 });
     });
   } finally {

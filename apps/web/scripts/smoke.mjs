@@ -6,6 +6,8 @@ const account = process.env.UI_FLOW_ADMIN_ACCOUNT;
 const password = process.env.UI_FLOW_ADMIN_PASSWORD;
 if (!base || !account || !password) throw new Error('SMOKE_BASE_URL and explicit UI_FLOW_ADMIN_ACCOUNT/PASSWORD are required. Run pnpm test:e2e for an isolated environment.');
 const checks = [];
+const telemetryPaths = ['/api/telemetry', '/api//telemetry'];
+let telemetryAdmissions = 0;
 async function call(path, { method = 'GET', body, token, cookie, origin, raw, traceId } = {}) {
   const response = await fetch(new URL(path, base), {
     method,
@@ -20,6 +22,7 @@ async function call(path, { method = 'GET', body, token, cookie, origin, raw, tr
     signal: AbortSignal.timeout(15_000),
   });
   const text = await response.text();
+  if (response.status === 201 && telemetryPaths.includes(path)) telemetryAdmissions++;
   let payload;
   try { payload = JSON.parse(text); } catch { payload = { transportError: text.slice(0, 200) }; }
   return { status: response.status, body: payload, cookie: response.headers.get('set-cookie')?.split(';')[0] };
@@ -88,4 +91,17 @@ assert.equal((await call('/api/auth/me', { token })).status, 401);
 const health = await call('/api/system/health');
 assert.equal(health.status, 200, JSON.stringify(health.body));
 assert.equal(health.body.data.status, 'ok');
+const remainingTelemetryAdmissions = 120 - telemetryAdmissions;
+for (let index = 0; index < remainingTelemetryAdmissions; index++) {
+  const path = telemetryPaths[index % telemetryPaths.length];
+  const response = await call(path, { method: 'POST', body: { event: 'smoke.telemetry-rate-limit' } });
+  assert.equal(response.status, 201, `${path}: ${JSON.stringify(response.body)}`);
+}
+for (const path of telemetryPaths) {
+  const response = await call(path, { method: 'POST', raw: '{' });
+  assert.equal(response.status, 429, `${path}: ${JSON.stringify(response.body)}`);
+  assert.equal(response.body.error.code, 'RATE_LIMITED');
+  assert.ok(response.body.error.details.retryAfterSeconds > 0);
+}
+checks.push('canonical and repeated-slash telemetry URLs share the 120-request budget before body parsing');
 console.log(JSON.stringify({ status: 'passed', checks }, null, 2));

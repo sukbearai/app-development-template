@@ -1,5 +1,4 @@
 import { env } from "./env";
-import { assertRequestRateLimit } from "./rate-limit";
 import { fail } from "./api-response";
 import { findApiOperation, parseApiResponse } from "@pstack/contracts/http";
 import { fileURLToPath } from "node:url";
@@ -118,11 +117,6 @@ export async function withAccessLog(
   let response: Response;
   let failure: { error: unknown } | undefined;
   try {
-    if (request.method === "POST" && path === "/api/telemetry")
-      await assertRequestRateLimit("telemetry:global", {
-        limit: 120,
-        windowMs: 60000,
-      });
     response = await handler();
   } catch (error) {
     failure = { error };
