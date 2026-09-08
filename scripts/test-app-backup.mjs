@@ -26,6 +26,20 @@ async function start(args, port, env = process.env) {
 async function retry(fn) {
   for (let i = 0; ; i++) { try { return await fn(); } catch (error) { if (i >= 59) throw error; await new Promise((resolve) => setTimeout(resolve, 500)); } }
 }
+async function assertBundleSynced(log, bundle, objectKeys) {
+  const events = (await readFile(log, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+  const complete = events.findIndex((event) => event.type === "publish" && event.path === path.join(bundle, "COMPLETE"));
+  assert.ok(complete >= 0, "COMPLETE must be published");
+  const synced = new Set(events.slice(0, complete).filter((event) => event.type === "sync").map((event) => event.path));
+  for (let ancestor = path.dirname(bundle); ; ancestor = path.dirname(ancestor)) {
+    assert.ok(synced.has(ancestor), `Ancestor must be synced before COMPLETE: ${ancestor}`);
+    if (path.dirname(ancestor) === ancestor) break;
+  }
+  for (const file of ["", ...(objectKeys.length ? ["objects"] : []), "database", "database/database.dump", "database/manifest.json", "bundle.json.tmp",
+    ...objectKeys.map((key) => path.join("objects", key))]) {
+    assert.ok(synced.has(path.join(bundle, file)), `Bundle content must be synced before COMPLETE: ${file}`);
+  }
+}
 try {
   const password = randomUUID(), secret = randomUUID();
   const port = await start(["--name", `pstack-app-backup-pg-${suffix}`, "--publish", "127.0.0.1::5432", "--tmpfs", "/var/lib/postgresql/data", "--env", "POSTGRES_USER=app", "--env", "POSTGRES_PASSWORD", "--env", "POSTGRES_DB=postgres", postgresImage], 5432, { ...process.env, POSTGRES_PASSWORD: password });
@@ -41,7 +55,7 @@ try {
     KAFKA_SASL_MECHANISM: "", KAFKA_SASL_USERNAME: "", KAFKA_SASL_PASSWORD: "",
     OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_ACCESS_KEY: "appbackup", OBJECT_STORAGE_SECRET_KEY: secret,
     OBJECT_STORAGE_FORCE_PATH_STYLE: "true", OBJECT_STORAGE_BUCKET: "source", UPLOAD_STORAGE_DIR: path.join(directory, "source-objects") };
-  for (const name of ["source", "target", "corrupt", "missing", "binding", "occupied", "occupieds3"]) await control.query(`CREATE DATABASE "${name}"`);
+  for (const name of ["source", "target", "corrupt", "missing", "binding", "occupied", "occupieds3", "empty"]) await control.query(`CREATE DATABASE "${name}"`);
   for (const bucket of ["source", "target", "binding"]) await s3.send(new CreateBucketCommand({ Bucket: bucket }));
   await mkdir(env.UPLOAD_STORAGE_DIR);
   await run("pnpm", ["db:migrate"], { cwd: root, env: { ...env, DATABASE_URL: base + "source" } });
@@ -57,9 +71,29 @@ try {
   } finally { await source.end(); }
   await writeFile(path.join(env.UPLOAD_STORAGE_DIR, localKey), localBytes);
   await s3.send(new PutObjectCommand({ Bucket: "source", Key: s3Key, Body: s3Bytes }));
-  const bundle = path.join(directory, "bundle");
-  const command = (args, database, extra = {}) => run(process.execPath, [path.join(root, "scripts/app-backup.mjs"), ...args], { cwd: root, env: { ...env, DATABASE_URL: base + database, ...extra } });
-  await command(["create", "--output", bundle], "source");
+  const bundle = path.join(directory, "new-parent", "nested-parent", "bundle");
+  const command = (args, database, extra = {}, nodeArgs = []) => run(process.execPath, [...nodeArgs, path.join(root, "scripts/app-backup.mjs"), ...args], { cwd: root, env: { ...env, DATABASE_URL: base + database, ...extra } });
+  const syncFixture = ["--import", path.join(root, "scripts/tests/fixtures/backup-sync.mjs")];
+  const syncLog = path.join(directory, "bundle-sync.jsonl");
+  await command(["create", "--output", bundle], "source", { TEST_BACKUP_SYNC_LOG: syncLog }, syncFixture);
+  await assertBundleSynced(syncLog, bundle, [localKey, s3Key]);
+  const failedAncestor = path.join(directory, "failed-parent");
+  const failedBundle = path.join(failedAncestor, "nested-parent", "bundle");
+  const failedLog = path.join(directory, "failed-sync.jsonl");
+  await assert.rejects(command(["create", "--output", failedBundle], "source", {
+    TEST_BACKUP_SYNC_LOG: failedLog, TEST_BACKUP_SYNC_FAILURE: failedAncestor,
+  }, syncFixture), /failed \(1\)/);
+  assert.ok((await readFile(failedLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line))
+    .some((event) => event.type === "sync-failure" && event.path === failedAncestor));
+  await readFile(path.join(failedBundle, "bundle.json"));
+  await assert.rejects(readFile(path.join(failedBundle, "COMPLETE")), { code: "ENOENT" });
+  await assert.rejects(command(["verify", "--directory", failedBundle], "source"));
+  await run("pnpm", ["db:migrate"], { cwd: root, env: { ...env, DATABASE_URL: base + "empty" } });
+  const emptyBundle = path.join(directory, "empty-parent", "nested-parent", "bundle");
+  const emptyLog = path.join(directory, "empty-sync.jsonl");
+  await command(["create", "--output", emptyBundle], "empty", { TEST_BACKUP_SYNC_LOG: emptyLog }, syncFixture);
+  await assertBundleSynced(emptyLog, emptyBundle, []);
+  console.log("Backup fsync proof passed: nested ancestors synced before COMPLETE for populated and empty bundles; ancestor failure leaves an incomplete bundle");
   await command(["verify", "--directory", bundle], "source");
   const targetDir = path.join(directory, "target-objects");
   await command(["restore", "--directory", bundle, "--confirm"], "target", { UPLOAD_STORAGE_DIR: targetDir, OBJECT_STORAGE_BUCKET: "target" });

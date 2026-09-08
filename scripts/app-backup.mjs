@@ -174,8 +174,8 @@ export async function createBundle(options) {
     const manifest = { version: 2, format: "pstack-application-bundle", createdAt: new Date().toISOString(),
       databaseManifestSha256: await sha256(path.join(output, "database/manifest.json")), kafkaRecovery, objects };
     await publish(path.join(output, "bundle.json"), JSON.stringify(manifest, null, 2) + "\n");
+    await syncAncestors(path.dirname(output));
     await publish(path.join(output, "COMPLETE"), await sha256(path.join(output, "bundle.json")) + "\n");
-    await syncPath(path.dirname(output));
     await verifyBundle(output);
     console.log(`Application bundle created: ${output}`);
   } finally { source.close(); }
