@@ -58,8 +58,8 @@ export async function readTransportOffsets(admin: Admin, topics: string[], trans
 
 export async function captureKafkaCheckpoint(admin: Admin, logicalGroup: string, transportGroup: string, topics: string[]): Promise<KafkaCheckpoint> {
   group.parse(logicalGroup); group.parse(transportGroup);
-  const logs = await inspectLogs(admin, topics);
   const committed = await readTransportOffsets(admin, topics, transportGroup);
+  const logs = await inspectLogs(admin, topics);
   return kafkaCheckpointSchema.parse({
     kind: "checkpoint", clusterId: logs.clusterId, logicalGroup, sourceTransportGroup: transportGroup,
     topics: topics.map((topic) => ({ topic, cleanupPolicy: "delete" })),

@@ -239,6 +239,27 @@ async function proveRecovery() {
     await enqueue(source, anchor);
     startRuntime(env);
     await consumed(source, anchor);
+    const fetchTopicOffsets = admin.fetchTopicOffsets;
+    let advancedDuringCapture = false;
+    admin.fetchTopicOffsets = async (topic) => {
+      const bounds = await fetchTopicOffsets(topic);
+      if (topic === "app.tasks" && !advancedDuringCapture) {
+        advancedDuringCapture = true;
+        const concurrentEvent = `checkpoint-concurrent-${id}`;
+        await publishDirect([concurrentEvent]);
+        await consumed(source, concurrentEvent);
+      }
+      return bounds;
+    };
+    try {
+      const captured = await recoveryTools.captureKafkaCheckpoint(admin, prefix, prefix, ["app.tasks"]);
+      assert.equal(advancedDuringCapture, true);
+      const committed = await recoveryTools.readTransportOffsets(admin, ["app.tasks"], prefix);
+      assert.ok(BigInt(committed[0].nextOffset) > BigInt(captured.partitions[0].high), "Real consumer progress must pass the sampled log end before capture returns");
+      assert.ok(BigInt(captured.partitions[0].nextOffset) <= BigInt(captured.partitions[0].high), "Checkpoint must retain the earlier replayable consumer position");
+      summary.concurrentCheckpoint = { captured: captured.partitions, committed };
+      console.log("Concurrent checkpoint proof passed: real publication and consumption advance beyond the sampled log end");
+    } finally { admin.fetchTopicOffsets = fetchTopicOffsets; }
     await stopRuntime();
     await source.query("UPDATE app_idempotency_keys SET created_at='2000-01-01', expires_at='2000-01-02' WHERE scope=$1", [prefix]);
     await source.query("UPDATE app_async_receipts SET created_at='2000-01-01' WHERE task_id=$1", [anchor]);
