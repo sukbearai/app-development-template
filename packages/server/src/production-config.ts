@@ -1,3 +1,5 @@
+export { assessDeploymentConfig } from "./deployment-config";
+export type { ConfigIssue } from "./deployment-config";
 import { appOriginSchema } from "./config-values";
 
 const requiredProductionEnvNames = ["DATABASE_URL", "APP_ORIGIN"] as const;

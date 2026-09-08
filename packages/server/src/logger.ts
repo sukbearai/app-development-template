@@ -1,4 +1,5 @@
 import { isWebDraining, trackWebWork } from "@pstack/database/process-lifecycle";
+import { recordHttpMetric } from "./http-metrics";
 import { env } from "./env";
 import { ApiError, fail } from "./api-response";
 import { findApiOperation, parseApiResponse } from "@pstack/contracts/http";
@@ -137,8 +138,9 @@ async function accessLog(
   traceId: string,
   handler: () => Promise<Response>,
 ) {
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   const path = new URL(request.url).pathname;
+  const operation = findApiOperation(request.method, path);
   let response: Response;
   let failure: { error: unknown } | undefined;
   try {
@@ -146,9 +148,9 @@ async function accessLog(
   } catch (error) {
     failure = { error };
     response = fail(error, traceId);
+    if (error instanceof ApiError && error.code === "UPLOAD_BUSY") response.headers.set("retry-after", "1");
   }
   try {
-    const operation = findApiOperation(request.method, path);
     if (operation) {
       const body = parseApiResponse(
         operation.operationId,
@@ -163,6 +165,7 @@ async function accessLog(
     failure ??= { error };
     response = fail(error, traceId);
   }
+  if (response.status >= 400 && request.body && !request.bodyUsed) response.headers.set("connection", "close");
   if (failure) {
     log(response.status >= 500 ? "error" : "warn", "http request failed", {
       traceId,
@@ -171,12 +174,14 @@ async function accessLog(
       error: errorDiagnostic(failure.error),
     });
   }
+  const durationMs = performance.now() - startedAt;
+  if (operation) recordHttpMetric(operation.operationId, response.status, durationMs);
   logger.info("http request", {
     traceId,
     method: request.method,
     path,
     status: response.status,
-    durationMs: Date.now() - startedAt,
+    durationMs,
   });
   return response;
 }

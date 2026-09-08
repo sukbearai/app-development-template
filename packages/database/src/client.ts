@@ -33,6 +33,10 @@ export function getPool() {
   }
   return pool;
 }
+export function databasePoolSnapshot() {
+  return { total: pool?.totalCount ?? 0, idle: pool?.idleCount ?? 0,
+    waiting: pool?.waitingCount ?? 0, max: pool?.options.max ?? 10 };
+}
 export function getDatabase() {
   database ??= createPgDrizzleClient(getPool());
   return database;

@@ -1,3 +1,4 @@
+import { withUploadAdmission } from "@pstack/server/upload-admission";
 import { authToken } from "@pstack/server/request-auth";
 import { getTraceId, ok } from "@pstack/server/api-response";
 import { requireApiWritePermission } from "@/lib/api-authz";
@@ -14,10 +15,12 @@ export async function POST(request: Request) {
   const traceId = getTraceId(request);
   return withAccessLog(request, traceId, async () => {
     await requireApiWritePermission(request, "file.upload");
-    assertRequestContentLength(request, env.UPLOAD_MAX_BYTES, "上传请求");
-    const formData = await readBoundedFormData(request, env.UPLOAD_MAX_BYTES);
-    const file = parseInput(uploadFileSchema, formData.get("file"));
-    assertInMemoryUploadSize({ sizeBytes: file.size, maxBytes: env.UPLOAD_MAX_BYTES, label: "上传文件" });
-    return ok(await storeUploadedFile({ file, traceId, token: authToken(request) }), traceId);
+    return withUploadAdmission(async () => {
+      assertRequestContentLength(request, env.UPLOAD_MAX_BYTES, "上传请求");
+      const formData = await readBoundedFormData(request, env.UPLOAD_MAX_BYTES);
+      const file = parseInput(uploadFileSchema, formData.get("file"));
+      assertInMemoryUploadSize({ sizeBytes: file.size, maxBytes: env.UPLOAD_MAX_BYTES, label: "上传文件" });
+      return ok(await storeUploadedFile({ file, traceId, token: authToken(request) }), traceId);
+    });
   });
 }

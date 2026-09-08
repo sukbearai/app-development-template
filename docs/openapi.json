@@ -12,6 +12,62 @@
     }
   ],
   "paths": {
+    "/api/system/metrics": {
+      "get": {
+        "operationId": "getApiSystemMetrics",
+        "summary": "使用独立凭据读取进程和数据库聚合指标",
+        "tags": [
+          "System"
+        ],
+        "security": [
+          {
+            "metricsBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "操作成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeMetricsSuccess"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "未认证或凭据无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailure"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务器内部错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailure"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "依赖不可用",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/password": {
       "post": {
         "operationId": "postApiAuthPassword",
@@ -1654,6 +1710,11 @@
   },
   "components": {
     "securitySchemes": {
+      "metricsBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "仅接受 METRICS_TOKEN 独立凭据，不接受用户会话或 Cookie。"
+      },
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
@@ -2684,6 +2745,369 @@
         "required": [
           "traceId",
           "error"
+        ],
+        "additionalProperties": false
+      },
+      "RuntimeMetricsSuccess": {
+        "type": "object",
+        "properties": {
+          "traceId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "version": {
+                "type": "number",
+                "const": 1
+              },
+              "observedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+              },
+              "process": {
+                "type": "object",
+                "properties": {
+                  "uptimeSeconds": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "rssBytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "heapUsedBytes": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "uptimeSeconds",
+                  "rssBytes",
+                  "heapUsedBytes"
+                ],
+                "additionalProperties": false
+              },
+              "databasePool": {
+                "type": "object",
+                "properties": {
+                  "total": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "idle": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "waiting": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "max": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "total",
+                  "idle",
+                  "waiting",
+                  "max"
+                ],
+                "additionalProperties": false
+              },
+              "uploads": {
+                "type": "object",
+                "properties": {
+                  "active": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "limit": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "rejectedTotal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "active",
+                  "limit",
+                  "rejectedTotal"
+                ],
+                "additionalProperties": false
+              },
+              "http": {
+                "maxItems": 512,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "operationId": {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    "status": {
+                      "type": "integer",
+                      "minimum": 100,
+                      "maximum": 599
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "durationMsTotal": {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    "durationMsMax": {
+                      "type": "number",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "operationId",
+                    "status",
+                    "count",
+                    "durationMsTotal",
+                    "durationMsMax"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "database": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "const": "available"
+                      },
+                      "observedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                      },
+                      "outbox": {
+                        "type": "object",
+                        "properties": {
+                          "pending": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "processing": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "failed": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "deadLetter": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "published": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "oldestPendingAgeMs": {
+                            "type": "number",
+                            "minimum": 0
+                          },
+                          "staleLocks": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "pending",
+                          "processing",
+                          "failed",
+                          "deadLetter",
+                          "published",
+                          "oldestPendingAgeMs",
+                          "staleLocks"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "tasks": {
+                        "type": "object",
+                        "properties": {
+                          "pending": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "running": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "succeeded": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "failed": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "deadLetter": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "canceled": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "oldestUnfinishedAgeMs": {
+                            "type": "number",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "pending",
+                          "running",
+                          "succeeded",
+                          "failed",
+                          "deadLetter",
+                          "canceled",
+                          "oldestUnfinishedAgeMs"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "quarantine": {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "recovery": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "recovery"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "uploads": {
+                        "type": "object",
+                        "properties": {
+                          "pending": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "writing": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "cleanup": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "blocked": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "pending",
+                          "writing",
+                          "cleanup",
+                          "blocked"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "observedAt",
+                      "outbox",
+                      "tasks",
+                      "quarantine",
+                      "uploads"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "status": {
+                        "type": "string",
+                        "const": "unavailable"
+                      },
+                      "observedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$"
+                      }
+                    },
+                    "required": [
+                      "status",
+                      "observedAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              }
+            },
+            "required": [
+              "version",
+              "observedAt",
+              "process",
+              "databasePool",
+              "uploads",
+              "http",
+              "database"
+            ],
+            "additionalProperties": false
+          },
+          "meta": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "traceId",
+          "data"
         ],
         "additionalProperties": false
       },

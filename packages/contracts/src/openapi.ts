@@ -48,6 +48,7 @@ export function buildOpenApiDocument() {
     }));
     const optional: Pick<OpenApiOperation, "parameters" | "security" | "requestBody"> = {};
     if (parameters.length) optional.parameters = parameters;
+    if (operation.metricsAuthenticated) optional.security = [{ metricsBearerAuth: [] }];
     if (operation.authenticated) optional.security = [{ bearerAuth: [] }, { cookieAuth: [] }];
     if (operation.request) optional.requestBody = {
       required: true,
@@ -72,6 +73,7 @@ export function buildOpenApiDocument() {
     paths,
     components: {
       securitySchemes: {
+        metricsBearerAuth: { type: "http", scheme: "bearer", description: "仅接受 METRICS_TOKEN 独立凭据，不接受用户会话或 Cookie。" },
         bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "session-token" },
         cookieAuth: { type: "apiKey", in: "cookie", name: "pstack_session", description: "默认 Cookie 名称，可通过 SESSION_COOKIE_NAME 配置。Cookie 会话的写请求必须携带同源 Origin。" },
       },

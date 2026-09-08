@@ -372,3 +372,17 @@ test("HTTP boundary removes undeclared output fields and preserves cookies", asy
   assert.match(response.headers.get("set-cookie"), /test=value/);
   assert.equal("passwordHash" in (await response.json()).data, false);
 });
+
+
+test("metrics remain closed when no dedicated token is configured", () => {
+  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+    import assert from "node:assert/strict";
+    import { requireMetricsToken } from "./src/metrics-auth.ts";
+    for (const authorization of ["Bearer " + "a".repeat(32), ""]) {
+      assert.throws(() => requireMetricsToken(new Request("http://localhost/api/system/metrics", {
+        headers: { authorization, cookie: "pstack_session=administrator" },
+      })), (error) => error.status === 401 && error.code === "METRICS_UNAUTHORIZED");
+    }
+  `], { cwd: new URL("..", import.meta.url), env: { ...process.env, METRICS_TOKEN: "" }, encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+});

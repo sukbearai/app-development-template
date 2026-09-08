@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { runtimeMetricsSchema } from "./runtime-metrics.ts";
 import {
   changePasswordRequestSchema, resetUserPasswordRequestSchema, changePasswordResponseSchema, resetUserPasswordResponseSchema,
   nonEmptyStringSchema, jsonRecordSchema, loginRequestSchema, loginResponseSchema,
@@ -48,6 +49,7 @@ export interface HttpOperationContract {
   tag: string;
   summary: string;
   authenticated?: boolean;
+  metricsAuthenticated?: boolean;
   request?: { name: string; schema: z.ZodType; contentType: "application/json" | "multipart/form-data" };
   responses: Record<number, HttpResponseContract>;
 }
@@ -63,6 +65,12 @@ function json(name: string, schema: z.ZodType) {
 }
 
 export const apiOperations = [
+  {
+    operationId: "getApiSystemMetrics", method: "GET", path: "/api/system/metrics",
+    routeFile: "app/api/system/metrics/route.ts", tag: "System", summary: "使用独立凭据读取进程和数据库聚合指标",
+    metricsAuthenticated: true,
+    responses: { 200: response("RuntimeMetricsSuccess", apiSuccessSchema(runtimeMetricsSchema)), ...failures(401, 500, 503) },
+  },
   {
     operationId: "postApiAuthPassword", method: "POST", path: "/api/auth/password",
     routeFile: "app/api/auth/password/route.ts", tag: "Auth", summary: "验证当前密码并修改密码，撤销所有会话",

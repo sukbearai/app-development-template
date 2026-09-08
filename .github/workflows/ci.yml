@@ -46,6 +46,7 @@ jobs:
       - run: pnpm db:migrate
       - run: pnpm admin:bootstrap
       - run: pnpm pr:verify --full
+      - run: pnpm test:capacity
       - run: pnpm test:backup
       - run: pnpm test:app-backup
       - run: docker compose --env-file .env.example -f deploy/compose/docker-compose.yml --profile '*' config --quiet
