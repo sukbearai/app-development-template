@@ -1,16 +1,13 @@
 import { loadEnvironment } from "@pstack/database/environment";
 import { z } from "zod";
-
-export const booleanString = z
-  .enum(["true", "false", "1", "0"])
-  .transform((value) => value === "true" || value === "1");
+import { appOriginSchema, booleanString } from "./config-values";
 export const envSchema = z.object({
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
   APP_NAME: z.string().trim().min(1).default("Pstack X"),
-  APP_ORIGIN: z.url().optional(),
+  APP_ORIGIN: appOriginSchema.optional(),
   SESSION_COOKIE_NAME: z
     .string()
     .regex(/^[A-Za-z0-9_-]+$/)

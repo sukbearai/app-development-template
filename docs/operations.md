@@ -39,6 +39,10 @@ Both health readers also report retained quarantine records. `async_message_quar
 
 Production Worker execution requires an explicit `OUTBOX_PUBLISHER=kafka` or `dry-run`. A missing setting fails startup. `health`, `--iterations 0`, and explicitly requested read-only dry-run remain diagnostic operations; their success does not prove delivery.
 
+The administrator async health response describes the configured worker plan, not proof that a Worker is running. `ASYNC_RUNTIME_PUBLISHER` supplies that diagnostic publishing mode when Web does not run the publisher itself. Without it, the response uses `OUTBOX_PUBLISHER`, or `unknown` when neither is set. Compose shares its worker publishing mode and topic list with Web diagnostics while keeping Kafka optional for Web readiness. Check task progress, backlog alerts and Worker health to establish execution.
+
+`APP_ORIGIN` accepts an HTTP(S) origin and normalizes host case, default ports and a trailing slash. Credentials, non-root paths, query strings and fragments are rejected. S3 addressing uses the same boolean parser in application and backup commands: `true` and `1` enable path addressing, `false` and `0` disable it, and an omitted setting defaults to enabled. Other values are rejected.
+
 ## Database backups
 
 `pnpm backup:create --output backups/new-backup` requires a new output directory and explicit DATABASE_URL. It exports a repeatable-read PostgreSQL snapshot, reads the database migration ledger, and dumps both `public` and `drizzle` using that same snapshot. The manifest contains the actual ledger rows, latest database migration timestamp, database version, ledger hash, structural schema hash and archive SHA-256. It does not infer the applied schema version from local migration files.

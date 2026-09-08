@@ -16,6 +16,8 @@ x-app: &app
     LOGIN_RATE_LIMIT_GLOBAL_MAX: ${LOGIN_RATE_LIMIT_GLOBAL_MAX:-200}
     WEB_REPLICAS: ${WEB_REPLICAS:-1}
     OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
+    ASYNC_RUNTIME_PUBLISHER: &worker-publisher kafka
+    ASYNC_RUNTIME_TOPICS: ${ASYNC_RUNTIME_TOPICS:-app.tasks,telemetry.events,files.events,audit.events}
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-60}
     LOGIN_RATE_LIMIT_MEMORY_MAX_KEYS: ${LOGIN_RATE_LIMIT_MEMORY_MAX_KEYS:-5000}
     REDIS_URL: redis://redis:6379
@@ -134,8 +136,7 @@ services:
       target: worker
     environment:
       <<: *environment
-      OUTBOX_PUBLISHER: kafka
-      ASYNC_RUNTIME_TOPICS: ${ASYNC_RUNTIME_TOPICS:-app.tasks,telemetry.events,files.events,audit.events}
+      OUTBOX_PUBLISHER: *worker-publisher
       WORKER_HEARTBEAT_PATH: /tmp/pstack-worker-heartbeat.json
     depends_on:
       migrate:

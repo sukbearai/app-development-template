@@ -210,6 +210,10 @@ test("boolean config and cookie TTL use explicit values", () => {
   assert.throws(() =>
     envSchema.parse({ OBJECT_STORAGE_FORCE_PATH_STYLE: "yes" }),
   );
+  assert.equal(envSchema.parse({ APP_ORIGIN: "https://app.example/" }).APP_ORIGIN, "https://app.example");
+  assert.equal(envSchema.parse({ APP_ORIGIN: "https://APP.EXAMPLE:443/" }).APP_ORIGIN, "https://app.example");
+  for (const origin of ["not-a-url", "https://", "ftp://app.example", "https://user:pass@app.example", "https://app.example/path", "https://app.example/?query=1", "https://app.example/#fragment"])
+    assert.equal(envSchema.safeParse({ APP_ORIGIN: origin }).success, false);
   const response = setSessionCookie(new Response(), "id.secret");
   assert.match(response.headers.get("set-cookie"), /Max-Age=86400/);
 });
@@ -230,6 +234,27 @@ test("forged forwarded headers cannot establish cookie write origin", () => {
     },
   });
   assert.equal(verifyRequestOrigin(request), false);
+});
+test("canonical deployment origins accept same-origin cookie writes and reject foreign origins", () => {
+  const source = `
+    import { assertSafeWriteOrigin } from './src/api-security.ts';
+    import { sessionCookieName } from './src/request-auth.ts';
+    import { env } from './src/env.ts';
+    import { validateProductionConfig } from './src/production-config.ts';
+    const results = ['https://app.example', 'https://evil.example', 'null'].map(origin => {
+      const request = new Request('http://internal:3000/api/auth/logout', {
+        method: 'POST', headers: { origin, cookie: sessionCookieName + '=test' }
+      });
+      try { assertSafeWriteOrigin(request); return 200; } catch (error) { return error.status; }
+    });
+    console.log(JSON.stringify({ origin: env.APP_ORIGIN, results, issues: validateProductionConfig() }));
+  `;
+  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
+    cwd: new URL("..", import.meta.url), encoding: "utf8",
+    env: { ...process.env, NODE_ENV: "production", APP_ORIGIN: "https://APP.EXAMPLE:443/", DATABASE_URL: "postgres://test:test@localhost/test", RATE_LIMIT_DRIVER: "memory", WEB_REPLICAS: "1", UPLOAD_STORAGE_DRIVER: "local", OUTBOX_PUBLISHER: "disabled" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { origin: "https://app.example", results: [200, 403, 403], issues: [] });
 });
 test("JSON parse and unknown error boundaries preserve safe status", async () => {
   await assert.rejects(

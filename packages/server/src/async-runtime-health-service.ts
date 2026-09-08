@@ -121,7 +121,7 @@ function emptyTaskCounts(): AsyncRuntimeTaskCounts {
 export function buildRuntimePlanFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): AsyncRuntimePlanSnapshot {
-  const topics = (env.ASYNC_RUNTIME_TOPICS || "app.tasks")
+  const topics = (env.ASYNC_RUNTIME_TOPICS || "app.tasks,telemetry.events,files.events,audit.events")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -133,7 +133,7 @@ export function buildRuntimePlanFromEnv(
   return {
     outboxIntervalMs: positiveIntegerEnv("OUTBOX_POLL_INTERVAL_MS", 5000, env),
     topics,
-    publisher: env.OUTBOX_PUBLISHER || "dry-run",
+    publisher: env.ASYNC_RUNTIME_PUBLISHER || env.OUTBOX_PUBLISHER || "unknown",
     kafka: {
       brokersConfigured,
       clientId: env.KAFKA_CLIENT_ID || "app-template-worker",

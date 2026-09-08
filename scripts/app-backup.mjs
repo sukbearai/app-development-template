@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
+import { tsImport } from "tsx/esm/api";
 import { createBackup, restoreBackup, sha256, verifyBackup } from "./db-backup.mjs";
 import { loadEnvironment, postgresUrl } from "./env.mjs";
 import { captureKafkaRecovery, parseKafkaRecovery, verifyKafkaCheckpointHistory, planKafkaRestore,
@@ -16,6 +17,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(root, "packages/server/package.json"));
 const keyPattern = /^upload_[a-f0-9-]+$/;
 const digestPattern = /^[a-f0-9]{64}$/;
+const { booleanString } = await tsImport("../packages/server/src/config-values.ts", import.meta.url);
 async function syncPath(file) {
   const handle = await open(file, "r");
   try { await handle.sync(); } finally { await handle.close(); }
@@ -81,7 +83,7 @@ export function storage(env = process.env) {
     if (!endpoint || !env.OBJECT_STORAGE_ACCESS_KEY || !env.OBJECT_STORAGE_SECRET_KEY) throw new Error("Explicit S3 configuration is required");
     sdk ??= require("@aws-sdk/client-s3");
     client ??= new sdk.S3Client({ endpoint, region: env.OBJECT_STORAGE_REGION || "us-east-1",
-      forcePathStyle: env.OBJECT_STORAGE_FORCE_PATH_STYLE !== "false", maxAttempts: 2,
+      forcePathStyle: booleanString.default(true).parse(env.OBJECT_STORAGE_FORCE_PATH_STYLE), maxAttempts: 2,
       credentials: { accessKeyId: env.OBJECT_STORAGE_ACCESS_KEY, secretAccessKey: env.OBJECT_STORAGE_SECRET_KEY } });
     return client;
   }
