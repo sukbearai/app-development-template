@@ -8,6 +8,7 @@
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm hooks:install
 pnpm local:init
 pnpm local:up
 pnpm db:migrate
@@ -60,6 +61,12 @@ pnpm test:app-backup
 - [最新修复与验证结果](docs/production-repair-results.md)
 - [初始改造验证](docs/verification.md)
 - [开发架构](docs/architecture.md)
+- [工程能力建设方案](docs/engineering-adoption-plan.md)
+- [工程命令与验证证据](docs/engineering-tools.md)
+- [版本管理](docs/versioning.md)
+- [制品发布与部署计划](docs/releasing.md)
+- [隔离冷启动检查](docs/cold-start.md)
+- [容量回归比较](docs/capacity-comparison.md)
 - [运行、备份和中间件](docs/operations.md)
 - [联合备份与恢复](docs/recovery.md)
 - [生产部署预检](docs/production-deployment.md)

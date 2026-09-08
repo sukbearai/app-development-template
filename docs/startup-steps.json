@@ -1,0 +1,9 @@
+{
+  "install": ["install", "--frozen-lockfile"],
+  "hooks": ["hooks:install"],
+  "init": ["local:init"],
+  "up": ["local:up"],
+  "migrate": ["db:migrate"],
+  "bootstrap": ["admin:bootstrap"],
+  "dev": ["dev"]
+}

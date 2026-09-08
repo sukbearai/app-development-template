@@ -1,5 +1,7 @@
 # Local capacity measurements
 
+Reports now retain raw request and resource samples plus source, environment and load identities. Use [capacity comparison](capacity-comparison.md) to compare repeated baseline and candidate runs with explicit rules. A single successful run does not establish a regression baseline.
+
 Run `pnpm test:capacity` in a checkout without active `.env` files. Node 22.12+, pnpm, Docker, `ps` and `lsof` are required. Install dependencies and run `pnpm hooks:install` first. The command builds the production application, creates an isolated PostgreSQL container and administrator, and measures real HTTP operations. It never accepts a URL or database argument and ignores inherited application and middleware settings.
 
 ```sh

@@ -1,0 +1,218 @@
+name: Release application
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      retry_tag:
+        description: Original draft tag to resume using its verified artifacts, for example v0.1.1
+        required: false
+        type: string
+      retry_run_id:
+        description: Original release workflow run ID containing the tested image batch
+        required: false
+        type: string
+      retry_run_attempt:
+        description: Original attempt that uploaded the release evidence artifact
+        required: false
+        type: string
+        default: '1'
+permissions:
+  contents: read
+concurrency:
+  group: application-release
+  cancel-in-progress: false
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+    outputs:
+      sha: ${{ steps.identity.outputs.sha }}
+      tag: ${{ steps.identity.outputs.tag }}
+      version: ${{ steps.identity.outputs.version }}
+      release_id: ${{ steps.identity.outputs.release_id }}
+      recovery_run: ${{ steps.recovery.outputs.recovery_run }}
+      recovery_artifact: ${{ steps.recovery.outputs.recovery_artifact }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Check release configuration
+        run: node scripts/release-version-check.mjs
+      - name: Resolve original recovery artifact
+        id: recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_TAG: ${{ inputs.retry_tag }}
+          RETRY_RUN_ID: ${{ inputs.retry_run_id }}
+          RETRY_RUN_ATTEMPT: ${{ inputs.retry_run_attempt }}
+        run: |
+          if [ -n "$RETRY_TAG" ]; then
+            node scripts/release-status.mjs recovery --repo "$GITHUB_REPOSITORY" --tag "$RETRY_TAG" --run-id "$RETRY_RUN_ID" --attempt "$RETRY_RUN_ATTEMPT" > recovery-artifact.json
+            jq -r '"recovery_run=\(.runId)\nrecovery_artifact=\(.artifactName)"' recovery-artifact.json >> "$GITHUB_OUTPUT"
+          else
+            test -z "$RETRY_RUN_ID" || { echo 'retry_run_id requires retry_tag.' >&2; exit 1; }
+          fi
+      - name: Check pending candidate and reserved tags
+        if: inputs.retry_tag == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-status.mjs preflight --repo "$GITHUB_REPOSITORY"
+      - name: Require GitHub App for release PR checks
+        if: inputs.retry_tag == ''
+        env:
+          RELEASE_APP_ID: ${{ vars.RELEASE_APP_ID }}
+          RELEASE_APP_PRIVATE_KEY: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+        run: |
+          test -n "$RELEASE_APP_ID" || { echo 'Configure RELEASE_APP_ID before enabling release PR automation.' >&2; exit 1; }
+          test -n "$RELEASE_APP_PRIVATE_KEY" || { echo 'Configure RELEASE_APP_PRIVATE_KEY before enabling release PR automation.' >&2; exit 1; }
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349
+        if: inputs.retry_tag == ''
+        id: app
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+      - uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071
+        if: inputs.retry_tag == ''
+        id: release
+        with:
+          token: ${{ steps.app.outputs.token }}
+          target-branch: main
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+      - name: Resolve original draft identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_TAG: ${{ inputs.retry_tag }}
+          CREATED: ${{ steps.release.outputs.release_created }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+          RELEASE_PATHS: ${{ steps.release.outputs.paths_released }}
+        run: |
+          if [ -n "$RETRY_TAG" ]; then
+            node scripts/release-status.mjs resolve --repo "$GITHUB_REPOSITORY" --tag "$RETRY_TAG" > release-identity.json
+          elif [ "$CREATED" = true ]; then
+            node --input-type=module -e 'import assert from "node:assert/strict"; assert.deepEqual(JSON.parse(process.env.RELEASE_PATHS), ["."]);'
+            node scripts/release-status.mjs resolve --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" > release-identity.json
+            node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; assert.equal(JSON.parse(fs.readFileSync("release-identity.json")).releaseId, Number(process.env.RELEASE_ID));'
+          else
+            echo 'No newly created release. Explicit retry_tag is required to resume a draft.'
+            exit 0
+          fi
+          jq -r '"sha=\(.sha)\ntag=\(.tag)\nversion=\(.version)\nrelease_id=\(.releaseId)"' release-identity.json >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.sha != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      packages: write
+      actions: read
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: app
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://app:ci-only-password@localhost:5432/app
+      COMPOSE_DATABASE_URL: postgres://app:ci-only-password@postgres:5432/app
+      APP_ORIGIN: http://localhost:3100
+      BOOTSTRAP_ADMIN_ACCOUNT: admin
+      BOOTSTRAP_ADMIN_PASSWORD: ci-only-password-8791
+      E2E_USERNAME: admin
+      E2E_PASSWORD: ci-only-password-8791
+      POSTGRES_TOOLS: docker
+      POSTGRES_TOOL_IMAGE: postgres:17-alpine
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10.33.4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Verify candidate version and checkout
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.sha }}
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node scripts/release-version-check.mjs --candidate
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; assert.equal(JSON.parse(fs.readFileSync("package.json")).version, process.env.EXPECTED_VERSION);'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm hooks:install
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: needs.prepare.outputs.recovery_run != ''
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.prepare.outputs.recovery_run }}
+          name: ${{ needs.prepare.outputs.recovery_artifact }}
+          path: .
+      - run: pnpm exec playwright install --with-deps chromium
+        if: needs.prepare.outputs.recovery_run == ''
+      - run: pnpm db:migrate
+        if: needs.prepare.outputs.recovery_run == ''
+      - run: pnpm admin:bootstrap
+        if: needs.prepare.outputs.recovery_run == ''
+      - name: Verify source and the candidate images
+        if: needs.prepare.outputs.recovery_run == ''
+        env:
+          PSTACK_RELEASE_OUTPUT: artifacts/release-candidate
+        run: |
+          mkdir -p artifacts
+          pnpm --silent pr:verify --release --json > artifacts/release-result.json
+      - name: Validate original verification result and candidate bytes
+        id: verify
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const result = JSON.parse(fs.readFileSync("artifacts/release-result.json")); assert.equal(result.status, "passed"); assert.match(result.evidence, /^artifacts\/verification\/[A-Za-z0-9_-]+\/index\.json$/); fs.appendFileSync(process.env.GITHUB_OUTPUT, `evidence=${result.evidence}\n`);'
+          EVIDENCE_INDEX=$(node -p 'JSON.parse(require("node:fs").readFileSync("artifacts/release-result.json")).evidence')
+          node scripts/release-publish.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --output artifacts/release --repo "$GITHUB_REPOSITORY"
+      - name: Publish the verified image batch and draft
+        if: success() && steps.verify.outputs.evidence != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_INDEX: ${{ steps.verify.outputs.evidence }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+        run: |
+          node scripts/release-status.mjs resolve --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" > "$RUNNER_TEMP/release-identity.json"
+          node --input-type=module -e 'import fs from "node:fs"; import path from "node:path"; import assert from "node:assert/strict"; assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,"release-identity.json"))).releaseId, Number(process.env.RELEASE_ID));'
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          node scripts/release-publish.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --output artifacts/release --repo "$GITHUB_REPOSITORY" --apply
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: release-evidence-${{ needs.prepare.outputs.tag }}-${{ github.run_attempt }}
+          path: |
+            artifacts/
+            .verification/
+          include-hidden-files: true
+          if-no-files-found: error

@@ -1,0 +1,10 @@
+services:
+  migrate:
+    image: ${PSTACK_WEB_IMAGE:?Use release:plan to obtain a verified digest reference}
+    build: !reset null
+  web:
+    image: ${PSTACK_WEB_IMAGE:?Use release:plan to obtain a verified digest reference}
+    build: !reset null
+  worker:
+    image: ${PSTACK_WORKER_IMAGE:?Use release:plan to obtain a verified digest reference}
+    build: !reset null

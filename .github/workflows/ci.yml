@@ -42,6 +42,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm hooks:install
+      - run: pnpm version:check
+      - run: pnpm docs:check
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm db:migrate
       - run: pnpm admin:bootstrap
@@ -51,6 +54,7 @@ jobs:
       - run: pnpm test:app-backup
       - run: docker compose --env-file .env.example -f deploy/compose/docker-compose.yml --profile '*' config --quiet
       - run: pnpm test:containers
+      - run: pnpm test:cold-start
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -63,5 +67,6 @@ jobs:
             .verification/async-recovery/
             .verification/kafka-security/
             .verification/template-implementation/
+            .verification/cold-start/
           include-hidden-files: true
           if-no-files-found: error

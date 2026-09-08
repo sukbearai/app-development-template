@@ -32,7 +32,7 @@
     "pr:verify": "node scripts/pr-verify.mjs",
     "smoke": "pnpm --filter @pstack/web smoke",
     "test": "pnpm test:unit && pnpm test:integration",
-    "verify": "pnpm lint && pnpm duplication:check && pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security",
+    "verify": "pnpm lint && pnpm duplication:check && pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm version:check && pnpm docs:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security",
     "local:init": "node scripts/local.mjs init",
     "local:up": "node scripts/local.mjs up",
     "local:down": "node scripts/local.mjs down",
@@ -61,7 +61,14 @@
     "test:anti-slop": "node --import tsx --test tools/anti-slop/src/rules/*.test.ts tools/anti-slop/src/effect/rules/*.test.ts",
     "test:quality": "node --test scripts/tests/quality-gates.test.mjs",
     "hooks:install": "node scripts/install-hooks.mjs",
-    "test:hooks": "node --test scripts/tests/git-hooks.test.mjs"
+    "test:hooks": "node --test scripts/tests/git-hooks.test.mjs",
+    "version:check": "node scripts/release-version-check.mjs",
+    "capacity:compare": "node scripts/capacity-compare.mjs",
+    "docs:check": "node scripts/check-docs.mjs",
+    "test:cold-start": "node scripts/cold-start.mjs",
+    "release:manifest": "node scripts/release-manifest.mjs",
+    "release:plan": "node scripts/release-deploy.mjs plan",
+    "release:publish": "node scripts/release-publish.mjs"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
@@ -75,6 +82,8 @@
     "@types/pg": "8.20.0",
     "@oxlint/plugins": "1.78.0",
     "jscpd": "5.1.2",
-    "oxlint": "1.78.0"
+    "oxlint": "1.78.0",
+    "release-please": "17.3.0",
+    "zod": "4.4.3"
   }
 }

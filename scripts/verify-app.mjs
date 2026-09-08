@@ -11,10 +11,14 @@ import { Client } from 'pg';
 import { verifyWebShutdown } from './web-shutdown-scenarios.mjs';
 import { acquireProductionLock, capacityPreflight, verificationOptions } from './capacity-options.mjs';
 import { runCapacityWorkload } from './capacity-workload.mjs';
+import os from 'node:os';
+import { execFileSync } from 'node:child_process';
+import { sourceIdentity } from './verification-evidence.mjs';
 
 const options = verificationOptions(process.argv.slice(2));
 const { mode, production } = options;
 const root = realpathSync(fileURLToPath(new URL('../', import.meta.url)));
+const verificationSource = await sourceIdentity(root);
 const webRoot = path.join(root, 'apps/web');
 const vinextCLI = realpathSync(path.join(webRoot, 'node_modules/vinext/dist/cli.js'));
 const outputRoot = path.join(root, '.verification', 'app');
@@ -31,6 +35,8 @@ let interrupted = false;
 const interruption = new AbortController();
 let releaseProductionLock;
 let capacityResult;
+let capacityComparison;
+let verifiedBuild = null;
 let monitoringCheck = false;
 let failure;
 let result;
@@ -98,7 +104,14 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
 });
 console.log(`Evidence: ${output}`);
 try {
-  if (mode === 'capacity') await capacityPreflight(root);
+  if (mode === 'capacity') {
+    await capacityPreflight(root);
+    capacityComparison = { schemaVersion: 1, runId: path.basename(output), source: await sourceIdentity(root),
+      environment: { machine: { hostname: os.hostname(), cpuModel: os.cpus()[0].model, cpuCount: os.cpus().length, totalMemoryBytes: os.totalmem() },
+        platform: { os: process.platform, release: os.release(), arch: process.arch }, runtime: { node: process.version, pnpm: execFileSync('pnpm', ['--version'], { encoding: 'utf8' }).trim() },
+        target: { mode: 'production', replicas: 1, storage: 'local', postgresImage: process.env.PSTACK_TEST_POSTGRES_IMAGE || 'postgres:17-bullseye',
+          uploadConcurrency: 2, databasePoolMax: 10, uploadMaxBytes: Number(childEnv.UPLOAD_MAX_BYTES), rateLimiter: 'memory', kafka: 'disabled' } }, load: { start: os.loadavg(), end: [] } };
+  }
   verificationStage = 'ownership_lock';
   if (production) releaseProductionLock = await acquireProductionLock(root);
   verificationStage = 'postgres_start';
@@ -129,6 +142,7 @@ try {
       await command('pnpm', ['build'], { env: { ...childEnv, NODE_ENV: 'production', APP_ENV: 'production' } });
       assert.equal(sourceSha256(root), source, 'Source changed during production build');
       buildIdentity = { sourceSha256: source, buildSha256: buildSha256(root) };
+      verifiedBuild = buildIdentity.buildSha256;
     }
     let launch = 0;
     async function launchServer(overrides = {}) {
@@ -239,10 +253,14 @@ try {
   try { await releaseProductionLock?.(); } catch { cleanupErrors.push('production_lock_cleanup_failed'); }
   if (interrupted && !failure) failure = new Error('Verification interrupted');
   if (cleanupErrors.length && !failure) failure = new Error('Verification cleanup failed');
-  if (capacityResult) await writeFile(path.join(output, 'capacity.json'), JSON.stringify({ ...capacityResult, status: failure ? 'failed' : capacityResult.status, cleanupErrors }, null, 2));
+  if (!failure && JSON.stringify(await sourceIdentity(root)) !== JSON.stringify(verificationSource)) failure = new Error('Source changed during verification');
+  if (capacityResult) {
+    capacityComparison.load.end = os.loadavg();
+    await writeFile(path.join(output, 'capacity.json'), JSON.stringify({ ...capacityResult, comparison: capacityComparison, status: failure ? 'failed' : capacityResult.status, cleanupErrors }, null, 2));
+  }
   await writeFile(path.join(output, 'result.json'), JSON.stringify(failure
     ? { status: 'failed', mode, production, error: mode === 'capacity' ? (capacityResult?.error ?? `capacity_${verificationStage}_failed`) : failure.message, cleanupErrors }
-    : { ...result, cleanupErrors }, null, 2));
+    : { ...result, source: verificationSource, buildSha256: verifiedBuild, cleanupErrors }, null, 2));
   await new Promise(resolve => log.end(resolve));
   console.log(`Evidence retained: ${output}`);
 }

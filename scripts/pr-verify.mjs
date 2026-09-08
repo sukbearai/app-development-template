@@ -1,14 +1,21 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { run } from "./process.mjs";
+import { commandResult, printCommandResult, runLogged } from "./engineering-command.mjs";
+import { createEvidenceRun, evidenceReference, sourceIdentity, writeEvidenceIndex } from "./verification-evidence.mjs";
+import { CORE_GATES, FULL_GATES, RELEASE_GATES } from './verification-plan.mjs';
+import { validateGateReports } from './gate-reports.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export function parseArguments(args) {
-  const options = { base: "HEAD", full: false, ui: false, summary: true };
+  const options = { base: "HEAD", full: false, ui: false, summary: true, json: false, containers: false, release: false };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--") continue;
     if (args[i] === "--full") options.full = true;
+    else if (args[i] === "--json") options.json = true;
+    else if (args[i] === "--containers") options.containers = true;
+    else if (args[i] === "--release") { options.release = true; options.full = true; options.containers = true; }
     else if (args[i] === "--ui") options.ui = true;
     else if (args[i] === "--no-summary") options.summary = false;
     else if (args[i] === "--base") {
@@ -20,9 +27,11 @@ export function parseArguments(args) {
 }
 export function verificationPlan(files, options) {
   // Unknown paths and clean checkouts receive the same core checks as application changes.
-  const gates = ["lint", "duplication:check", "boundary:check", "typecheck", "contract:check", "migration:check", "test:tools", "test:unit", "test:integration", "build"];
-  if (options.full) gates.push("db:integration", "test:e2e", "test:ui", "test:ui:production", "test:async-recovery", "test:kafka-security");
+  if (options.release) return [...RELEASE_GATES];
+  const gates = [...CORE_GATES];
+  if (options.full) gates.push(...FULL_GATES);
   else if (options.ui || files.some((file) => /^(apps\/web\/|packages\/server\/|packages\/contracts\/)/.test(file))) gates.push("test:ui");
+  if (options.containers) gates.push("test:containers");
   return [...new Set(gates)];
 }
 async function changedFiles(base) {
@@ -38,30 +47,77 @@ async function changedFiles(base) {
   const untracked = await run("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
   return [...new Set((diff + untracked).split("\0").filter(Boolean))].sort();
 }
-async function main() {
-  const options = parseArguments(process.argv.slice(2));
+async function reportsSince(directory, since) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(error => { if (error.code === 'ENOENT') return []; throw error; });
+  const files = [];
+  for (const entry of entries) {
+    const file = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await reportsSince(file, since));
+    else if (entry.isFile() && /\.(json|png|zip|log|txt)$/.test(entry.name) && (await stat(file)).mtimeMs >= since) files.push(file);
+  }
+  return files;
+}
+async function main(options) {
   const files = await changedFiles(options.base);
   const plan = verificationPlan(files, options);
+  const evidenceRun = await createEvidenceRun(root);
   const results = [];
+  const checks = [];
+  const interruption = new AbortController();
+  const interrupt = () => interruption.abort();
+  process.once('SIGINT', interrupt);
+  process.once('SIGTERM', interrupt);
   let failure;
   try {
     await run("git", ["diff", "--check"], { cwd: root });
     await run("git", ["diff", "--cached", "--check"], { cwd: root });
     for (const gate of plan) {
-      console.log(`> pnpm ${gate}`);
-      try { await run("pnpm", [gate], { cwd: root }); results.push({ gate, status: "passed" }); }
-      catch (error) { results.push({ gate, status: "failed" }); throw error; }
+      const started = Date.now();
+      const logFile = path.join(evidenceRun.output, `${checks.length}-${gate.replaceAll(':', '-')}.log`);
+      const commandArgs = gate === 'test:containers' && process.env.PSTACK_RELEASE_OUTPUT
+        ? [gate, '--export', process.env.PSTACK_RELEASE_OUTPUT] : [gate];
+      const outcome = await runLogged({ command: 'pnpm', args: commandArgs, cwd: root, logFile, signal: interruption.signal });
+      let status = outcome.code === 0 && !outcome.interrupted ? 'passed' : 'failed';
+      const reports = await reportsSince(path.join(root, '.verification'), started);
+      if (status === 'passed') {
+        try { await validateGateReports(gate, reports, root, evidenceRun.source); }
+        catch { status = 'failed'; }
+      }
+      results.push({ gate, status });
+      checks.push({ name: gate, status, startedAt: new Date(started).toISOString(), finishedAt: new Date().toISOString(), durationMs: Date.now() - started,
+        evidence: await Promise.all([logFile, ...reports].map(file => evidenceReference(root, file))) });
+      if (status !== 'passed') throw new Error(outcome.interrupted ? 'interrupted' : 'check_failed');
     }
+    if (JSON.stringify(await sourceIdentity(root)) !== JSON.stringify(evidenceRun.source)) throw new Error('source_changed');
+    interruption.signal.throwIfAborted();
   } catch (error) { failure = error; }
-  for (const gate of plan) if (!results.some((result) => result.gate === gate)) results.push({ gate, status: "not run after failure" });
+  for (const gate of plan) if (!results.some((result) => result.gate === gate)) {
+    results.push({ gate, status: "not run after failure" });
+    const logFile = path.join(evidenceRun.output, `${checks.length}-not-run.log`);
+    await writeFile(logFile, 'Not run after prerequisite or command failure.\n', { flag: 'wx' });
+    const now = new Date().toISOString();
+    checks.push({ name: gate, status: 'not-run', startedAt: now, finishedAt: now, durationMs: 0, evidence: [await evidenceReference(root, logFile)] });
+  }
   if (options.summary) {
     const directory = path.join(root, "artifacts/pr-verify");
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, "summary.json"), JSON.stringify({ base: options.base, full: options.full, files, results, passed: !failure }, null, 2) + "\n");
   }
-  if (failure) throw failure;
-  console.log(`PR verification passed (${plan.length} gates, ${files.length} changed files)`);
+  const indexFile = await writeEvidenceIndex(root, evidenceRun, checks, failure || interruption.signal.aborted ? 'failed' : 'passed');
+  if (interruption.signal.aborted) {
+    failure = new Error('interrupted');
+    const index = JSON.parse(await readFile(indexFile, 'utf8'));
+    index.status = 'failed';
+    await writeFile(indexFile, JSON.stringify(index, null, 2) + '\n');
+  }
+  process.removeListener('SIGINT', interrupt);
+  process.removeListener('SIGTERM', interrupt);
+  const status = interruption.signal.aborted ? 'interrupted' : failure ? 'failed' : 'passed';
+  printCommandResult(commandResult({ command: 'pr:verify', runId: evidenceRun.runId, status, errorCode: failure ? 'verification_failed' : null, evidence: path.relative(root, indexFile), data: { gates: results } }), options.json);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch((error) => { console.error(error.message); process.exitCode = 1; });
+  let options;
+  try { options = parseArguments(process.argv.slice(2)); }
+  catch { printCommandResult(commandResult({ command: 'pr:verify', status: 'invalid', errorCode: 'invalid_arguments' }), process.argv.includes('--json')); }
+  if (options) main(options).catch(() => { printCommandResult(commandResult({ command: 'pr:verify', status: 'failed', errorCode: 'verification_setup_failed' }), options.json); });
 }

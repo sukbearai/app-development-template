@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/891bcf6253b390e39df9ff3e1c059a836bd39c98/schemas/config.json",
+  "bootstrap-sha": "32462fc7d9d3c4bb8b7934c2c64a2692cb15f2c5",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "versioning": "prerelease",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true,
+      "prerelease-type": "rc.1",
+      "prerelease": false,
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "draft": true,
+      "force-tag-creation": true,
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

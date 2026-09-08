@@ -1,0 +1,32 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdtemp, mkdir, readFile, writeFile, rm, copyFile, symlink, chmod } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const project = fileURLToPath(new URL('../../', import.meta.url));
+test('SIGINT during the final command never leaves passed evidence', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'verification-interrupt-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, 'scripts')); await mkdir(path.join(root, 'bin'));
+  await symlink(path.join(project, 'node_modules'), path.join(root, 'node_modules'));
+  for (const file of ['pr-verify.mjs', 'process.mjs', 'engineering-command.mjs', 'verification-evidence.mjs', 'verification-plan.mjs', 'gate-reports.mjs']) await copyFile(path.join(project, 'scripts', file), path.join(root, 'scripts', file));
+  await writeFile(path.join(root, '.gitignore'), 'artifacts/\nnode_modules\n');
+  await writeFile(path.join(root, 'package.json'), '{"type":"module"}');
+  const binary = path.join(root, 'bin/pnpm');
+  await writeFile(binary, `#!${process.execPath}\nif(process.argv[2]==='build'){process.kill(process.ppid,'SIGINT');setTimeout(()=>{},30);}\n`);
+  await chmod(binary, 0o755);
+  const git = (...args) => execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+  git('init'); git('add', '.'); git('-c', 'core.hooksPath=/dev/null', '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.test', 'commit', '-qm', 'fixture');
+  const child = spawn(process.execPath, ['scripts/pr-verify.mjs', '--json'], { cwd: root, env: { ...process.env, PATH: `${path.join(root, 'bin')}:${process.env.PATH}` }, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stdout = ''; child.stdout.on('data', bytes => { stdout += bytes; }); child.stderr.resume();
+  const code = await new Promise((resolve, reject) => { child.once('error', reject); child.once('close', resolve); });
+  assert.equal(code, 130);
+  const result = JSON.parse(stdout);
+  assert.equal(result.status, 'interrupted'); assert.equal(result.errorCode, 'verification_failed');
+  const index = JSON.parse(await readFile(path.join(root, result.evidence), 'utf8'));
+  assert.equal(index.status, 'failed');
+  assert.equal(index.checks.find(check => check.name === 'build').status, 'failed');
+});

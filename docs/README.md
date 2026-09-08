@@ -8,6 +8,12 @@
 - [生产评估修复结果](production-repair-results.md)
 - [实施记录](implementation-plan.md)
 - [源码质量门禁](quality-gates.md)：anti-slop 全量规则、生产重复代码基线与更新流程。
+- [工程能力建设方案](engineering-adoption-plan.md)：六项能力的设计、实施范围与验收边界。
+- [工程命令与验证证据](engineering-tools.md)
+- [版本管理](versioning.md)
+- [制品发布与部署计划](releasing.md)
+- [隔离冷启动检查](cold-start.md)
+- [容量回归比较](capacity-comparison.md)
 - [改造前分析](analysis/README.md)
 
 生成项目时，在 requirements.md 中定义产品目标、用户角色、业务对象和不做范围，在 acceptance.md 中记录真实验收路径。改造前分析保留旧实现事实，当前代码和运行文档定义模板行为。

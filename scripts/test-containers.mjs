@@ -8,10 +8,13 @@ import { createRequire } from "node:module";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { sourceIdentity } from './verification-evidence.mjs';
+import { containerOptions, prepareCandidateDirectory, writeContainerCandidate } from './container-candidate.mjs';
 
-const args = process.argv.slice(2);
-if (args.length && (args.length !== 2 || args[0] !== "--source")) throw new Error("Usage: node scripts/test-containers.mjs [--source CHECKOUT]");
-const root = path.resolve(args[1] || fileURLToPath(new URL("../", import.meta.url)));
+const options = containerOptions(process.argv.slice(2), fileURLToPath(new URL('../', import.meta.url)));
+const { root } = options;
+if (options.output) await prepareCandidateDirectory(options.output);
+const source = await sourceIdentity(root);
 const { Client } = createRequire(path.join(root, "package.json"))("pg");
 const id = randomBytes(8).toString("hex");
 const prefix = `pstack-artifact-${id}`;
@@ -30,8 +33,9 @@ const builtImages = [];
 const processes = new Set();
 let networkCreated = false;
 let interrupted = false;
+const candidateAbort = new AbortController();
 let database;
-const summary = { source: root, output, postgresImage, kafkaImage, checks: [], status: "running" };
+const summary = { source, output, postgresImage, kafkaImage, checks: [], status: "running" };
 const childEnv = { ...process.env };
 for (const key of Object.keys(childEnv)) {
   if (/^(DATABASE_|PG|E2E_|UI_FLOW_|APP_|SESSION_|RATE_LIMIT_|LOGIN_RATE_|REDIS_|KAFKA_|OUTBOX_|ASYNC_|UPLOAD_|OBJECT_STORAGE_|CLICKHOUSE_|BOOTSTRAP_)/.test(key)) delete childEnv[key];
@@ -55,6 +59,7 @@ function command(program, commandArgs, { env = childEnv, capture = false, cleanu
 }
 for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => {
   interrupted = true;
+  candidateAbort.abort();
   process.exitCode = 1;
   for (const child of processes) try { process.kill(-child.pid, signal); } catch {}
 });
@@ -101,6 +106,7 @@ try {
   }
   summary.images = Object.fromEntries(await Promise.all(Object.entries(images).map(async ([role, tag]) => [role, {
     tag, id: await command("docker", ["image", "inspect", "--format", "{{.Id}}", tag], { capture: true }),
+    platform: await command('docker', ['image', 'inspect', '--format', '{{.Os}}/{{.Architecture}}', tag], { capture: true }),
   }])));
   await command("docker", ["network", "create", "--label", `pstack.artifact-test=${id}`, prefix], { capture: true });
   networkCreated = true;
@@ -195,8 +201,27 @@ try {
     catch (error) { cleanupErrors.push(`${role}: ${error.message}`); }
   }
   if (networkCreated) try { await command("docker", ["network", "rm", prefix], { capture: true, cleanup: true }); } catch (error) { cleanupErrors.push(error.message); }
+  if (summary.status === 'passed' && !interrupted && !cleanupErrors.length && options.output) {
+    try {
+      assert.deepEqual(await sourceIdentity(root), source, 'Source changed during container verification');
+      for (const role of ['web', 'worker']) {
+        assert.equal(await command('docker', ['image', 'inspect', '--format', '{{.Id}}', images[role]], { capture: true, cleanup: true }), summary.images[role].id, 'Image changed after verification');
+        await command('docker', ['image', 'save', '--output', path.join(options.output, `${role}.tar`), summary.images[role].id], { capture: true, cleanup: true });
+      }
+    } catch (error) { cleanupErrors.push(`candidate export: ${error.message}`); }
+  }
   for (const tag of builtImages) try { await command("docker", ["image", "rm", tag], { capture: true, cleanup: true }); } catch (error) { cleanupErrors.push(error.message); }
   if (cleanupErrors.length) { summary.cleanupErrors = cleanupErrors; summary.status = "failed"; process.exitCode = 1; }
+  if (interrupted) { summary.status = 'failed'; summary.error = 'Container verification interrupted'; process.exitCode = 130; }
   await writeFile(path.join(output, "summary.json"), JSON.stringify(summary, null, 2) + "\n");
+  if (summary.status === 'passed' && !interrupted && options.output) {
+    try {
+      await writeContainerCandidate({ root, output: options.output, source, summaryFile: path.join(output, 'summary.json'), images: summary.images, signal: candidateAbort.signal });
+      console.log(`Candidate: ${path.join(options.output, 'candidate.json')}`);
+    } catch {
+      summary.status = 'failed'; summary.error = 'Candidate finalization failed'; process.exitCode = interrupted ? 130 : 1;
+      await writeFile(path.join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
+    }
+  }
   await new Promise((resolve) => log.end(resolve));
 }

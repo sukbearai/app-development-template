@@ -11,7 +11,7 @@ import { verifyCapacityOverload } from './capacity-overload.mjs';
 
 export async function runCapacityWorkload({ env, options, signal }) {
   ownedCapacityTarget(env.APP_ORIGIN, env.DATABASE_URL);
-  const report = { version: 1, status: 'failed', options, operations: {}, metrics: {}, persistence: null, overload: null };
+  const report = { version: 1, status: 'failed', startedAt: new Date().toISOString(), options, operations: {}, metrics: {}, persistence: null, overload: null };
   const samples = [];
   const writes = [];
   const uploads = [];
@@ -94,13 +94,15 @@ export async function runCapacityWorkload({ env, options, signal }) {
       }
     });
     await Promise.all(workers);
-    report.operations[operation] = summarizeRequests(observations, performance.now() - started);
+    report.operations[operation] = { ...summarizeRequests(observations, performance.now() - started), observations };
     assert.equal(observations.length, options.requests, 'Workload issuance stopped');
     assert.equal(report.operations[operation].failed, 0, 'Unexpected workload response or deadline failure');
     assert.ok(report.operations[operation].successful > 0, 'Workload had no successful responses');
   }
   try {
     await control.connect();
+    const initial = await control.query('SELECT (SELECT count(*)::int FROM app_roles) AS roles, (SELECT count(*)::int FROM app_file_assets) AS files');
+    report.data = { initialRoles: initial.rows[0].roles, initialFiles: initial.rows[0].files };
     await sample();
     sampler = (async () => {
       try {
@@ -151,6 +153,7 @@ export async function runCapacityWorkload({ env, options, signal }) {
     await control.end().catch(() => { report.status = 'failed'; report.error = 'capacity_database_cleanup_failed'; });
     report.metrics = summarizeMetrics(samples);
     report.metricSamples = samples;
+    report.finishedAt = new Date().toISOString();
   }
   return report;
 }
