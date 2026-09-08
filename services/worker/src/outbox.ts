@@ -256,6 +256,7 @@ export async function processOutboxOnce(
       const client = await pool.connect();
       let event: OutboxEvent | undefined;
       try {
+        if (options.signal?.aborted) break;
         [event] = await claimEvents(client, { ...resolved, batchSize: 1 });
       } finally {
         client.release();

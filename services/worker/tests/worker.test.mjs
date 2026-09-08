@@ -24,7 +24,7 @@ import {
   outboxReadinessStatus,
 } from "../src/outbox-readiness.ts";
 import { asyncRuntimeTopics } from "../src/env.ts";
-import { outboxKafkaMessageKey } from "../src/outbox.ts";
+import { outboxKafkaMessageKey, processOutboxOnce } from "../src/outbox.ts";
 
 process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = "1";
 
@@ -77,6 +77,51 @@ test("explicit production outbox dry-run reads without claiming or connecting Ka
     }
   }
 });
+
+for (const stopAt of ["connection", "claim", "none"]) {
+  test(`outbox stop boundary: ${stopAt}`, { timeout: 5000 }, async () => {
+    const controller = new AbortController();
+    const connecting = Promise.withResolvers();
+    const connected = Promise.withResolvers();
+    const counts = { claims: 0, sends: 0, acknowledgements: 0, releases: 0 };
+    const client = {
+      async query(sql) {
+        assert.match(sql, /WITH next_events/);
+        counts.claims++;
+        if (stopAt === "claim") controller.abort();
+        return { rows: [{ id: "stop-boundary", topic: "app.tasks", event_type: "demo.echo",
+          trace_id: "stop-boundary", payload: {}, attempts: 1, max_attempts: 5, lease_generation: 1 }] };
+      },
+      release() { counts.releases++; },
+    };
+    const pool = {
+      async query(sql) {
+        if (sql.includes("to_regnamespace")) return { rows: [{ guard: null }] };
+        if (sql.includes("FROM app_kafka_recovery")) return { rows: [] };
+        assert.match(sql, /SET status = 'published'/);
+        counts.acknowledgements++;
+        return { rows: [{ id: "stop-boundary" }] };
+      },
+      async connect() {
+        connecting.resolve();
+        await connected.promise;
+        return client;
+      },
+    };
+    const producer = { async send() { counts.sends++; } };
+    const pending = processOutboxOnce({ pool, producer, signal: controller.signal,
+      dryRun: false, batchSize: stopAt === "claim" ? 2 : 1 });
+    await connecting.promise;
+    assert.equal(counts.claims, 0);
+    if (stopAt === "connection") controller.abort();
+    connected.resolve();
+    const result = await pending;
+    const expected = stopAt === "connection" ? 0 : 1;
+    assert.deepEqual(counts, { claims: expected, sends: expected, acknowledgements: expected, releases: 1 });
+    assert.equal(result.claimed, expected);
+    assert.equal(result.published, expected);
+  });
+}
 
 test("payload identity is independent of Unicode key order at every depth", () => {
   const first = { taskType: "demo.echo", payload: { items: [{ "e\u0301": 2, "\u00e9": 1 }], z: true } };
