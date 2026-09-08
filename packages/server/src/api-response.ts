@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { asyncIdentifierSchema } from "@pstack/contracts";
 
 export class ApiError extends Error {
   status: number;
@@ -23,7 +24,8 @@ export function createTraceId() {
 }
 
 export function getTraceId(request: Request) {
-  return request.headers.get("x-trace-id") || createTraceId();
+  const parsed = asyncIdentifierSchema.safeParse(request.headers.get("x-trace-id"));
+  return parsed.success ? parsed.data : createTraceId();
 }
 
 export function ok(

@@ -1,5 +1,6 @@
 import { requireWritePermission } from "./auth-service";
 import { randomUUID } from "node:crypto";
+import { fileAssetSchema } from "@pstack/contracts";
 import type {
   AdminSummary,
   AuditEvent,
@@ -16,6 +17,7 @@ import {
   type TransactionContext,
 } from "@pstack/database/client";
 import { assertInMemoryUploadSize } from "./upload-memory-limits";
+import { parseInput } from "./validation";
 
 export async function recordAudit(
   input: Omit<AuditEvent, "id" | "createdAt">,
@@ -83,6 +85,7 @@ export async function storeUploadedFile(input: {
   token: string | undefined;
   traceId: string;
 }) {
+  const fileName = parseInput(fileAssetSchema.shape.fileName, input.file.name);
   assertInMemoryUploadSize({
     sizeBytes: input.file.size,
     maxBytes: env.UPLOAD_MAX_BYTES,
@@ -132,7 +135,7 @@ export async function storeUploadedFile(input: {
         throw new Error("Upload intent is no longer writable");
       const asset: FileAsset = {
         id,
-        fileName: input.file.name,
+        fileName,
         mimeType: input.file.type || "application/octet-stream",
         sizeBytes: bytes.length,
         storageKey: stored.storageKey,

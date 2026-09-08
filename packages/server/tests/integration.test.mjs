@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 const workspace = path.resolve(import.meta.dirname, "../../..");
 const docker = (...args) =>
   execFileSync("docker", args, { encoding: "utf8" }).trim();
@@ -440,6 +440,57 @@ test(
           );
         },
       );
+      await t.test("HTTP trace IDs remain valid through persistence and consumer execution", async () => {
+        const { POST } = await import("../../../apps/web/app/api/telemetry/route.ts");
+        const { outboxKafkaMessageValue } = await import("../../../services/worker/src/outbox.ts");
+        const { createPostgresAsyncTaskStore, processAsyncConsumerMessage } = await import("../../../services/worker/src/async-consumer.ts");
+        const { handleDomainEvent } = await import("../../../services/worker/src/domain-handler.ts");
+        const store = createPostgresAsyncTaskStore({ pool: getPool() });
+        for (const length of [36, 2000, 2400, 6000]) {
+          const incomingTrace = randomBytes(length).toString("base64url").slice(0, length);
+          const response = await POST(new Request("http://localhost/api/telemetry", {
+            method: "POST", headers: { "content-type": "application/json", "x-trace-id": incomingTrace },
+            body: JSON.stringify({ event: "trace.regression" }),
+          }));
+          assert.equal(response.status, 201);
+          const { traceId, data } = await response.json();
+          if (length <= 2000) assert.equal(traceId, incomingTrace);
+          else assert.match(traceId, /^trace_[0-9a-f-]{36}$/);
+          assert.equal(data.traceId, traceId);
+          const row = (await query("SELECT * FROM app_outbox_events WHERE trace_id=$1", [traceId])).rows[0];
+          const value = outboxKafkaMessageValue({ id: row.id, topic: row.topic, eventType: row.event_type, traceId: row.trace_id, payload: row.payload, attempts: row.attempts, maxAttempts: row.max_attempts });
+          const result = await processAsyncConsumerMessage({ topic: row.topic, partition: 0, offset: String(length), value }, {
+            store, consumerGroup: "trace-regression", workerId: "trace-regression", handler: handleDomainEvent,
+          });
+          assert.equal(result.status, "succeeded");
+          assert.equal((await query("SELECT count(*)::int n FROM app_async_receipts WHERE task_id=$1", [row.id])).rows[0].n, 1);
+        }
+      });
+      await t.test("blank upload names fail before reading bytes or persisting any upload effects", async () => {
+        const { ok } = await import("../src/api-response.ts");
+        const { withAccessLog } = await import("../src/logger.ts");
+        const before = (await query("SELECT (SELECT count(*) FROM app_file_assets) assets, (SELECT count(*) FROM app_upload_intents) intents, (SELECT count(*) FROM app_outbox_events) outbox, (SELECT count(*) FROM app_audit_logs) audit")).rows;
+        const filesBefore = await readdir(storage);
+        let reads = 0;
+        class ObservedFile extends File {
+          async arrayBuffer() { reads++; return super.arrayBuffer(); }
+        }
+        for (const fileName of ["", "   ", "\t"]) {
+          const response = await withAccessLog(new Request("http://localhost/api/uploads", { method: "POST" }), "invalid-upload", async () =>
+            ok(await product.storeUploadedFile({ token: adminToken, file: new ObservedFile(["hello"], fileName), traceId: "invalid-upload" }), "invalid-upload"));
+          assert.equal(response.status, 400);
+          assert.equal((await response.json()).error.code, "VALIDATION_FAILED");
+        }
+        assert.equal(reads, 0);
+        assert.deepEqual((await query("SELECT (SELECT count(*) FROM app_file_assets) assets, (SELECT count(*) FROM app_upload_intents) intents, (SELECT count(*) FROM app_outbox_events) outbox, (SELECT count(*) FROM app_audit_logs) audit")).rows, before);
+        assert.deepEqual(await readdir(storage), filesBefore);
+        const response = await withAccessLog(new Request("http://localhost/api/uploads", { method: "POST" }), "valid-upload", async () =>
+          ok(await product.storeUploadedFile({ token: adminToken, file: new File(["hello"], "  valid.txt  "), traceId: "valid-upload" }), "valid-upload"));
+        assert.equal(response.status, 200);
+        const { data } = await response.json();
+        assert.equal(data.fileName, "valid.txt");
+        assert.equal((await query("SELECT file_name FROM app_file_assets WHERE id=$1", [data.id])).rows[0].file_name, data.fileName);
+      });
     } finally {
       await closeDatabase();
       docker("rm", "-f", name);

@@ -4,9 +4,23 @@ import { spawnSync } from "node:child_process";
 import { hashPassword, verifyPassword } from "../src/password.ts";
 import { envSchema } from "../src/env.ts";
 import { readBoundedFormData } from "../src/upload-memory-limits.ts";
-import { ApiError, fail, readJson } from "../src/api-response.ts";
+import { ApiError, fail, getTraceId, readJson } from "../src/api-response.ts";
+import { asyncIdentifierSchema } from "@pstack/contracts";
 import { redact, withAccessLog } from "../src/logger.ts";
 import { verifyRequestOrigin, setSessionCookie } from "../src/request-auth.ts";
+
+test("request trace IDs preserve valid identities and replace invalid metadata before use", () => {
+  for (const value of ["client-trace", "a".repeat(2000), "é".repeat(1000)]) {
+    const traceId = getTraceId(new Request("https://app.example", { headers: { "x-trace-id": value } }));
+    assert.equal(traceId, value);
+    assert.equal(asyncIdentifierSchema.parse(traceId), traceId);
+  }
+  for (const value of [undefined, "   ", "a".repeat(2400), "a".repeat(6000), "é".repeat(1001)]) {
+    const traceId = getTraceId(new Request("https://app.example", { headers: value === undefined ? {} : { "x-trace-id": value } }));
+    assert.match(traceId, /^trace_[0-9a-f-]{36}$/);
+    assert.equal(asyncIdentifierSchema.parse(traceId), traceId);
+  }
+});
 
 test("production login logs a database failure without exposing credentials to logs or clients", () => {
   const source = `

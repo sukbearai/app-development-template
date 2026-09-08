@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 
 const base = process.env.SMOKE_BASE_URL;
 const account = process.env.UI_FLOW_ADMIN_ACCOUNT;
 const password = process.env.UI_FLOW_ADMIN_PASSWORD;
 if (!base || !account || !password) throw new Error('SMOKE_BASE_URL and explicit UI_FLOW_ADMIN_ACCOUNT/PASSWORD are required. Run pnpm test:e2e for an isolated environment.');
 const checks = [];
-async function call(path, { method = 'GET', body, token, cookie, origin, raw } = {}) {
+async function call(path, { method = 'GET', body, token, cookie, origin, raw, traceId } = {}) {
   const response = await fetch(new URL(path, base), {
     method,
     headers: {
@@ -13,6 +14,7 @@ async function call(path, { method = 'GET', body, token, cookie, origin, raw } =
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(cookie ? { cookie } : {}),
       ...(origin ? { origin } : {}),
+      ...(traceId ? { 'x-trace-id': traceId } : {}),
     },
     body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     signal: AbortSignal.timeout(15_000),
@@ -62,6 +64,20 @@ upload.set('file', new File(['smoke evidence'], `smoke-${suffix}.txt`, { type: '
 const uploaded = await fetch(new URL('/api/uploads', base), { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: upload });
 assert.equal(uploaded.status, 200, await uploaded.clone().text());
 assert.ok((await uploaded.json()).data.storageKey);
+const invalidUpload = new FormData();
+invalidUpload.set('file', new File(['invalid name'], '   ', { type: 'text/plain' }));
+const rejectedUpload = await fetch(new URL('/api/uploads', base), { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: invalidUpload });
+assert.equal(rejectedUpload.status, 400);
+assert.equal((await rejectedUpload.json()).error.code, 'VALIDATION_FAILED');
+for (const length of [36, 2400, 6000]) {
+  const traceId = randomBytes(length).toString('base64url').slice(0, length);
+  const recorded = await call('/api/telemetry', { method: 'POST', body: { event: 'trace.boundary' }, traceId });
+  assert.equal(recorded.status, 201);
+  if (length === 36) assert.equal(recorded.body.traceId, traceId);
+  else assert.match(recorded.body.traceId, /^trace_[0-9a-f-]{36}$/);
+  assert.equal(recorded.body.data.traceId, recorded.body.traceId);
+}
+checks.push('blank upload names fail before commit and oversized trace headers use safe server identities');
 assert.equal((await call('/api/admin/audit-logs', { token })).status, 200);
 assert.equal((await call('/api/admin/outbox-events', { token })).status, 200);
 assert.equal((await call('/api/admin/async-runtime-health', { token })).status, 200);
