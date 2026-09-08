@@ -13,6 +13,7 @@ export function checkMigrations(options?: {
 }): Promise<MigrationJournal>;
 
 export function assertMigrationSafety(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- assertMigrationSafety validates the untrusted journal file.
   journal: unknown,
   sqlFiles: string[],
   sqlByFile: Record<string, string>,

@@ -48,9 +48,12 @@ export function readKafkaConfig(env: NodeJS.ProcessEnv = process.env): KafkaConf
   const key = readCertificate(env, "KAFKA_SSL_KEY_FILE");
   config.ssl = {
     rejectUnauthorized: true,
-    ...(ca === undefined ? {} : { ca: [ca] }),
-    ...(cert === undefined ? {} : { cert, key }),
   };
+  if (ca !== undefined) config.ssl.ca = [ca];
+  if (cert !== undefined) {
+    config.ssl.cert = cert;
+    config.ssl.key = key;
+  }
   if (protocol === "SASL_SSL") config.sasl = readSasl(env);
   return config;
 }

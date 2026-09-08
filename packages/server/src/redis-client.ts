@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createClient } from "redis";
 
 const clients = new Map<string, Promise<ReturnType<typeof createClient>>>();
@@ -21,6 +22,7 @@ async function clientFor(url: string): Promise<ReturnType<typeof createClient>> 
     pending = client
       .connect()
       .then(() => client)
+      // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Promise rejections are arbitrary and are rethrown unchanged after cleanup.
       .catch((error: unknown) => {
         clients.delete(url);
         if (client.isOpen) client.destroy();
@@ -52,13 +54,10 @@ export async function redisWindowCount(
       "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],ARGV[1]) end; return {n,redis.call('PTTL',KEYS[1])}",
       { keys: [key], arguments: [String(windowMs)] },
     );
-  if (
-    !Array.isArray(value) ||
-    typeof value[0] !== "number" ||
-    typeof value[1] !== "number"
-  )
+  const parsed = z.tuple([z.number(), z.number()]).rest(z.unknown()).safeParse(value);
+  if (!parsed.success)
     throw new Error("Invalid rate limit response");
-  return { count: value[0], ttlMs: value[1] };
+  return { count: parsed.data[0], ttlMs: parsed.data[1] };
 }
 export async function closeRedis() {
   const pending = [...clients.values()];

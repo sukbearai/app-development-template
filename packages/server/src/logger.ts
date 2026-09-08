@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Logging accepts arbitrary field values so the redactor can scrub errors and nested data.
 type LogFields = Record<string, unknown>;
 const sensitiveFieldPattern =
   /(password|token|secret|cookie|authorization|api[_-]?key|access[_-]?key|session|database.?url|redis.?url)/i;
@@ -27,17 +28,25 @@ const sqlStateCodes = new Set([
   "57P01", "57P02", "57P03", "58000", "XX000", "XX001", "XX002",
 ]);
 const sourceRoots = [fileURLToPath(new URL("../../../", import.meta.url)), resolve() + sep];
+type ErrorDiagnostic = {
+  message: string;
+  code?: string;
+  frames?: { file: string; line: number; column: number }[];
+  cause?: ErrorDiagnostic;
+};
 function errorDiagnostic(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Thrown values may be arbitrary; diagnostics only inspect Error instances.
   value: unknown,
   seen = new WeakSet<object>(),
   depth = 0,
-): Record<string, unknown> {
-  const diagnostic: Record<string, unknown> = { message: "Operation failed" };
+): ErrorDiagnostic {
+  const diagnostic: ErrorDiagnostic = { message: "Operation failed" };
   try {
     if (!(value instanceof Error)) return diagnostic;
     if (seen.has(value)) return { message: "[CIRCULAR]" };
     seen.add(value);
     const code: unknown = Object.getOwnPropertyDescriptor(value, "code")?.value;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Descriptor values bypass getters; only allowlisted string codes may reach production logs.
     if (typeof code === "string" &&
         (systemErrorCodes.has(code) || sqlStateCodes.has(code)))
       diagnostic.code = code;
@@ -47,6 +56,7 @@ function errorDiagnostic(
     } catch {
       // V8 computes stack lazily and may invoke an error's throwing getters.
     }
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Error stacks can have hostile getters; only strings enter the bounded frame parser.
     if (typeof stack === "string") {
       diagnostic.frames = stack.slice(0, 16384).split("\n").slice(1, 33).flatMap((line) => {
         const match = /^\s+at (?:[^()]* \()?((?:file:\/\/\/|\/|node:)[^()\s]+):(\d{1,7}):(\d{1,7})\)?$/.exec(line);
@@ -69,7 +79,9 @@ function errorDiagnostic(
   } catch {}
   return diagnostic;
 }
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Sanitization must accept arbitrary values and preserve non-object scalars.
 export function redact(value: unknown, seen = new WeakSet<object>()): unknown {
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The sanitizer treats strings as text before recursively inspecting objects.
   if (typeof value === "string")
     return value
       .replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, "$1[REDACTED]@")
@@ -78,7 +90,9 @@ export function redact(value: unknown, seen = new WeakSet<object>()): unknown {
         /((?:password|token|secret|authorization|cookie)\s*[=:]\s*)[^\s&,;]+/gi,
         "$1[REDACTED]",
       );
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Preserve arbitrary scalar values; recursion is only valid for objects.
   if (!value || typeof value !== "object") return value;
+  // oxlint-disable-next-line anti-slop/no-known-value-widening -- The sanitizer returns both original scalar types and a string marker for cycles.
   if (seen.has(value)) return "[CIRCULAR]";
   seen.add(value);
   if (value instanceof Error)

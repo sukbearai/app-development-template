@@ -192,7 +192,9 @@ export async function verifyBundle(directory) {
   for (const row of manifest.objects) {
     if (!keyPattern.test(row.key) || !["local", "s3"].includes(row.provider) || !digestPattern.test(row.sha256) ||
         !/^\d+$/.test(row.bytes) || !Number.isSafeInteger(Number(row.bytes)) || row.state !== "committed" ||
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The backup manifest parser validates identity and media metadata before any restore writes.
         typeof row.id !== "string" || typeof row.intentId !== "string" || typeof row.contentType !== "string" ||
+        // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Restore requires an explicit string storage binding; missing and legacy-unbound locations fail closed.
         typeof row.location !== "string" || !row.location || row.location === "legacy-unbound" || seen.has(row.key)) throw new Error("Invalid object manifest entry");
     seen.add(row.key);
     await checkObject(path.join(directory, "objects", row.key), row);

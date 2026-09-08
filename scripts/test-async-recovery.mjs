@@ -16,6 +16,7 @@ const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 if (process.argv[2] === "--interrupt-restore") {
   const originalQuery = Client.prototype.query;
   Client.prototype.query = function (...args) {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- The injected crash targets only SQL-text queries in the overloaded pg query API.
     if (typeof args[0] === "string" && args[0].startsWith("INSERT INTO app_kafka_recovery")) process.kill(process.pid, "SIGKILL");
     return originalQuery.apply(this, args);
   };

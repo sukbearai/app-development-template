@@ -30,24 +30,35 @@ export const openApiSchemas = Object.fromEntries([
   }),
 ]);
 
+type OpenApiOperation = {
+  operationId: string;
+  summary: string;
+  tags: string[];
+  parameters?: { name: string; in: string; required: boolean; schema: ReturnType<typeof jsonSchema> }[];
+  security?: Record<string, string[]>[];
+  requestBody?: { required: boolean; content: Record<string, { schema: { $ref: string } }> };
+  responses: Record<string, { description: string; content: { "application/json": { schema: { $ref: string } } } }>;
+};
 export function buildOpenApiDocument() {
-  const paths: Record<string, Record<string, unknown>> = {};
+  const paths: Record<string, Record<string, OpenApiOperation>> = {};
   for (const entry of apiOperations) {
     const operation: HttpOperationContract = entry;
     const parameters = [...operation.path.matchAll(/\{([^}]+)\}/g)].map((match) => ({
       name: match[1], in: "path", required: true, schema: jsonSchema(schemas.nonEmptyStringSchema, "input"),
     }));
+    const optional: Pick<OpenApiOperation, "parameters" | "security" | "requestBody"> = {};
+    if (parameters.length) optional.parameters = parameters;
+    if (operation.authenticated) optional.security = [{ bearerAuth: [] }, { cookieAuth: [] }];
+    if (operation.request) optional.requestBody = {
+      required: true,
+      content: { [operation.request.contentType]: { schema: { $ref: `#/components/schemas/${operation.request.name}` } } },
+    };
     paths[operation.path] ??= {};
     paths[operation.path][operation.method.toLowerCase()] = {
       operationId: operation.operationId,
       summary: operation.summary,
       tags: [operation.tag],
-      ...(parameters.length ? { parameters } : {}),
-      ...(operation.authenticated ? { security: [{ bearerAuth: [] }, { cookieAuth: [] }] } : {}),
-      ...(operation.request ? { requestBody: {
-        required: true,
-        content: { [operation.request.contentType]: { schema: { $ref: `#/components/schemas/${operation.request.name}` } } },
-      } } : {}),
+      ...optional,
       responses: Object.fromEntries(Object.entries(operation.responses).map(([status, response]) => [status, {
         description: response.description,
         content: { "application/json": { schema: { $ref: `#/components/schemas/${response.name}` } } },

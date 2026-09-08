@@ -17,6 +17,7 @@ import {
   processAsyncConsumerMessage,
   runKafkaConsumer,
   StaleLeaseError,
+  PayloadUnverifiableError,
 } from "../src/async-consumer.ts";
 import { handleDomainEvent } from "../src/domain-handler.ts";
 
@@ -223,6 +224,7 @@ test("Unicode payload survives JSONB durable retry and later duplicate delivery"
 function legacyHash(task) {
   const canonical = (value) => {
     if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- This independent legacy-hash fixture must preserve the historical scalar and object ordering algorithm.
     if (value && typeof value === "object")
       return `{${Object.entries(value).sort(([a], [b]) => a.localeCompare(b))
         .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(",")}}`;
@@ -304,6 +306,60 @@ test("unsupported hashes and incomplete nonterminal stored tasks cannot execute"
   await seedIdentity(input, { compact: true, hash: payloadHash(parseAsyncTaskMessage(input, group)) });
   assert.equal((await processAsyncConsumerMessage(input, settings)).errorCode, "IDEMPOTENCY_UNVERIFIABLE");
   await pool.query("DELETE FROM app_idempotency_keys WHERE key=$1", [JSON.stringify([group, parseAsyncTaskMessage(input, group).idempotencyKey])]);
+});
+
+test("stored envelope parsing preserves historical dates, raw identifiers and extension fields", async () => {
+  const input = message(randomUUID(), [null, { "arbitrary field": [true, 42] }]);
+  const task = parseAsyncTaskMessage(input, group);
+  const historicalDate = "Tue, 01 Jan 2019 00:00:00 GMT";
+  const stored = {
+    ...task,
+    taskId: "  historical task  ",
+    traceId: "  historical trace  ",
+    createdAt: historicalDate,
+    updatedAt: historicalDate,
+    nextRetryAt: historicalDate,
+    custom: { version: 1 },
+    source: {
+      ...task.source,
+      occurredAt: historicalDate,
+      custom: ["source"],
+      offset: { ...task.source.offset, custom: { partitionNote: "retained" } },
+    },
+  };
+  const { key } = await seedIdentity(input, { stored });
+  const result = await processAsyncConsumerMessage(input, {
+    ...options,
+    handler: async (claimed) => {
+      assert.equal(claimed.taskId, stored.taskId);
+      assert.equal(claimed.traceId, stored.traceId);
+      assert.equal(claimed.createdAt, historicalDate);
+      assert.deepEqual(claimed.payload, stored.payload);
+      assert.deepEqual(claimed.custom, stored.custom);
+      assert.deepEqual(claimed.source, stored.source);
+    },
+  });
+  assert.equal(result.status, "succeeded");
+  const saved = (await pool.query("SELECT response_data FROM app_idempotency_keys WHERE key=$1", [key])).rows[0].response_data;
+  assert.equal(saved.createdAt, historicalDate);
+  assert.deepEqual(saved.custom, stored.custom);
+  assert.deepEqual(saved.source, stored.source);
+});
+
+test("stored envelope parsing rejects missing payload and distinguishes invalid source metadata", async () => {
+  for (const [transform, diagnostic] of [
+    [(task) => { const { payload: omitted, ...rest } = task; return rest; }, "Stored task envelope is missing or invalid"],
+    [(task) => ({ ...task, source: null }), "Stored task envelope is missing or invalid"],
+    [(task) => ({ ...task, lockedBy: 42 }), "Stored task source or metadata is invalid"],
+    [(task) => ({ ...task, source: { ...task.source, eventId: "other" } }), "Stored task source or metadata is invalid"],
+  ]) {
+    const input = message();
+    const task = parseAsyncTaskMessage(input, group);
+    const { key } = await seedIdentity(input, { stored: transform(task) });
+    await assert.rejects(store.claim(task, "invalid-envelope-worker"), (error) =>
+      error instanceof PayloadUnverifiableError && error.message === diagnostic);
+    await pool.query("DELETE FROM app_idempotency_keys WHERE key=$1", [key]);
+  }
 });
 
 test("payload key order is canonical but changed values are quarantined without modifying success", async () => {

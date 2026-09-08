@@ -6,6 +6,7 @@ import { Kafka, logLevel } from "kafkajs";
 import { readKafkaConfig } from "@pstack/kafka";
 type DependencyState = "ok" | "missing" | "not_configured" | "error";
 async function probe(
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- Readiness waits for completion and deliberately ignores dependency-specific results.
   operation: () => Promise<unknown>,
 ): Promise<DependencyState> {
   try {

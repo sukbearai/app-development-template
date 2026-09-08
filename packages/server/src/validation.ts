@@ -1,6 +1,7 @@
 import { ZodError, type ZodSchema } from "zod";
 import { ApiError } from "./api-response";
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Zod validates untrusted request input at this boundary.
 export function parseInput<T>(schema: ZodSchema<T>, input: unknown) {
   try {
     return schema.parse(input);

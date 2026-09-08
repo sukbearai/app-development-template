@@ -76,13 +76,13 @@ function checkExpression(value: string) {
 function sameColumns(left: string[], right: string[]) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-const actions: Record<string, string> = {
+const actions = new Map(Object.entries({
   a: "no action",
   r: "restrict",
   c: "cascade",
   n: "set null",
   d: "set default",
-};
+}));
 
 const names = z.array(z.string());
 const keySchema = z.object({ name: z.string(), columns: names });
@@ -155,8 +155,10 @@ function currentTables(): SnapshotTable[] {
                   ? undefined
                   : is(column.default, SQL)
                     ? dialect.sqlToQuery(column.default).sql
+                    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Drizzle column defaults include SQL, strings and JSON; each needs different SQL quoting.
                     : typeof column.default === "string"
                       ? `'${column.default.replaceAll("'", "''")}'`
+                      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Object and null defaults use JSON encoding before SQL comparison.
                       : typeof column.default === "object"
                         ? `'${JSON.stringify(column.default)}'`
                         : String(column.default),
@@ -245,6 +247,7 @@ function currentTables(): SnapshotTable[] {
 }
 export async function assertDatabaseSnapshot(
   connection: Pick<PoolClient, "query">,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The snapshot schema validates the migration file at this boundary.
   snapshot: unknown,
 ) {
   return assertTables(
@@ -395,8 +398,8 @@ async function assertTables(
             row.foreign_table === foreign.tableTo &&
             sameColumns(row.columns, foreign.columnsFrom) &&
             sameColumns(row.foreign_columns, foreign.columnsTo) &&
-            actions[row.update_action] === (foreign.onUpdate || "no action") &&
-            actions[row.delete_action] === (foreign.onDelete || "no action"),
+            actions.get(row.update_action) === (foreign.onUpdate || "no action") &&
+            actions.get(row.delete_action) === (foreign.onDelete || "no action"),
         )
       )
         throw new Error(

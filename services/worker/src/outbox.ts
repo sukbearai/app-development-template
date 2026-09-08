@@ -1,7 +1,7 @@
+import { z } from "zod";
 import { Kafka, Partitioners, type Producer } from "kafkajs";
 import { type Pool, type PoolClient } from "pg";
 import { getPool } from "@pstack/database/client";
-import type { AsyncTaskEventMessage } from "@pstack/contracts";
 import { loadWorkerEnv } from "./env";
 import { readKafkaConfig } from "@pstack/kafka";
 import { assertKafkaPublishingReady } from "./kafka-recovery";
@@ -44,34 +44,41 @@ export function retryDelayMs(attempt: number, baseMs = 1000, maxMs = 300000) {
   return Math.min(baseMs * 2 ** (boundedAttempt - 1), maxMs);
 }
 
-function toOutboxEvent(row: Record<string, unknown>): OutboxEvent {
+const outboxRowSchema = z.object({
+  id: z.string(), topic: z.string(), event_type: z.string(), trace_id: z.string(),
+  payload: z.unknown(), attempts: z.number().int().nonnegative(),
+  max_attempts: z.number().int().positive(), lease_generation: z.number().int().positive(),
+});
+type OutboxRow = z.infer<typeof outboxRowSchema>;
+function toOutboxEvent(row: OutboxRow): OutboxEvent {
   return {
-    id: String(row.id),
-    topic: String(row.topic),
-    eventType: String(row.event_type),
-    traceId: String(row.trace_id),
+    id: row.id,
+    topic: row.topic,
+    eventType: row.event_type,
+    traceId: row.trace_id,
     payload: row.payload,
-    attempts: Number(row.attempts || 0),
-    maxAttempts: Number(row.max_attempts || 5),
-    leaseGeneration: Number(row.lease_generation),
+    attempts: row.attempts,
+    maxAttempts: row.max_attempts,
+    leaseGeneration: row.lease_generation,
   };
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Publishing failures can throw arbitrary values; diagnostics only serialize their message.
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function asyncTaskPayload(
-  event: OutboxEvent,
-): Partial<AsyncTaskEventMessage> | undefined {
-  if (
-    !event.payload ||
-    typeof event.payload !== "object" ||
-    Array.isArray(event.payload)
-  )
-    return undefined;
-  if (!("payload" in event.payload)) return undefined;
-  const payload = event.payload as Partial<AsyncTaskEventMessage>;
+const nestedOutboxPayloadSchema = z.looseObject({
+  eventId: z.string(),
+  eventType: z.string(),
+  traceId: z.unknown().optional(),
+  occurredAt: z.unknown().optional(),
+  payload: z.unknown(),
+});
+function asyncTaskPayload(event: OutboxEvent) {
+  const parsed = nestedOutboxPayloadSchema.safeParse(event.payload);
+  if (!parsed.success || !Object.hasOwn(parsed.data, "payload")) return undefined;
+  const payload = parsed.data;
   if (payload.eventId !== event.id) return undefined;
   if (payload.eventType !== event.eventType) return undefined;
   if (payload.traceId && payload.traceId !== event.traceId) return payload;
@@ -145,7 +152,7 @@ export async function claimEvents(
   `,
     [options.batchSize, options.workerId, options.leaseMs ?? 60000],
   );
-  return result.rows.map(toOutboxEvent);
+  return result.rows.map((row) => toOutboxEvent(outboxRowSchema.parse(row)));
 }
 
 export async function markPublished(
@@ -168,6 +175,7 @@ export async function markPublished(
 async function markFailed(
   pool: Pool,
   event: OutboxEvent,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This failure transition accepts an arbitrary publisher rejection for diagnostic persistence.
   error: unknown,
   options: {
     workerId: string;

@@ -15,7 +15,7 @@
     "db:migrate": "node scripts/with-env.mjs pnpm --filter @pstack/database db:migrate",
     "db:integration": "node scripts/with-env.mjs pnpm --filter @pstack/database db:integration",
     "bootstrap:local": "pnpm local:up && pnpm db:migrate",
-    "lint": "pnpm --filter @pstack/web lint",
+    "lint": "oxlint --config .oxlintrc.json --disable-nested-config --report-unused-disable-directives-severity error .",
     "typecheck": "pnpm -r --if-present typecheck",
     "api:docs": "pnpm --filter @pstack/web api:docs",
     "config:check": "node scripts/with-env.mjs pnpm --filter @pstack/server config:check",
@@ -29,7 +29,7 @@
     "pr:verify": "node scripts/pr-verify.mjs",
     "smoke": "pnpm --filter @pstack/web smoke",
     "test": "pnpm test:unit && pnpm test:integration",
-    "verify": "pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security",
+    "verify": "pnpm lint && pnpm duplication:check && pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security",
     "local:init": "node scripts/local.mjs init",
     "local:up": "node scripts/local.mjs up",
     "local:down": "node scripts/local.mjs down",
@@ -52,7 +52,11 @@
     "storage:resolve": "node --import tsx scripts/resolve-upload.mjs",
     "test:kafka-security": "node scripts/test-kafka-security.mjs",
     "test:async-recovery": "node scripts/test-async-recovery.mjs",
-    "test:ui:production": "node scripts/verify-app.mjs --production --ui"
+    "test:ui:production": "node scripts/verify-app.mjs --production --ui",
+    "duplication:check": "node scripts/check-duplication.mjs",
+    "duplication:baseline": "node scripts/check-duplication.mjs --update-baseline",
+    "test:anti-slop": "node --import tsx --test tools/anti-slop/src/rules/*.test.ts tools/anti-slop/src/effect/rules/*.test.ts",
+    "test:quality": "node --test scripts/tests/quality-gates.test.mjs"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
@@ -63,6 +67,9 @@
     "typescript": "5.9.3",
     "tsx": "4.21.0",
     "@playwright/test": "1.63.0",
-    "@types/pg": "8.20.0"
+    "@types/pg": "8.20.0",
+    "@oxlint/plugins": "1.78.0",
+    "jscpd": "5.1.2",
+    "oxlint": "1.78.0"
   }
 }

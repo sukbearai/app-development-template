@@ -75,14 +75,14 @@ export async function publishOutboxOnce(limit = 10) {
   return summary;
 }
 
-export function createAsyncConsumerOptions<TPayload = unknown>(input: {
-  handler: AsyncConsumerHandler<TPayload>;
+export function createAsyncConsumerOptions(input: {
+  handler: AsyncConsumerHandler;
   consumerGroup?: string;
   workerId?: string;
   commitOffset?: (offset: KafkaConsumerOffset) => Promise<void>;
 }) {
   const env = loadWorkerEnv();
-  const store = createPostgresAsyncTaskStore<TPayload>({
+  const store = createPostgresAsyncTaskStore({
     databaseUrl: env.databaseUrl,
     ttlHours: env.asyncTaskIdempotencyTtlHours,
   });
@@ -100,16 +100,16 @@ export function createAsyncConsumerOptions<TPayload = unknown>(input: {
   };
 }
 
-export async function processGenericAsyncMessage<TPayload = unknown>(
+export async function processGenericAsyncMessage(
   message: ConsumerMessage,
-  handler: AsyncConsumerHandler<TPayload>,
+  handler: AsyncConsumerHandler,
   options: {
     consumerGroup?: string;
     workerId?: string;
     commitOffset?: (offset: KafkaConsumerOffset) => Promise<void>;
   } = {},
 ) {
-  const consumerOptions = createAsyncConsumerOptions<TPayload>({
+  const consumerOptions = createAsyncConsumerOptions({
     ...options,
     handler,
   });

@@ -29,7 +29,7 @@ export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics
   if (!kafkaEnabled) throw new Error("Restored Kafka database requires its permanent recovery transport");
   const checkpoint = kafkaCheckpointSchema.parse(row.checkpoint);
   if (row.logicalGroup !== logicalGroup || checkpoint.logicalGroup !== logicalGroup) throw new Error("Kafka recovery logical group differs from worker configuration");
-  if (typeof row.transportGroup !== "string" || !row.transportGroup.startsWith("pstack-recovery-") || row.transportGroup === logicalGroup || row.transportGroup === checkpoint.sourceTransportGroup) throw new Error("Invalid Kafka recovery transport binding");
+  if (row.transportGroup === null || !row.transportGroup.startsWith("pstack-recovery-") || row.transportGroup === logicalGroup || row.transportGroup === checkpoint.sourceTransportGroup) throw new Error("Invalid Kafka recovery transport binding");
   if (topics.length !== checkpoint.topics.length || topics.some((topic) => !checkpoint.topics.some((saved) => saved.topic === topic))) throw new Error("Kafka recovery subscriptions differ from checkpoint");
   const admin = recoveryAdmin();
   let floors: PartitionOffset[];

@@ -57,6 +57,7 @@ async function freePort() {
   const socket = net.createServer();
   await new Promise((resolve, reject) => { socket.once('error', reject); socket.listen(0, '127.0.0.1', resolve); });
   const address = socket.address();
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Assert the TCP address variant returned by the ephemeral listener before reading its port.
   assert.ok(address && typeof address === 'object');
   await new Promise(resolve => socket.close(resolve));
   return address.port;
@@ -108,7 +109,9 @@ try {
     async function launchServer() {
       serverOutput = '';
       const startedAt = Date.now();
-      server = spawn(process.execPath, [vinextCLI, production ? 'start' : 'dev', '--hostname', '127.0.0.1', '--port', String(port)], { cwd: webRoot, env: { ...childEnv, ...(production ? { NODE_ENV: 'production', APP_ENV: 'production' } : {}) }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      const serverEnv = { ...childEnv };
+      if (production) Object.assign(serverEnv, { NODE_ENV: 'production', APP_ENV: 'production' });
+      server = spawn(process.execPath, [vinextCLI, production ? 'start' : 'dev', '--hostname', '127.0.0.1', '--port', String(port)], { cwd: webRoot, env: serverEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
       server.stdout.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
       server.stderr.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
       const deadline = Date.now() + 60_000;

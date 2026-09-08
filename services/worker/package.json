@@ -16,7 +16,8 @@
     "@pstack/contracts": "workspace:*",
     "kafkajs": "2.2.4",
     "pg": "8.21.0",
-    "@pstack/database": "workspace:*"
+    "@pstack/database": "workspace:*",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/node": "22.18.0",

@@ -15,7 +15,7 @@ Browser modules cannot import server/database packages or credentials. Keep one 
 
 ## Verification
 
-Start with git status and preserve unrelated work. Use `pnpm typecheck`, `pnpm contract:check`, `pnpm migration:check` and affected package tests. `pnpm verify` runs the complete template checks. See `.agents/skills/verify-pstack-x/SKILL.md` for browser evidence and isolated databases.
+Start with git status and preserve unrelated work. Run `pnpm lint` and `pnpm duplication:check` before declaring work ready. Fix new violations; do not disable rules, add broad ignores, or refresh the duplication baseline just to pass. Baseline changes require explicit review of accepted clones. See `docs/quality-gates.md`. Use `pnpm typecheck`, `pnpm contract:check`, `pnpm migration:check` and affected package tests. `pnpm verify` runs the complete template checks. See `.agents/skills/verify-pstack-x/SKILL.md` for browser evidence and isolated databases.
 
 `pnpm test:e2e`, `pnpm test:ui` and `pnpm test:production` own disposable PostgreSQL containers. Never substitute a shared database to make tests pass. Distinguish source checks, PostgreSQL/Kafka/Redis/S3 integration, browser behavior and deployment evidence.
 

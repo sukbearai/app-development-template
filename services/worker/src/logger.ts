@@ -1,6 +1,7 @@
 import { loadWorkerEnv } from "./env";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
+// oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Logging accepts arbitrary structured fields for recursive redaction.
 type LogFields = Record<string, unknown>;
 
 const rank: Record<LogLevel, number> = {
@@ -17,6 +18,7 @@ function logLevel(): LogLevel {
   return loadWorkerEnv({ allowMissingPublisher: true }).logLevel;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Catch values need not be Error instances; serialization preserves other values.
 function normalizeError(error: unknown) {
   if (!(error instanceof Error)) return error;
   return {
@@ -26,11 +28,13 @@ function normalizeError(error: unknown) {
   };
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- Logging sanitizes arbitrary nested values before serialization.
 export function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((item) => redact(item));
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Only objects can contain fields needing recursive redaction.
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
-    Object.entries(value as LogFields).map(([key, item]) => [
+    Object.entries(value).map(([key, item]) => [
       key,
       sensitiveFieldPattern.test(key) ? "[REDACTED]" : redact(item),
     ]),
@@ -44,7 +48,9 @@ export function log(level: LogLevel, message: string, fields?: LogFields) {
     message,
     time: new Date().toISOString(),
     service: loadWorkerEnv({ allowMissingPublisher: true }).appName,
-    ...(redact(fields || {}) as LogFields),
+    ...Object.fromEntries(Object.entries(fields || {}).map(([key, value]) => [
+      key, sensitiveFieldPattern.test(key) ? "[REDACTED]" : redact(value),
+    ])),
     error:
       fields && "error" in fields ? normalizeError(fields.error) : undefined,
   };

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
 import { Kafka, logLevel } from "kafkajs";
 import { readKafkaConfig } from "@pstack/kafka";
@@ -12,7 +13,6 @@ import {
   kafkaConsumerOffsetSchema,
   type AsyncTaskEnvelope,
   type AsyncTaskEventMessage,
-  type AsyncTaskKind,
   type AsyncTaskStatus,
   type KafkaConsumerOffset,
 } from "@pstack/contracts";
@@ -39,38 +39,40 @@ export type AsyncConsumerResult = {
   errorCode?: string;
   errorMessage?: string;
 };
-export type LeasedTask<T = unknown> = AsyncTaskEnvelope<T> & {
+export type LeasedTask = AsyncTaskEnvelope & {
   generation: number;
   requestHash: string;
 };
-export type AsyncConsumerHandler<T = unknown> = (
-  task: AsyncTaskEnvelope<T>,
+export type AsyncConsumerHandler = (
+  task: AsyncTaskEnvelope,
   context: { client: PoolClient },
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- Domain handlers return arbitrary receipt data for JSON persistence, never for unchecked property access.
 ) => Promise<unknown>;
-export type ClaimResult<T> =
-  | { kind: "claimed"; task: LeasedTask<T> }
-  | { kind: "terminal"; task: AsyncTaskEnvelope<T> }
-  | { kind: "deferred"; task: AsyncTaskEnvelope<T>; nextRetryAt: string };
-export type AsyncConsumerStore<T = unknown> = {
-  claim(task: AsyncTaskEnvelope<T>, workerId: string): Promise<ClaimResult<T>>;
-  execute(task: LeasedTask<T>, handler: AsyncConsumerHandler<T>): Promise<void>;
-  fail(task: LeasedTask<T>): Promise<void>;
+export type ClaimResult =
+  | { kind: "claimed"; task: LeasedTask }
+  | { kind: "terminal"; task: AsyncTaskEnvelope }
+  | { kind: "deferred"; task: AsyncTaskEnvelope; nextRetryAt: string };
+export type AsyncConsumerStore = {
+  claim(task: AsyncTaskEnvelope, workerId: string): Promise<ClaimResult>;
+  execute(task: LeasedTask, handler: AsyncConsumerHandler): Promise<void>;
+  fail(task: LeasedTask): Promise<void>;
   quarantine(
     message: ConsumerMessage,
     group: string,
     code: string,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Quarantine persists diagnostics from arbitrary caught values.
     error: unknown,
   ): Promise<void>;
 };
-export type AsyncConsumerOptions<T = unknown> = {
+export type AsyncConsumerOptions = {
   consumerGroup: string;
   workerId: string;
   now?: Date;
   retryBaseMs?: number;
   retryMaxMs?: number;
   defaultMaxAttempts?: number;
-  store: AsyncConsumerStore<T>;
-  handler: AsyncConsumerHandler<T>;
+  store: AsyncConsumerStore;
+  handler: AsyncConsumerHandler;
   commitOffset?: (offset: KafkaConsumerOffset) => Promise<void>;
 };
 export class PayloadConflictError extends Error {}
@@ -100,26 +102,8 @@ function nextRetryDelayMs(nextRetryAt: string | undefined, now: Date) {
   return Math.max(0, retryAt - now.getTime());
 }
 
-function stringField(record: Record<string, unknown>, field: string) {
-  const value = record[field];
-  if (typeof value !== "string" || value.trim() === "") {
-    throw new Error(`Kafka message ${field} is required`);
-  }
-  return value;
-}
-
-function optionalStringField(record: Record<string, unknown>, field: string) {
-  const value = record[field];
-  return typeof value === "string" && value.trim() !== "" ? value : undefined;
-}
-
-function positiveInteger(value: unknown, fallback: number) {
-  if (typeof value !== "number" || !Number.isInteger(value) || value < 1)
-    return fallback;
-  return value;
-}
-
-function parseJsonValue(value: string | Buffer | null) {
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- JSON decoding precedes validation by the Kafka event schema.
+function parseJsonValue(value: string | Buffer | null): unknown {
   if (value === null) throw new Error("Kafka message value is empty");
   return JSON.parse(Buffer.isBuffer(value) ? value.toString("utf8") : value);
 }
@@ -138,15 +122,17 @@ export function asyncTaskIdempotencyKey(
   return message.idempotencyKey || `${message.eventType}:${message.eventId}`;
 }
 
-export function parseAsyncTaskMessage<TPayload = unknown>(
+export function parseAsyncTaskMessage(
   message: ConsumerMessage,
   consumerGroup: string,
   defaults: { now?: Date; defaultMaxAttempts?: number } = {},
-): AsyncTaskEnvelope<TPayload> {
+): AsyncTaskEnvelope {
   const parsed = asyncTaskEventMessageSchema.parse(
     parseJsonValue(message.value),
   );
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- PostgreSQL JSON storage checks inspect all nested values after envelope parsing.
   function validateJsonStorage(value: unknown): void {
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PostgreSQL rejects null characters and unpaired surrogates specifically in JSON strings.
     if (typeof value === "string") {
       if (value.includes("\u0000"))
         throw new Error(
@@ -161,6 +147,7 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
       }
     }
     if (Array.isArray(value)) value.forEach(validateJsonStorage);
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- JSON objects require recursive checks of both property names and values.
     else if (value && typeof value === "object")
       for (const [key, item] of Object.entries(value)) {
         validateJsonStorage(key);
@@ -168,43 +155,38 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
       }
   }
   validateJsonStorage(parsed);
-  const eventId = stringField(parsed, "eventId");
-  const eventType = stringField(parsed, "eventType") as AsyncTaskKind;
-  const traceId = stringField(parsed, "traceId");
-  const taskId = optionalStringField(parsed, "taskId") || eventId;
+  const { eventId, eventType, traceId } = parsed;
+  const taskId = parsed.taskId || eventId;
   const sourceOffset = kafkaConsumerOffsetSchema.parse({
     topic: message.topic,
     partition: message.partition,
     offset: message.offset,
     consumerGroup,
   });
-  const eventMessage: AsyncTaskEventMessage<TPayload> = {
+  const eventMessage = {
     eventId,
     eventType,
     traceId,
     taskId,
-    idempotencyKey: optionalStringField(parsed, "idempotencyKey"),
-    attemptCount: positiveInteger(parsed.attemptCount, 1),
-    maxAttempts: positiveInteger(
-      parsed.maxAttempts,
-      defaults.defaultMaxAttempts || 5,
-    ),
-    nextRetryAt: optionalStringField(parsed, "nextRetryAt"),
-    occurredAt: optionalStringField(parsed, "occurredAt"),
-    payload: parsed.payload as TPayload,
+    idempotencyKey: parsed.idempotencyKey,
+    attemptCount: parsed.attemptCount ?? 1,
+    maxAttempts: parsed.maxAttempts ?? (defaults.defaultMaxAttempts || 5),
+    nextRetryAt: parsed.nextRetryAt,
+    occurredAt: parsed.occurredAt,
+    payload: parsed.payload,
   };
   const idempotencyKey = asyncTaskIdempotencyKey(eventMessage);
   asyncIdentifierSchema.parse(JSON.stringify([consumerGroup, idempotencyKey]));
   const nowIso = (defaults.now || new Date()).toISOString();
   return {
-    taskId: eventMessage.taskId!,
+    taskId: eventMessage.taskId,
     taskType: eventMessage.eventType,
     traceId: eventMessage.traceId,
     status: "pending",
     payload: eventMessage.payload,
     idempotencyKey,
-    attemptCount: eventMessage.attemptCount!,
-    maxAttempts: eventMessage.maxAttempts!,
+    attemptCount: eventMessage.attemptCount,
+    maxAttempts: eventMessage.maxAttempts,
     nextRetryAt: eventMessage.nextRetryAt,
     sourceEventId: eventMessage.eventId,
     source: {
@@ -220,6 +202,7 @@ export function parseAsyncTaskMessage<TPayload = unknown>(
 
 export function failAsyncTask<TPayload>(
   task: AsyncTaskEnvelope<TPayload>,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Handler failures may throw any value; this transition only records its diagnostic text.
   error: unknown,
   options: { now?: Date; retryBaseMs?: number; retryMaxMs?: number } = {},
 ): AsyncTaskEnvelope<TPayload> {
@@ -244,15 +227,17 @@ export function failAsyncTask<TPayload>(
   };
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Canonical hashing serializes arbitrary JSON payload values without assuming a domain shape.
 function canonicalPayload(value: unknown, legacy = false): string {
   if (Array.isArray(value))
     return `[${value.map((item) => canonicalPayload(item, legacy)).join(",")}]`;
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Canonical JSON distinguishes arrays, objects and scalar values before sorting object keys.
   if (value && typeof value === "object") {
-    const keys = Object.keys(value);
-    if (legacy) keys.sort((a, b) => a.localeCompare(b));
-    else keys.sort();
-    return `{${keys
-      .map((key) => `${JSON.stringify(key)}:${canonicalPayload(Reflect.get(value, key), legacy)}`)
+    const entries = Object.entries(value);
+    if (legacy) entries.sort(([a], [b]) => a.localeCompare(b));
+    else entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return `{${entries
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalPayload(item, legacy)}`)
       .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
@@ -272,45 +257,61 @@ export function payloadHash(
     .digest("hex")}`;
 }
 
-function storedTask<T>(value: unknown, allowLegacyIdentifiers = false): AsyncTaskEnvelope<T> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
+const storedDateSchema = z.string().refine((date) => Number.isFinite(Date.parse(date)));
+const storedIdentifierSchema = z.string().refine((value) => asyncIdentifierSchema.safeParse(value).success);
+const legacyStoredIdentifierSchema = z.string().refine((value) => value.trim() !== "");
+const storedSourceSchema = z.looseObject({
+  offset: kafkaConsumerOffsetSchema.loose(),
+  eventId: z.string(),
+  eventType: z.string(),
+  occurredAt: storedDateSchema.optional(),
+});
+function storedEnvelopeSchema(allowLegacyIdentifiers: boolean) {
+  const identifier = allowLegacyIdentifiers ? legacyStoredIdentifierSchema : storedIdentifierSchema;
+  return z.looseObject({
+    taskId: identifier,
+    taskType: identifier,
+    traceId: identifier,
+    status: asyncTaskStatusSchema,
+    payload: z.unknown(),
+    idempotencyKey: identifier,
+    sourceEventId: identifier,
+    attemptCount: z.number().refine((count) => Number.isInteger(count) && count > 0),
+    maxAttempts: z.number().refine((count) => Number.isInteger(count) && count > 0),
+    createdAt: storedDateSchema,
+    updatedAt: storedDateSchema,
+    nextRetryAt: storedDateSchema.optional(),
+    source: z.looseObject({}),
+  }).refine((record) => Object.hasOwn(record, "payload"));
+}
+const strictStoredEnvelopeSchema = storedEnvelopeSchema(false);
+const legacyStoredEnvelopeSchema = storedEnvelopeSchema(true);
+const storedMetadataSchema = z.object({
+  lockedBy: z.string().optional(),
+  lockedUntil: z.string().optional(),
+  errorCode: z.string().optional(),
+  errorMessage: z.string().optional(),
+});
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Recovery reads untrusted persisted JSON and validates the storage envelope before using it.
+function storedTask(value: unknown, allowLegacyIdentifiers = false): AsyncTaskEnvelope {
+  const schema = allowLegacyIdentifiers ? legacyStoredEnvelopeSchema : strictStoredEnvelopeSchema;
+  const envelope = schema.safeParse(value);
+  if (!envelope.success)
     throw new PayloadUnverifiableError("Stored task envelope is missing or invalid");
-  const record = value as Record<string, unknown>;
-  const source = record.source;
-  const validDate = (date: unknown) =>
-    typeof date === "string" && Number.isFinite(Date.parse(date));
-  if (
-    !source || typeof source !== "object" || Array.isArray(source) ||
-    !Object.hasOwn(record, "payload") ||
-    !asyncTaskStatusSchema.safeParse(record.status).success ||
-    !["taskId", "taskType", "traceId", "idempotencyKey", "sourceEventId"].every(
-      (field) => allowLegacyIdentifiers
-        ? typeof record[field] === "string" && record[field].trim() !== ""
-        : asyncIdentifierSchema.safeParse(record[field]).success,
-    ) ||
-    ![record.attemptCount, record.maxAttempts].every(
-      (count) => typeof count === "number" && Number.isInteger(count) && count > 0,
-    ) ||
-    !validDate(record.createdAt) || !validDate(record.updatedAt) ||
-    (record.nextRetryAt !== undefined && !validDate(record.nextRetryAt))
-  ) throw new PayloadUnverifiableError("Stored task envelope is missing or invalid");
-  const origin = source as Record<string, unknown>;
-  if (
-    !kafkaConsumerOffsetSchema.safeParse(origin.offset).success ||
-    origin.eventId !== record.sourceEventId || origin.eventType !== record.taskType ||
-    (origin.occurredAt !== undefined && !validDate(origin.occurredAt)) ||
-    ![record.lockedBy, record.lockedUntil, record.errorCode, record.errorMessage].every(
-      (field) => field === undefined || typeof field === "string",
-    )
-  ) throw new PayloadUnverifiableError("Stored task source or metadata is invalid");
-  return record as unknown as AsyncTaskEnvelope<T>;
+  const source = storedSourceSchema.safeParse(envelope.data.source);
+  const metadata = storedMetadataSchema.safeParse(envelope.data);
+  if (!source.success || !metadata.success ||
+      source.data.eventId !== envelope.data.sourceEventId ||
+      source.data.eventType !== envelope.data.taskType)
+    throw new PayloadUnverifiableError("Stored task source or metadata is invalid");
+  return { ...envelope.data, ...metadata.data, source: source.data };
 }
 
-export async function processAsyncConsumerMessage<T = unknown>(
+export async function processAsyncConsumerMessage(
   message: ConsumerMessage,
-  options: AsyncConsumerOptions<T>,
+  options: AsyncConsumerOptions,
 ): Promise<AsyncConsumerResult> {
-  let task: AsyncTaskEnvelope<T>;
+  let task: AsyncTaskEnvelope;
   const offset = kafkaConsumerOffsetSchema.parse({
     topic: message.topic,
     partition: message.partition,
@@ -324,6 +325,7 @@ export async function processAsyncConsumerMessage<T = unknown>(
     }
     return result;
   }
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Invalid messages and failed claims provide arbitrary thrown values for durable quarantine.
   async function quarantine(code: string, error: unknown) {
     await options.store.quarantine(message, options.consumerGroup, code, error);
     return acknowledge({
@@ -338,11 +340,11 @@ export async function processAsyncConsumerMessage<T = unknown>(
     });
   }
   try {
-    task = parseAsyncTaskMessage<T>(message, options.consumerGroup, options);
+    task = parseAsyncTaskMessage(message, options.consumerGroup, options);
   } catch (error) {
     return quarantine("INVALID_MESSAGE", error);
   }
-  let claim: ClaimResult<T>;
+  let claim: ClaimResult;
   try {
     claim = await options.store.claim(task, options.workerId);
   } catch (error) {
@@ -402,7 +404,7 @@ export async function processAsyncConsumerMessage<T = unknown>(
   return acknowledge(outcome);
 }
 
-export function createPostgresAsyncTaskStore<T = unknown>(
+export function createPostgresAsyncTaskStore(
   options: {
     pool?: Pool;
     databaseUrl?: string;
@@ -440,7 +442,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
         AND quarantine.source_offset=task.response_data#>>'{source,offset,offset}'
     )`;
   const leaseMs = options.leaseMs ?? 60000;
-  const key = (task: AsyncTaskEnvelope<T>) =>
+  const key = (task: AsyncTaskEnvelope) =>
     JSON.stringify([task.source.offset?.consumerGroup, task.idempotencyKey]);
   async function transaction<R>(
     body: (client: PoolClient) => Promise<R>,
@@ -458,7 +460,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
       client.release();
     }
   }
-  async function writeTask(client: PoolClient, task: AsyncTaskEnvelope<T>) {
+  async function writeTask(client: PoolClient, task: AsyncTaskEnvelope) {
     // Consumer groups own distinct task projections even for the same source task ID.
     const taskId = createHash("sha256").update(key(task)).digest("hex");
     await client.query(
@@ -489,7 +491,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
       ],
     );
   }
-  async function requireLease(client: PoolClient, task: LeasedTask<T>) {
+  async function requireLease(client: PoolClient, task: LeasedTask) {
     const result = await client.query(
       `SELECT key FROM ${keys} WHERE key=$1 AND status='processing' AND locked_by=$2 AND lease_generation=$3 AND lease_until>now() FOR UPDATE`,
       [key(task), task.lockedBy, task.generation],
@@ -497,7 +499,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
     if (result.rows.length !== 1)
       throw new StaleLeaseError("Task lease no longer belongs to this worker");
   }
-  async function finish(client: PoolClient, task: LeasedTask<T>) {
+  async function finish(client: PoolClient, task: LeasedTask) {
     await client.query(
       `UPDATE ${keys} SET status=$2,response_data=$3::jsonb,locked_by=NULL,lease_until=NULL WHERE key=$1`,
       [key(task), task.status, JSON.stringify(task)],
@@ -511,8 +513,9 @@ export function createPostgresAsyncTaskStore<T = unknown>(
     );
     return result.rows.length !== 0;
   }
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- storedTask validates each database JSON value before reconstructing its Kafka message.
   function reconstructRecovery(value: unknown, rowKey: string, group: string) {
-    const task = storedTask<T>(value, true);
+    const task = storedTask(value, true);
     const offset = kafkaConsumerOffsetSchema.parse(task.source.offset);
     if (offset.consumerGroup !== group || JSON.stringify([group, task.idempotencyKey]) !== rowKey)
       throw new PayloadUnverifiableError("Stored task belongs to another recovery identity");
@@ -557,7 +560,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
       }
     });
   }
-  const store: AsyncConsumerStore<T> & {
+  const store: AsyncConsumerStore & {
     close(): Promise<void>;
     replay(group: string, idempotencyKey: string): Promise<boolean>;
     dueMessages(group: string, limit?: number): Promise<ConsumerMessage[]>;
@@ -585,9 +588,10 @@ export function createPostgresAsyncTaskStore<T = unknown>(
         if (await isRecoveryIsolated(client, row.key))
           throw new PayloadUnverifiableError("Stored task is isolated from recovery");
         const terminal = ["succeeded", "dead_letter", "canceled"].includes(row.status);
-        const persistedHash: unknown = row.request_hash;
-        if (typeof persistedHash !== "string")
+        const parsedHash = z.string().safeParse(row.request_hash);
+        if (!parsedHash.success)
           throw new PayloadUnverifiableError("Stored payload hash is invalid");
+        const persistedHash = parsedHash.data;
         const legacy = /^[a-f0-9]{64}$/.test(persistedHash);
         if (!legacy && !/^v2:[a-f0-9]{64}$/.test(persistedHash))
           throw new PayloadUnverifiableError("Stored payload hash version is unsupported");
@@ -598,7 +602,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
             throw new PayloadUnverifiableError("Compacted legacy task cannot prove payload identity");
           return { kind: "terminal", task: incoming };
         }
-        const stored = storedTask<T>(row.response_data);
+        const stored = storedTask(row.response_data);
         if (payloadHash(stored) !== hash)
           throw new PayloadConflictError("Idempotency key is already bound to another payload");
         if (key(stored) !== key(incoming))
@@ -617,7 +621,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
             nextRetryAt: stored.nextRetryAt,
           };
         const generation = Number(row.lease_generation) + 1;
-        const task: LeasedTask<T> = {
+        const task: LeasedTask = {
           ...stored,
           status: "running",
           lockedBy: workerId,
@@ -810,6 +814,7 @@ export async function runKafkaConsumer(options: {
   }).consumer({ groupId: options.recovery?.transportGroup ?? groupId });
   let processed = 0;
   let completed!: () => void;
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the Promise rejection callback; failure values propagate without reinterpretation.
   let failed!: (error: unknown) => void;
   const done = new Promise<void>((resolve, reject) => {
     completed = resolve;

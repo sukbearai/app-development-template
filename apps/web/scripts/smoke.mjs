@@ -9,15 +9,15 @@ const checks = [];
 const telemetryPaths = ['/api/telemetry', '/api//telemetry'];
 let telemetryAdmissions = 0;
 async function call(path, { method = 'GET', body, token, cookie, origin, raw, traceId } = {}) {
+  const headers = {};
+  if (body !== undefined || raw !== undefined) headers['content-type'] = 'application/json';
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (cookie) headers.cookie = cookie;
+  if (origin) headers.origin = origin;
+  if (traceId) headers['x-trace-id'] = traceId;
   const response = await fetch(new URL(path, base), {
     method,
-    headers: {
-      ...(body !== undefined || raw !== undefined ? { 'content-type': 'application/json' } : {}),
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(cookie ? { cookie } : {}),
-      ...(origin ? { origin } : {}),
-      ...(traceId ? { 'x-trace-id': traceId } : {}),
-    },
+    headers,
     body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     signal: AbortSignal.timeout(15_000),
   });

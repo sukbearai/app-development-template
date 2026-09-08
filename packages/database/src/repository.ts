@@ -1,3 +1,4 @@
+import { jsonRecordSchema, outboxEventSchema } from "@pstack/contracts";
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
 import type { AsyncQuarantineCounts } from "@pstack/contracts/outbox-health";
 
@@ -36,10 +37,10 @@ function iso(value: Date | string) {
     : new Date(value).toISOString();
 }
 
-function jsonObject(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Stored JSON columns are validated against the contracts object schema.
+function jsonObject(value: unknown) {
+  const parsed = jsonRecordSchema.safeParse(value);
+  return parsed.success ? parsed.data : {};
 }
 
 function mapUser(
@@ -478,7 +479,7 @@ export async function getOutboxEvents(
       topic: row.topic,
       eventType: row.eventType,
       payload: jsonObject(row.payload),
-      status: row.status as OutboxEvent["status"],
+      status: outboxEventSchema.shape.status.parse(row.status),
       attempts: row.attempts,
       maxAttempts: row.maxAttempts,
       nextAttemptAt: iso(row.nextAttemptAt),

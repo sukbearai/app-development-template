@@ -257,6 +257,7 @@ export const asyncRuntimeHealthSchema = z.object({
 export interface ApiSuccess<T = unknown> {
   traceId: string;
   data: T;
+  // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Extension metadata has no domain fields; each operation validates its envelope.
   meta?: Record<string, unknown>;
 }
 
@@ -265,6 +266,7 @@ export interface ApiFailure {
   error: {
     code: string;
     message: string;
+    // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Failure diagnostics are an extensible JSON object in the HTTP contract.
     details?: Record<string, unknown>;
   };
 }

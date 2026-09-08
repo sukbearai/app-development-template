@@ -1,3 +1,4 @@
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- CLI output serializes command-specific values without inspecting their shape.
 export function printJson(value: unknown) {
   console.log(JSON.stringify(value));
 }

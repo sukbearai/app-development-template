@@ -130,6 +130,7 @@ async function reservePort() {
     server.listen(0, "127.0.0.1", resolve);
   });
   const address = server.address();
+  // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Node may return a Unix address; only a TCP address has the allocated Kafka port.
   if (!address || typeof address === "string")
     throw new Error("Unable to allocate Kafka port");
   await new Promise((resolve, reject) =>

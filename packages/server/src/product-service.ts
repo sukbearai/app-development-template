@@ -341,7 +341,7 @@ export async function createOutboxEvent(
   input: {
     topic: string;
     eventType: string;
-    payload: Record<string, unknown>;
+    payload: OutboxEvent["payload"];
     traceId: string;
   },
   tx?: TransactionContext,

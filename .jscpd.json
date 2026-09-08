@@ -1,0 +1,34 @@
+{
+  "path": [
+    "apps/web/app",
+    "apps/web/components",
+    "apps/web/lib",
+    "packages/contracts/src",
+    "packages/database/src",
+    "packages/kafka/src",
+    "packages/server/src",
+    "services/worker/src"
+  ],
+  "minLines": 8,
+  "minTokens": 80,
+  "mode": "weak",
+  "format": [
+    "javascript",
+    "typescript",
+    "tsx",
+    "jsx"
+  ],
+  "crossFormats": "js-ts",
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/.vinext/**",
+    "**/.verification/**"
+  ],
+  "reporters": [
+    "json"
+  ],
+  "output": "artifacts/quality/duplication",
+  "absolute": true,
+  "noTips": true
+}

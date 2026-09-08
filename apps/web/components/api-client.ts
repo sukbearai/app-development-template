@@ -13,10 +13,12 @@ export class ApiRequestError extends Error {
     readonly status: number,
     readonly code: string,
     readonly traceId?: string,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The error envelope explicitly permits arbitrary diagnostic details.
     readonly details?: unknown,
   ) { super(message); }
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- This boundary validates an untrusted HTTP failure envelope.
 export function apiErrorMessage(payload: unknown, fallback: string) {
   const parsed = errorEnvelope.safeParse(payload);
   return parsed.success ? parsed.data.error.message : fallback;

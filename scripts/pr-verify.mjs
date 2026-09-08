@@ -20,7 +20,7 @@ export function parseArguments(args) {
 }
 export function verificationPlan(files, options) {
   // Unknown paths and clean checkouts receive the same core checks as application changes.
-  const gates = ["boundary:check", "typecheck", "contract:check", "migration:check", "test:tools", "test:unit", "test:integration", "build"];
+  const gates = ["lint", "duplication:check", "boundary:check", "typecheck", "contract:check", "migration:check", "test:tools", "test:unit", "test:integration", "build"];
   if (options.full) gates.push("db:integration", "test:e2e", "test:ui", "test:ui:production", "test:async-recovery", "test:kafka-security");
   else if (options.ui || files.some((file) => /^(apps\/web\/|packages\/server\/|packages\/contracts\/)/.test(file))) gates.push("test:ui");
   return [...new Set(gates)];

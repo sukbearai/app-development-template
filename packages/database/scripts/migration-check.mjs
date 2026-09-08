@@ -20,6 +20,7 @@ export function assertMigrationSafety(journal, sqlFiles, sqlByFile) {
     if (
       entry.idx !== index ||
       entry.version !== "7" ||
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Journal validation checks the literal breakpoint flag at the file boundary.
       typeof entry.breakpoints !== "boolean" ||
       !Number.isSafeInteger(entry.when) ||
       entry.when <= lastTime ||

@@ -29,11 +29,11 @@ export const logoutResponseSchema = z.object({ ok: z.literal(true) });
 export const helloResponseSchema = z.object({ message: z.literal("Hello from vinext") });
 export const uploadRequestSchema = z.object({ file: z.file() });
 
-const statusDescriptions: Record<number, string> = {
+const statusDescriptions = new Map<number, string>(Object.entries({
   200: "操作成功", 201: "资源创建成功", 400: "请求参数无效", 401: "未认证或凭据无效",
   403: "权限不足或来源无效", 404: "资源不存在", 409: "资源冲突", 413: "请求体超过限制",
   415: "不支持的媒体类型", 429: "请求过于频繁", 500: "服务器内部错误", 503: "依赖不可用",
-};
+}).map(([status, description]) => [Number(status), description]));
 
 export interface HttpResponseContract {
   name: string;
@@ -53,7 +53,7 @@ export interface HttpOperationContract {
 }
 
 function response(name: string, schema: z.ZodType, status = 200): HttpResponseContract {
-  return { name, schema, description: statusDescriptions[status] ?? `HTTP ${status}` };
+  return { name, schema, description: statusDescriptions.get(status) ?? `HTTP ${status}` };
 }
 function failures(...statuses: number[]): Record<number, HttpResponseContract> {
   return Object.fromEntries(statuses.map((status) => [status, response("ApiFailure", apiFailureSchema, status)]));
@@ -184,6 +184,7 @@ export function apiOperation(operationId: ApiOperationId): HttpOperationContract
   return operation;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters, anti-slop/no-unknown-returns -- The runtime operation and status choose the schema; callers serialize the validated result without inspecting it.
 export function parseApiResponse(operationId: ApiOperationId, status: number, body: unknown): unknown {
   const contract = apiOperation(operationId).responses[status];
   if (!contract) throw new Error(`Undeclared HTTP status ${status} for ${operationId}`);

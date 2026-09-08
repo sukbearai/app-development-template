@@ -436,6 +436,7 @@ async function identityTransaction<T>(
     return await withTransaction(operation);
   } catch (error) {
     const cause = error instanceof Error && error.cause ? error.cause : error;
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Driver catch values have no common schema; only exact PostgreSQL codes below become domain errors.
     if (cause && typeof cause === "object" && "code" in cause) {
       if (cause.code === "23505")
         throw new ApiError(409, "IDENTITY_EXISTS", "账号或角色已存在");

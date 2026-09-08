@@ -29,6 +29,7 @@ for (const scenario of [
       server.listen(0, '127.0.0.1', resolve);
     });
     const address = server.address();
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Assert the TCP address variant returned by the ephemeral listener before reading its port.
     assert.ok(address && typeof address === 'object');
     const url = `redis://${scenario.credentials}127.0.0.1:${address.port}${scenario.path}`;
     if (scenario.rejects) {

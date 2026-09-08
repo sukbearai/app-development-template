@@ -10,6 +10,7 @@ export class ApiError extends Error {
     status: number,
     code: string,
     message: string,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Error details are validated against the selected response contract before sending.
     details?: unknown,
   ) {
     super(message);
@@ -29,6 +30,7 @@ export function getTraceId(request: Request) {
 }
 
 export function ok(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- withAccessLog validates the envelope against the selected operation schema.
   data: unknown,
   traceId: string,
   init?: ResponseInit & { meta?: unknown },
@@ -36,10 +38,12 @@ export function ok(
   return Response.json({ traceId, data, meta: init?.meta || {} }, init);
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- withAccessLog validates data and metadata against the selected operation schema.
 export function created(data: unknown, traceId: string, meta?: unknown) {
   return ok(data, traceId, { status: 201, meta });
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Catch values may be arbitrary; only ApiError exposes response details.
 export function fail(error: unknown, traceId: string) {
   const apiError =
     error instanceof ApiError
@@ -59,6 +63,7 @@ export function fail(error: unknown, traceId: string) {
   );
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- This bounded transport decoder returns untrusted JSON for parseInput to validate.
 export async function readJson(request: Request): Promise<unknown> {
   if (
     !/^application\/json(?:\s*;|$)/i.test(
