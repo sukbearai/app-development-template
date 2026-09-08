@@ -1,8 +1,6 @@
 import { closeDatabase } from "@pstack/database/client";
 import { inspectWorkerHeartbeat } from "./heartbeat";
 import type { KafkaConsumerOffset } from "@pstack/contracts";
-import { Kafka } from "kafkajs";
-import { readKafkaConfig } from "@pstack/kafka";
 import {
   createPostgresAsyncTaskStore,
   processAsyncConsumerMessage,
@@ -15,7 +13,6 @@ import { logger } from "./logger";
 import { runAsyncRuntime, runOutboxLoop } from "./async-runtime";
 import { inspectOutboxReadiness } from "./outbox-readiness";
 import {
-  outboxKafkaMessageKey,
   outboxKafkaMessageValue as buildOutboxKafkaMessageValue,
   processOutboxOnce,
   type OutboxEvent,
@@ -64,50 +61,6 @@ export function outboxKafkaMessageValue(
   occurredAt = new Date().toISOString(),
 ) {
   return buildOutboxKafkaMessageValue(legacyOutboxRow(row), occurredAt);
-}
-
-export async function publishEvent(row: LegacyOutboxRow) {
-  const env = loadWorkerEnv();
-  const driver = env.outboxPublisher;
-  if (driver === "dry-run") {
-    logger.info("outbox event publish dry-run", {
-      outboxId: row.id,
-      topic: row.topic,
-    });
-    return { status: "ok", driver, id: row.id };
-  }
-  if (driver === "kafka") {
-    if (!env.kafkaBrokers.length)
-      throw new Error("KAFKA_BROKERS is required unless OUTBOX_DRY_RUN=1");
-    const kafka = new Kafka({
-      ...readKafkaConfig(),
-      clientId: env.kafkaClientId,
-      brokers: env.kafkaBrokers,
-    });
-    const producer = kafka.producer();
-    const event = legacyOutboxRow(row);
-    await producer.connect();
-    try {
-      await producer.send({
-        topic: event.topic,
-        messages: [
-          {
-            key: outboxKafkaMessageKey(event),
-            value: buildOutboxKafkaMessageValue(event),
-          },
-        ],
-      });
-      logger.info("outbox event published", {
-        outboxId: row.id,
-        topic: row.topic,
-        driver,
-      });
-      return { status: "ok", driver, id: row.id };
-    } finally {
-      await producer.disconnect();
-    }
-  }
-  throw new Error(`Unknown OUTBOX_PUBLISHER: ${driver}`);
 }
 
 export async function publishOutboxOnce(limit = 10) {

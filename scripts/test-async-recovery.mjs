@@ -28,6 +28,57 @@ if (process.argv[2] === "--interrupt-restore") {
   const store = createPostgresAsyncTaskStore({ databaseUrl: process.env.DATABASE_URL });
   try { console.log(JSON.stringify(await store.dueMessages(process.env.KAFKA_CONSUMER_GROUP_ID))); }
   finally { await closeDatabase(); }
+} else if (process.argv[2] === "--publish-with-retention") {
+  const { createProducer, processOutboxOnce } = await import("../services/worker/src/outbox.ts");
+  const { runKafkaConsumer, createPostgresAsyncTaskStore, processAsyncConsumerMessage } = await import("../services/worker/src/async-consumer.ts");
+  const { loadKafkaRecovery } = await import("../services/worker/src/kafka-recovery.ts");
+  const { asyncRuntimeTopics } = await import("../services/worker/src/env.ts");
+  const { handleDomainEvent } = await import("../services/worker/src/domain-handler.ts");
+  const { getPool, closeDatabase } = await import("../packages/database/src/client.ts");
+  const { recoveryAdmin } = await import("../packages/kafka/src/recovery.ts");
+  const pool = getPool(), group = process.env.KAFKA_CONSUMER_GROUP_ID;
+  const admin = recoveryAdmin(), controller = new AbortController();
+  let recovery, producer, consumer;
+  try {
+    await admin.connect();
+    recovery = await loadKafkaRecovery(pool, group, asyncRuntimeTopics(), true);
+    producer = await createProducer();
+    const store = createPostgresAsyncTaskStore({ pool });
+    consumer = runKafkaConsumer({
+      topics: asyncRuntimeTopics(), groupId: group, recovery,
+      brokers: process.env.KAFKA_BROKERS.split(","), signal: controller.signal,
+      eachMessage: (message) => processAsyncConsumerMessage(message, { store, consumerGroup: group, handler: handleDomainEvent, workerId: "retention-proof" }),
+    });
+    void consumer.catch(() => controller.abort());
+    const published = await processOutboxOnce({ pool, dryRun: false, batchSize: 2, producer: {
+      async send(record) {
+        await producer.send(record);
+        const event = JSON.parse(record.messages[0].value);
+        const end = (await admin.fetchTopicOffsets("app.tasks"))[0].offset;
+        const deadline = Date.now() + 30000;
+        while (true) {
+          controller.signal.throwIfAborted();
+          const committed = await admin.fetchOffsets({ groupId: recovery.transportGroup, topics: ["app.tasks"] });
+          const receipts = await pool.query("SELECT count(*)::int AS n FROM app_async_receipts WHERE task_id=$1", [event.eventId]);
+          if (committed[0].partitions[0].offset === end && receipts.rows[0].n === 1) break;
+          assert.ok(Date.now() < deadline, "Consumer must commit the published event before retention advances");
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        await admin.deleteTopicRecords({ topic: "app.tasks", partitions: [{ partition: 0, offset: end }] });
+      },
+    } });
+    assert.equal(published.published, 2, "Every claim must use current transport offsets after consumer progress and retention");
+  } finally {
+    controller.abort();
+    try { await consumer; }
+    finally {
+      try { await producer?.disconnect(); }
+      finally {
+        try { await recovery?.close(); }
+        finally { try { await admin.disconnect(); } finally { await closeDatabase(); } }
+      }
+    }
+  }
 } else {
   assert.equal(process.argv.length, 2, "Usage: node scripts/test-async-recovery.mjs");
   await proveRecovery();
@@ -213,6 +264,14 @@ async function proveRecovery() {
     const interruptedDatabase = await connect(interruptedEnv.DATABASE_URL);
     assert.equal((await interruptedDatabase.query("SELECT count(*)::int AS n FROM app_kafka_recovery")).rows[0].n, 0);
     await assert.rejects(command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "async-runtime", "--iterations", "1"], interruptedEnv), /Application restore is incomplete/);
+    const guardedEvent = `guarded-${id}`;
+    await enqueue(interruptedDatabase, guardedEvent);
+    const guardedBefore = (await interruptedDatabase.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [guardedEvent])).rows;
+    const topicBefore = await admin.fetchTopicOffsets("app.tasks");
+    await assert.rejects(command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once"], interruptedEnv), /Application restore is incomplete/);
+    await command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once", "--dry-run"], interruptedEnv);
+    assert.deepEqual((await interruptedDatabase.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [guardedEvent])).rows, guardedBefore);
+    assert.deepEqual(await admin.fetchTopicOffsets("app.tasks"), topicBefore);
     await assert.rejects(command(process.execPath, ["scripts/app-backup.mjs", "create", "--output", path.join(output, "interrupted-backup")], interruptedEnv), /Application restore is incomplete/);
     startRuntime(env);
     await consumed(source, eventId);
@@ -262,7 +321,26 @@ async function proveRecovery() {
     }
     await restored.query("UPDATE app_kafka_recovery SET state='restoring'");
     await expectWorkerFailure(/recovery is incomplete/);
-    await restored.query("UPDATE app_kafka_recovery SET state='ready'");
+    const oneShotEvent = `one-shot-${id}`;
+    await enqueue(restored, oneShotEvent);
+    const oneShotBefore = (await restored.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [oneShotEvent])).rows;
+    const oneShotOffsets = await admin.fetchTopicOffsets("app.tasks");
+    await assert.rejects(command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once"], restoredEnv), /recovery is incomplete/);
+    await command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once", "--dry-run"], restoredEnv);
+    assert.deepEqual((await restored.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [oneShotEvent])).rows, oneShotBefore);
+    assert.deepEqual(await admin.fetchTopicOffsets("app.tasks"), oneShotOffsets);
+    await restored.query("UPDATE app_kafka_recovery SET state='ready', checkpoint=$1", [{ ...checkpointData, clusterId: "wrong-cluster" }]);
+    await assert.rejects(command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once"], restoredEnv), /cluster differs/);
+    await command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once", "--dry-run"], { ...restoredEnv, KAFKA_BROKERS: "127.0.0.1:1" });
+    assert.deepEqual((await restored.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [oneShotEvent])).rows, oneShotBefore);
+    assert.deepEqual(await admin.fetchTopicOffsets("app.tasks"), oneShotOffsets);
+    await restored.query("UPDATE app_kafka_recovery SET checkpoint=$1", [checkpointData]);
+    await command(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-once"], restoredEnv);
+    assert.equal((await restored.query("SELECT status FROM app_outbox_events WHERE id=$1", [oneShotEvent])).rows[0].status, "published");
+    startRuntime(restoredEnv);
+    await consumed(restored, oneShotEvent);
+    await stopRuntime();
+    summary.checks.push("one-shot publisher refuses restore marker, incomplete binding, and ready wrong-cluster checkpoint without claims or Kafka writes; dry-run stays read-only; ready binding publishes and consumes");
     await assert.rejects(recoveryTools.validateKafkaHistory(admin, { ...checkpointData, clusterId: "wrong-cluster" }), /cluster differs/);
     await admin.createTopics({ topics: [{ topic: "compacted", numPartitions: 1, replicationFactor: 1, configEntries: [{ name: "cleanup.policy", value: "compact" }] }], waitForLeaders: true });
     await assert.rejects(recoveryTools.captureKafkaCheckpoint(admin, prefix, prefix, ["compacted"]), /cleanup.policy=delete/);
@@ -277,6 +355,34 @@ async function proveRecovery() {
     await writeFile(path.join(legacyBundle, "COMPLETE"), await sha256(legacyManifestFile) + "\n");
     await assert.rejects(command(process.execPath, ["scripts/app-backup.mjs", "restore", "--directory", legacyBundle, "--confirm", "--recover-kafka"], restoredEnv), /v2 bundle with a Kafka checkpoint/);
     summary.checks.push("interrupted binding, wrong cluster, compacted topic, existing transport, legacy Kafka recovery rejected");
+
+    const loopFirst = `loop-first-${id}`, loopBlocked = `loop-blocked-${id}`;
+    await enqueue(restored, loopFirst);
+    runtime = launch(process.execPath, ["--import", "tsx", "services/worker/src/index.ts", "outbox-loop"], { ...restoredEnv, OUTBOX_BATCH_SIZE: "1", OUTBOX_POLL_INTERVAL_MS: "1000" });
+    await until("outbox-loop first publication", async () => (await restored.query("SELECT status FROM app_outbox_events WHERE id=$1", [loopFirst])).rows[0].status === "published");
+    process.kill(-runtime.child.pid, "SIGSTOP");
+    const loopOffsets = await admin.fetchOffsets({ groupId: binding.transport_group, topics: ["app.tasks", "recovery.extra"] });
+    await admin.deleteGroups([binding.transport_group]);
+    await enqueue(restored, loopBlocked);
+    const loopBefore = (await restored.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [loopBlocked])).rows;
+    const loopLogEnd = await admin.fetchTopicOffsets("app.tasks");
+    const failedLoop = runtime; runtime = undefined;
+    process.kill(-failedLoop.child.pid, "SIGCONT");
+    const loopDeadline = setTimeout(() => { try { process.kill(-failedLoop.child.pid, "SIGKILL"); } catch {} }, 30000);
+    try { await assert.rejects(failedLoop.done, /offset missing or reset/); }
+    finally { clearTimeout(loopDeadline); }
+    assert.deepEqual((await restored.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [loopBlocked])).rows, loopBefore);
+    assert.deepEqual(await admin.fetchTopicOffsets("app.tasks"), loopLogEnd);
+    for (const row of loopOffsets) await admin.setOffsets({ groupId: binding.transport_group, topic: row.topic, partitions: row.partitions.map(({ partition, offset }) => ({ partition, offset })) });
+    startRuntime(restoredEnv);
+    await consumed(restored, loopBlocked);
+    await stopRuntime();
+    summary.checks.push("running outbox-loop rejects deleted transport before claiming or sending the next event; restored offsets resume publication");
+
+    for (const phase of ["first", "second"]) await enqueue(restored, `retention-progress-${phase}-${id}`);
+    await command(process.execPath, ["--import", "tsx", "scripts/test-async-recovery.mjs", "--publish-with-retention"], restoredEnv);
+    for (const phase of ["first", "second"]) assert.equal(await count(restored, `retention-progress-${phase}-${id}`), 1);
+    summary.checks.push("same batch publishes two events while real consumer commits and retention advances after each send; publisher does not retain stale required offsets");
 
     const savedOffsets = await admin.fetchOffsets({ groupId: binding.transport_group, topics: ["app.tasks", "recovery.extra"] });
     await admin.deleteGroups([binding.transport_group]);

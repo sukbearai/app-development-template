@@ -1,4 +1,6 @@
+import { asyncRuntimeTopics, loadWorkerEnv } from "./env";
 import type { Pool } from "pg";
+import type { appKafkaRecovery } from "@pstack/database/schema";
 import {
   kafkaCheckpointSchema, recoveryAdmin, verifyRecoveryTransport, validateKafkaHistory,
   type PartitionOffset,
@@ -12,31 +14,38 @@ export type RecoveryGuard = {
   close(): Promise<void>;
 };
 
-export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics: string[], kafkaEnabled: boolean): Promise<RecoveryGuard | undefined> {
+export async function readReadyKafkaRecovery(pool: Pool) {
   if ((await pool.query("SELECT to_regnamespace('pstack_restore_guard') AS guard")).rows[0].guard) throw new Error("Application restore is incomplete; worker startup is blocked");
-  const row = (await pool.query("SELECT state,logical_group,transport_group,checkpoint FROM app_kafka_recovery WHERE singleton")).rows[0];
+  const row = (await pool.query<Pick<typeof appKafkaRecovery.$inferSelect, "state" | "logicalGroup" | "transportGroup" | "checkpoint">>(
+    'SELECT state,logical_group AS "logicalGroup",transport_group AS "transportGroup",checkpoint FROM app_kafka_recovery WHERE singleton',
+  )).rows[0];
+  if (row && row.state !== "ready") throw new Error("Kafka recovery is incomplete; worker startup is blocked");
+  return row;
+}
+
+export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics: string[], kafkaEnabled: boolean): Promise<RecoveryGuard | undefined> {
+  const row = await readReadyKafkaRecovery(pool);
   if (!row) return;
-  if (row.state !== "ready") throw new Error("Kafka recovery is incomplete; worker startup is blocked");
   if (!kafkaEnabled) throw new Error("Restored Kafka database requires its permanent recovery transport");
   const checkpoint = kafkaCheckpointSchema.parse(row.checkpoint);
-  if (row.logical_group !== logicalGroup || checkpoint.logicalGroup !== logicalGroup) throw new Error("Kafka recovery logical group differs from worker configuration");
-  if (typeof row.transport_group !== "string" || !row.transport_group.startsWith("pstack-recovery-") || row.transport_group === logicalGroup || row.transport_group === checkpoint.sourceTransportGroup) throw new Error("Invalid Kafka recovery transport binding");
+  if (row.logicalGroup !== logicalGroup || checkpoint.logicalGroup !== logicalGroup) throw new Error("Kafka recovery logical group differs from worker configuration");
+  if (typeof row.transportGroup !== "string" || !row.transportGroup.startsWith("pstack-recovery-") || row.transportGroup === logicalGroup || row.transportGroup === checkpoint.sourceTransportGroup) throw new Error("Invalid Kafka recovery transport binding");
   if (topics.length !== checkpoint.topics.length || topics.some((topic) => !checkpoint.topics.some((saved) => saved.topic === topic))) throw new Error("Kafka recovery subscriptions differ from checkpoint");
   const admin = recoveryAdmin();
   let floors: PartitionOffset[];
-  try { await admin.connect(); floors = await verifyRecoveryTransport(admin, checkpoint, row.transport_group); }
+  try { await admin.connect(); floors = await verifyRecoveryTransport(admin, checkpoint, row.transportGroup); }
   catch (error) { await admin.disconnect(); throw error; }
   let checks = Promise.resolve();
   function check() {
     checks = checks.then(async () => {
-      await verifyRecoveryTransport(admin, checkpoint, row.transport_group);
+      await verifyRecoveryTransport(admin, checkpoint, row.transportGroup);
       // Keep our own required offsets: KafkaJS writes a default offset on out-of-range.
       await validateKafkaHistory(admin, checkpoint, floors);
     });
     return checks;
   }
   return {
-    transportGroup: row.transport_group,
+    transportGroup: row.transportGroup,
     check,
     async beforeMessage(message) {
       await check();
@@ -50,4 +59,14 @@ export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics
     },
     async close() { await checks.catch(() => undefined); await admin.disconnect(); },
   };
+}
+
+export async function assertKafkaPublishingReady(pool: Pool): Promise<void> {
+  const env = loadWorkerEnv();
+  let recovery: RecoveryGuard | undefined;
+  try {
+    recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, asyncRuntimeTopics(), true);
+  } finally {
+    await recovery?.close();
+  }
 }

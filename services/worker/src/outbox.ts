@@ -4,6 +4,7 @@ import { getPool } from "@pstack/database/client";
 import type { AsyncTaskEventMessage } from "@pstack/contracts";
 import { loadWorkerEnv } from "./env";
 import { readKafkaConfig } from "@pstack/kafka";
+import { assertKafkaPublishingReady } from "./kafka-recovery";
 
 export type OutboxEvent = {
   id: string;
@@ -237,10 +238,12 @@ export async function processOutboxOnce(
     result.inspected = preview.rows.length;
     return result;
   }
+  await assertKafkaPublishingReady(pool);
   const producer = options.producer ?? (await createProducer());
   try {
     // Claim one event at a time so queued sends cannot outlive a batch lease.
     for (let i = 0; i < resolved.batchSize && !options.signal?.aborted; i++) {
+      if (i > 0) await assertKafkaPublishingReady(pool);
       const client = await pool.connect();
       let event: OutboxEvent | undefined;
       try {

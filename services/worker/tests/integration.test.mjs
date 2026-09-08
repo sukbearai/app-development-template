@@ -95,6 +95,46 @@ test("dry-run observes without changing any persisted outbox bytes", async () =>
   );
 });
 
+test("outbox publishing refuses incomplete restores while dry-run stays read-only", async () => {
+  const id = `restore-guard-${randomUUID()}`;
+  await pool.query("INSERT INTO app_outbox_events(id,topic,event_type,trace_id,payload,created_at) VALUES($1,'app.tasks','demo.echo','restore-guard','{}','1970-01-01')", [id]);
+  let sends = 0;
+  const producer = { async send() { sends++; } };
+  const snapshot = async () => (await pool.query("SELECT row_to_json(e) snapshot FROM app_outbox_events e WHERE id=$1", [id])).rows;
+  try {
+    for (const state of ["guard", "restoring"]) {
+      if (state === "guard") await pool.query("CREATE SCHEMA pstack_restore_guard");
+      else await pool.query("INSERT INTO app_kafka_recovery(state,logical_group,transport_group,checkpoint) VALUES('restoring',$1,'data-only-recovery-disabled','{}')", [group]);
+      const before = await snapshot();
+      const dryRun = await processOutboxOnce({ pool, producer, dryRun: true, batchSize: 1 });
+      assert.equal(dryRun.claimed, 0);
+      await assert.rejects(processOutboxOnce({ pool, producer, dryRun: false, batchSize: 1 }), /restore|recovery/i);
+      assert.equal(sends, 0);
+      assert.deepEqual(await snapshot(), before);
+      if (state === "guard") await pool.query("DROP SCHEMA pstack_restore_guard");
+    }
+    await pool.query("UPDATE app_kafka_recovery SET state='ready'");
+    const invalidReadyBefore = await snapshot();
+    await assert.rejects(processOutboxOnce({ pool, producer, dryRun: false, batchSize: 1 }));
+    assert.equal(sends, 0);
+    assert.deepEqual(await snapshot(), invalidReadyBefore);
+    await pool.query("DELETE FROM app_kafka_recovery");
+    const published = await processOutboxOnce({ pool, producer, dryRun: false, batchSize: 1 });
+    assert.equal(published.published, 1);
+    assert.equal(sends, 1);
+    assert.equal((await snapshot())[0].snapshot.status, "published");
+    await pool.query("UPDATE app_outbox_events SET status='pending' WHERE id=$1", [id]);
+    await assert.rejects(processOutboxOnce({ pool, dryRun: false, batchSize: 2, producer: {
+      async send() { await pool.query("INSERT INTO app_kafka_recovery(state,logical_group,transport_group,checkpoint) VALUES('restoring',$1,'data-only-recovery-disabled','{}')", [group]); },
+    } }), /recovery is incomplete/);
+    assert.equal((await snapshot())[0].snapshot.status, "published");
+  } finally {
+    await pool.query("DROP SCHEMA IF EXISTS pstack_restore_guard");
+    await pool.query("DELETE FROM app_kafka_recovery");
+    await pool.query("DELETE FROM app_outbox_events WHERE id=$1", [id]);
+  }
+});
+
 test("expired publisher lease recovers and rejects the old publisher acknowledgement", async () => {
   const client = await pool.connect();
   try {

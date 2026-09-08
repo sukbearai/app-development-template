@@ -124,3 +124,17 @@ export function loadWorkerEnv({ allowMissingPublisher = false } = {}): WorkerEnv
     ),
   };
 }
+
+export const ASYNC_RUNTIME_TOPICS = [
+  "app.tasks",
+  "telemetry.events",
+  "files.events",
+  "audit.events",
+] as const;
+
+export function asyncRuntimeTopics(env: NodeJS.ProcessEnv = process.env) {
+  return (env.ASYNC_RUNTIME_TOPICS || ASYNC_RUNTIME_TOPICS.join(","))
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}

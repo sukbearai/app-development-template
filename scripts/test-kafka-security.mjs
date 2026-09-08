@@ -47,9 +47,6 @@ async function probe(mode) {
       },
     });
     assert.equal(result.processed, 1);
-  } else if (mode === "legacy-publisher") {
-    const { publishEvent } = await import("../services/worker/src/index.ts");
-    await publishEvent({ id: "security-proof", topic: "security-proof", event_type: "security-proof", trace_id: "security-proof", payload: {}, attempts: 0 });
   } else if (mode === "topic-admin") {
     const { ensureAsyncRuntimeTopics } = await import("../services/worker/src/async-runtime.ts");
     await ensureAsyncRuntimeTopics([`security-admin-${randomBytes(8).toString("hex")}`]);
@@ -151,7 +148,7 @@ async function run() {
     }
     assert.ok(ready, "SASL_SSL control client did not become ready");
     summary.checks.push({ entry: "control", scenario: "valid", passed: true });
-    for (const entry of ["producer", "consumer", "health", "topic-admin", "legacy-publisher", "control"]) {
+    for (const entry of ["producer", "consumer", "health", "topic-admin", "control"]) {
       for (const scenario of ["valid", "wrong-ca", "wrong-password"]) {
         if (entry === "control" && scenario === "valid") continue;
         const probeEnv = { ...env };

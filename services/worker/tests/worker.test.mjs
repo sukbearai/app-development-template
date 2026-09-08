@@ -11,12 +11,10 @@ import {
   processConsumerMessagesSequentially,
 } from "../src/async-consumer.ts";
 import {
-  asyncRuntimeTopics,
   buildAsyncRuntimePlan,
 } from "../src/async-runtime.ts";
 import {
   outboxKafkaMessageValue,
-  publishEvent,
   publishOutboxOnce,
   workerHealth,
 } from "../src/index.ts";
@@ -25,6 +23,7 @@ import {
   buildOutboxAlerts,
   outboxReadinessStatus,
 } from "../src/outbox-readiness.ts";
+import { asyncRuntimeTopics } from "../src/env.ts";
 import { outboxKafkaMessageKey } from "../src/outbox.ts";
 
 process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = "1";
@@ -153,45 +152,6 @@ test("publishOutboxOnce requires DATABASE_URL", async () => {
   delete process.env.DATABASE_URL;
   await assert.rejects(() => publishOutboxOnce(), /DATABASE_URL is required/);
   if (previous) process.env.DATABASE_URL = previous;
-});
-
-test("publishEvent supports dry-run and requires kafka brokers", async () => {
-  const previous = process.env.OUTBOX_PUBLISHER;
-  const previousBrokers = process.env.KAFKA_BROKERS;
-  process.env.OUTBOX_PUBLISHER = "dry-run";
-  const ok = await publishEvent({
-    id: "evt_test",
-    topic: "tests",
-    event_type: "test.created",
-    trace_id: "trace-test",
-    payload: {},
-    attempts: 0,
-  });
-  assert.equal(ok.status, "ok");
-  process.env.OUTBOX_PUBLISHER = "kafka";
-  delete process.env.KAFKA_BROKERS;
-  await assert.rejects(
-    () =>
-      publishEvent({
-        id: "evt_test",
-        topic: "tests",
-        event_type: "test.created",
-        trace_id: "trace-test",
-        payload: {},
-        attempts: 0,
-      }),
-    /KAFKA_BROKERS is required/,
-  );
-  if (previous === undefined) {
-    delete process.env.OUTBOX_PUBLISHER;
-  } else {
-    process.env.OUTBOX_PUBLISHER = previous;
-  }
-  if (previousBrokers === undefined) {
-    delete process.env.KAFKA_BROKERS;
-  } else {
-    process.env.KAFKA_BROKERS = previousBrokers;
-  }
 });
 
 test("worker logger redacts sensitive fields recursively", () => {

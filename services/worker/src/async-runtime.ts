@@ -9,16 +9,9 @@ import {
 } from "./async-consumer";
 import { handleDomainEvent } from "./domain-handler";
 import { createHeartbeatWriter } from "./heartbeat";
-import { loadWorkerEnv } from "./env";
+import { asyncRuntimeTopics, loadWorkerEnv } from "./env";
 import { loadKafkaRecovery, type RecoveryGuard } from "./kafka-recovery";
 import { readKafkaConfig } from "@pstack/kafka";
-
-export const ASYNC_RUNTIME_TOPICS = [
-  "app.tasks",
-  "telemetry.events",
-  "files.events",
-  "audit.events",
-] as const;
 
 function positiveIntegerEnv(
   name: string,
@@ -27,13 +20,6 @@ function positiveIntegerEnv(
 ) {
   const value = Number(env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-export function asyncRuntimeTopics(env: NodeJS.ProcessEnv = process.env) {
-  return (env.ASYNC_RUNTIME_TOPICS || ASYNC_RUNTIME_TOPICS.join(","))
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 export function buildAsyncRuntimePlan(
@@ -179,6 +165,10 @@ async function runRuntime(args: string[], consume: boolean) {
   try {
     await pool.query("SELECT 1");
     recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, plan.topics, kafka);
+    if (!consume) {
+      await recovery?.close();
+      recovery = undefined;
+    }
     if (kafka) {
       await ensureAsyncRuntimeTopics(plan.topics);
       producer = await createProducer();
