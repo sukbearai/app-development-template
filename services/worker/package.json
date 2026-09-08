@@ -12,6 +12,7 @@
     "test:integration:external": "tsx --test tests/integration.test.mjs"
   },
   "dependencies": {
+    "@pstack/kafka": "workspace:*",
     "@pstack/contracts": "workspace:*",
     "kafkajs": "2.2.4",
     "pg": "8.21.0",

@@ -115,6 +115,12 @@ test("boolean config and cookie TTL use explicit values", () => {
   const response = setSessionCookie(new Response(), "id.secret");
   assert.match(response.headers.get("set-cookie"), /Max-Age=86400/);
 });
+test("outbox attempt policy defaults to five and rejects invalid database integers", () => {
+  assert.equal(envSchema.parse({}).OUTBOX_MAX_ATTEMPTS, 5);
+  assert.equal(envSchema.parse({ OUTBOX_MAX_ATTEMPTS: "2" }).OUTBOX_MAX_ATTEMPTS, 2);
+  for (const value of ["0", "-1", "1.5", "invalid", "2147483648"])
+    assert.throws(() => envSchema.parse({ OUTBOX_MAX_ATTEMPTS: value }));
+});
 test("forged forwarded headers cannot establish cookie write origin", () => {
   const request = new Request("https://app.example/api/users", {
     method: "POST",

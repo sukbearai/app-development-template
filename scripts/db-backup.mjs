@@ -58,19 +58,34 @@ export function dockerPostgresNetwork(host, platform = process.platform) {
     : { host: "host.docker.internal", args: ["--add-host=host.docker.internal:host-gateway"] };
 }
 
+function dockerBindMount(source, target, readonly = false) {
+  return ["type=bind", `source=${source}`, `target=${target}`, ...(readonly ? ["readonly"] : [])]
+    .map((field) => /[,"\r\n]/.test(field) ? `"${field.replaceAll('"', '""')}"` : field).join(",");
+}
+
 async function postgresTool(command, args, database, directories = []) {
   const connection = database ? postgresEnvironment(database) : {};
   const network = dockerPostgresNetwork(connection.PGHOST);
   if (process.env.POSTGRES_TOOLS === "docker" && network.host) connection.PGHOST = network.host;
-  const env = { ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PG"))), ...connection };
+  const environment = () => ({ ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PG"))), ...connection });
   if (process.env.POSTGRES_TOOLS === "docker") {
+    const mounts = [...new Set(directories)].map((dir) => dockerBindMount(dir, dir));
+    for (const [key, filename] of [["PGSSLROOTCERT", "sslrootcert"], ["PGSSLCERT", "sslcert"], ["PGSSLKEY", "sslkey"]]) {
+      if (!connection[key] || (key === "PGSSLROOTCERT" && connection[key] === "system")) continue;
+      const target = `/run/pstack-postgres/${filename}`;
+      mounts.push(dockerBindMount(path.resolve(connection[key]), target, true));
+      connection[key] = target;
+    }
+    const user = process.getuid && process.getgid ? ["--user", `${process.getuid()}:${process.getgid()}`] : [];
+    const groups = [...new Set(process.getgroups?.() || [])].flatMap((gid) => ["--group-add", String(gid)]);
     return run("docker", ["run", "--rm", ...network.args,
+      ...user, ...groups,
       ...Object.keys(connection).flatMap((key) => ["-e", key]),
-      ...[...new Set(directories)].flatMap((dir) => ["--mount", `type=bind,source=${dir},target=${dir}`]),
-      process.env.POSTGRES_TOOL_IMAGE || "postgres:17-alpine", command, ...args], { env, stdio: ["ignore", "pipe", "inherit"] });
+      ...mounts.flatMap((mount) => ["--mount", mount]),
+      process.env.POSTGRES_TOOL_IMAGE || "postgres:17-alpine", command, ...args], { env: environment(), stdio: ["ignore", "pipe", "inherit"] });
   }
   if (process.env.POSTGRES_TOOLS && process.env.POSTGRES_TOOLS !== "local") throw new Error("POSTGRES_TOOLS must be local or docker");
-  return run(command, args, { env, stdio: ["ignore", "pipe", "inherit"] });
+  return run(command, args, { env: environment(), stdio: ["ignore", "pipe", "inherit"] });
 }
 
 async function connect(database) {
@@ -156,7 +171,7 @@ export async function restoreArchive(file, list, database) {
   } finally { await rm(temporary, { recursive: true, force: true }); }
 }
 
-export async function restoreBackup(options) {
+export async function restoreBackup(options, beforeRestore) {
   const { file, manifest, list } = await verifyBackup(options);
   if (!options.confirm) throw new Error("Restore requires --confirm and an empty target database");
   const database = postgresUrl(process.env.DATABASE_URL).href;
@@ -164,6 +179,7 @@ export async function restoreBackup(options) {
   try {
     const objects = (await client.query("SELECT count(*)::int AS count FROM (SELECT c.relnamespace AS namespace FROM pg_class c UNION ALL SELECT p.pronamespace FROM pg_proc p UNION ALL SELECT t.typnamespace FROM pg_type t) objects JOIN pg_namespace n ON n.oid=objects.namespace WHERE n.nspname=ANY($1)", [schemas])).rows[0].count;
     if (objects) throw new Error("Restore target must have empty public and drizzle schemas; use a new database");
+    await beforeRestore?.(client);
     await restoreArchive(file, list, database);
     const restoredLedger = await ledger(client);
     if (hash(JSON.stringify(restoredLedger)) !== manifest.ledgerSha256 || await schemaFingerprint(client) !== manifest.schemaSha256) throw new Error("Restored ledger or schema does not match the backup manifest");

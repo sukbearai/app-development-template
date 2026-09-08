@@ -22,14 +22,14 @@
     "storage:cleanup": "node scripts/with-env.mjs pnpm --filter @pstack/server storage:cleanup",
     "migration:check": "node scripts/with-env.mjs pnpm --filter @pstack/database migration:check",
     "contract:check": "pnpm --filter @pstack/web contract:check",
-    "test:unit": "pnpm --filter @pstack/contracts test:unit && pnpm --filter @pstack/database test:unit && pnpm --filter @pstack/server test:unit && pnpm --filter @pstack/web test:unit && pnpm --filter @pstack/worker test:unit",
+    "test:unit": "pnpm --filter @pstack/contracts test:unit && pnpm --filter @pstack/kafka test:unit && pnpm --filter @pstack/database test:unit && pnpm --filter @pstack/server test:unit && pnpm --filter @pstack/web test:unit && pnpm --filter @pstack/worker test:unit",
     "test:integration": "pnpm --filter @pstack/database test:integration && pnpm --filter @pstack/server test:integration && pnpm --filter @pstack/worker test:integration",
     "test:e2e": "node scripts/verify-app.mjs",
     "test:ui": "node scripts/verify-app.mjs --ui",
     "pr:verify": "node scripts/pr-verify.mjs",
     "smoke": "pnpm --filter @pstack/web smoke",
     "test": "pnpm test:unit && pnpm test:integration",
-    "verify": "pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:production && pnpm test:ui && pnpm test:app-backup",
+    "verify": "pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security",
     "local:init": "node scripts/local.mjs init",
     "local:up": "node scripts/local.mjs up",
     "local:down": "node scripts/local.mjs down",
@@ -49,7 +49,10 @@
     "app:backup:restore": "node scripts/app-backup.mjs restore",
     "test:app-backup": "node scripts/test-app-backup.mjs",
     "history:prune": "node --import tsx scripts/history-prune.mjs",
-    "storage:resolve": "node --import tsx scripts/resolve-upload.mjs"
+    "storage:resolve": "node --import tsx scripts/resolve-upload.mjs",
+    "test:kafka-security": "node scripts/test-kafka-security.mjs",
+    "test:async-recovery": "node scripts/test-async-recovery.mjs",
+    "test:ui:production": "node scripts/verify-app.mjs --production --ui"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {

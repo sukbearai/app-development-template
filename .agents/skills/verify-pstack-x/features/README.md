@@ -11,4 +11,4 @@
 | Audit and outbox | apps/web/app/admin/audit, apps/web/app/admin/outbox | Page navigation and API responses |
 | Permissions | apps/web/app/admin/permissions | Permission directory navigation |
 
-Run `pnpm test:ui` for browser evidence and `pnpm test:e2e` for API rejection and persistence paths. These commands own an ephemeral database. Optional middleware is covered separately.
+Run `pnpm test:ui` for browser evidence and `pnpm test:e2e` for API rejection and persistence paths. `node scripts/verify-app.mjs --production --ui` runs the same seven browser flows against an owned production build before and after database restore. These commands own an ephemeral database. Optional middleware is covered separately.

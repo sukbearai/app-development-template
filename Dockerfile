@@ -10,6 +10,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 COPY packages/database/package.json packages/database/package.json
+COPY packages/kafka/package.json packages/kafka/package.json
 COPY packages/server/package.json packages/server/package.json
 COPY services/worker/package.json services/worker/package.json
 RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm install --frozen-lockfile --store-dir=/pnpm/store

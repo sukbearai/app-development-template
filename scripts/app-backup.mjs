@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { createBackup, restoreBackup, sha256, verifyBackup } from "./db-backup.mjs";
 import { loadEnvironment, postgresUrl } from "./env.mjs";
+import { captureKafkaRecovery, parseKafkaRecovery, verifyKafkaCheckpointHistory, planKafkaRestore,
+  installKafkaRecoveryBinding, initializeKafkaRecovery } from "./kafka-recovery.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(root, "packages/server/package.json"));
@@ -39,6 +41,8 @@ export function parseArguments(argv) {
   const options = { command, confirm: false };
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--confirm") { options.confirm = true; continue; }
+    if (args[i] === "--recover-kafka") { options.recoverKafka = true; continue; }
+    if (args[i] === "--data-only") { options.dataOnly = true; continue; }
     if (!["--directory", "--output"].includes(args[i])) throw new Error(`Unknown argument: ${args[i]}`);
     const key = args[i].slice(2), value = args[++i];
     if (!value || value.startsWith("--")) throw new Error(`${key} requires a value`);
@@ -46,6 +50,8 @@ export function parseArguments(argv) {
   }
   if (!options[command === "create" ? "output" : "directory"]) throw new Error("create requires --output; verify/restore require --directory");
   if (command === "restore" && !options.confirm) throw new Error("Restore requires --confirm and isolated empty database and storage targets");
+  if ((options.recoverKafka || options.dataOnly) && command !== "restore") throw new Error("Recovery mode options apply only to restore");
+  if (options.recoverKafka && options.dataOnly) throw new Error("Choose --recover-kafka or --data-only");
   return options;
 }
 
@@ -150,6 +156,8 @@ export async function createBundle(options) {
   await mkdir(path.join(output, "objects"), { mode: 0o700 });
   const objects = [], source = storage();
   try {
+    // Broker committed offsets must precede pg_export_snapshot, including its callback.
+    const kafkaRecovery = await captureKafkaRecovery();
     await createBackup({ output: path.join(output, "database"), id: "database" }, async (client) => {
       for (const row of await references(client)) {
         if (row.location !== source.location(row.provider)) throw new Error("Upload intent storage binding differs from configured source");
@@ -162,8 +170,9 @@ export async function createBundle(options) {
     });
     await syncFile(path.join(output, "database/database.dump"));
     await syncFile(path.join(output, "database/manifest.json"));
-    const manifest = { version: 1, format: "pstack-application-bundle", createdAt: new Date().toISOString(),
-      databaseManifestSha256: await sha256(path.join(output, "database/manifest.json")), objects };
+    await verifyKafkaCheckpointHistory(kafkaRecovery);
+    const manifest = { version: 2, format: "pstack-application-bundle", createdAt: new Date().toISOString(),
+      databaseManifestSha256: await sha256(path.join(output, "database/manifest.json")), kafkaRecovery, objects };
     await publish(path.join(output, "bundle.json"), JSON.stringify(manifest, null, 2) + "\n");
     await publish(path.join(output, "COMPLETE"), await sha256(path.join(output, "bundle.json")) + "\n");
     await syncPath(path.dirname(output));
@@ -176,8 +185,9 @@ export async function verifyBundle(directory) {
   const digest = (await readFile(path.join(directory, "COMPLETE"), "utf8")).trim();
   if (!digestPattern.test(digest) || digest !== await sha256(path.join(directory, "bundle.json"))) throw new Error("Bundle is incomplete or manifest checksum differs");
   const manifest = JSON.parse(await readFile(path.join(directory, "bundle.json"), "utf8"));
-  if (manifest.version !== 1 || manifest.format !== "pstack-application-bundle" || !Array.isArray(manifest.objects) ||
+  if (![1, 2].includes(manifest.version) || manifest.format !== "pstack-application-bundle" || !Array.isArray(manifest.objects) ||
       !digestPattern.test(manifest.databaseManifestSha256) || manifest.databaseManifestSha256 !== await sha256(path.join(directory, "database/manifest.json"))) throw new Error("Invalid bundle manifest or database manifest checksum");
+  if (manifest.version === 2) parseKafkaRecovery(manifest.kafkaRecovery);
   const seen = new Set();
   for (const row of manifest.objects) {
     if (!keyPattern.test(row.key) || !["local", "s3"].includes(row.provider) || !digestPattern.test(row.sha256) ||
@@ -196,11 +206,20 @@ export async function verifyBundle(directory) {
 export async function restoreBundle(options) {
   if (!options.confirm) throw new Error("Restore requires --confirm");
   const directory = path.resolve(options.directory), manifest = await verifyBundle(directory), target = storage();
+  const kafkaPlan = planKafkaRestore(manifest, options);
+  if (kafkaPlan) await verifyKafkaCheckpointHistory(kafkaPlan.checkpoint);
   const client = new Client({ connectionString: postgresUrl(process.env.DATABASE_URL).href });
   try {
     for (const provider of new Set(manifest.objects.map((row) => row.provider))) await target.assertEmpty(provider);
-    await restoreBackup({ file: path.join(directory, "database/database.dump"), confirm: true });
+    await restoreBackup({ file: path.join(directory, "database/database.dump"), confirm: true }, async (targetClient) => {
+      // Outside the dump schemas: a crash after pg_restore must still block worker startup.
+      await targetClient.query("CREATE SCHEMA pstack_restore_guard");
+    });
     await client.connect();
+    if (kafkaPlan) await installKafkaRecoveryBinding(client, kafkaPlan);
+    else if (options.dataOnly && manifest.version === 2 && manifest.kafkaRecovery.kind === "checkpoint") {
+      await installKafkaRecoveryBinding(client, { checkpoint: manifest.kafkaRecovery, transportGroup: "data-only-recovery-disabled" });
+    }
     await client.query("BEGIN");
     await client.query("LOCK TABLE app_file_assets, app_upload_intents IN SHARE ROW EXCLUSIVE MODE");
     const actual = await references(client);
@@ -218,6 +237,16 @@ export async function restoreBundle(options) {
       VALUES ($1,'backup.restore','application',$1,$2)`, [`restore_${randomUUID()}`, JSON.stringify({ bundleSha256: await sha256(path.join(directory, "bundle.json")), objects: manifest.objects.length,
       sourceBindings: [...new Set(manifest.objects.map((row) => row.location))], noncommittedIntents: "original bindings preserved; requires operator review" })]);
     await client.query("COMMIT");
+    if (kafkaPlan) {
+      await initializeKafkaRecovery(kafkaPlan);
+      await client.query("BEGIN");
+      const changed = await client.query("UPDATE app_kafka_recovery SET state='ready' WHERE singleton AND state='restoring' AND transport_group=$1", [kafkaPlan.transportGroup]);
+      if (changed.rowCount !== 1) throw new Error("Kafka recovery binding changed before completion");
+      await client.query("DROP SCHEMA pstack_restore_guard");
+      await client.query("COMMIT");
+      console.log(`Kafka recovery ready; logical group ${kafkaPlan.checkpoint.logicalGroup}, permanent transport group ${kafkaPlan.transportGroup}`);
+    } else if (options.dataOnly) console.log("Data-only restore: automatic Kafka recovery is unsupported; worker remains blocked by pstack_restore_guard.");
+    else await client.query("DROP SCHEMA pstack_restore_guard");
     console.log("Application restored; committed upload bindings remapped. Review noncommitted intents and verify application before opening traffic.");
   } catch (error) {
     throw new Error(`Restore incomplete. Keep targets isolated; retry with a new empty database and storage. ${error.message}`, { cause: error });

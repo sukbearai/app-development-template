@@ -59,6 +59,8 @@ jobs:
             .verification/containers/
             .verification/app/
             .verification/pstack-x/
+            .verification/async-recovery/
+            .verification/kafka-security/
             .verification/template-implementation/
           include-hidden-files: true
           if-no-files-found: error

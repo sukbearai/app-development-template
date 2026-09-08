@@ -3,6 +3,7 @@ import { redisCommand } from "./redis-client";
 import { probeS3 } from "./s3-client";
 import { databaseProbe } from "@pstack/database/repository";
 import { Kafka, logLevel } from "kafkajs";
+import { readKafkaConfig } from "@pstack/kafka";
 type DependencyState = "ok" | "missing" | "not_configured" | "error";
 async function probe(
   operation: () => Promise<unknown>,
@@ -16,8 +17,8 @@ async function probe(
 }
 async function probeKafka() {
   const admin = new Kafka({
+    ...readKafkaConfig(),
     clientId: "pstack-readiness",
-    brokers: (process.env.KAFKA_BROKERS || "").split(","),
     connectionTimeout: 1500,
     requestTimeout: 2000,
     retry: { retries: 0 },

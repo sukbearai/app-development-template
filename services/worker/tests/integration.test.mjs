@@ -941,6 +941,147 @@ test("runtime SIGTERM stops claims, closes Kafka and pool, and marks heartbeat s
   }
 });
 
+test("runtime SIGTERM drains an in-flight receipt transaction and restart skips duplicate execution", { timeout: 90000 }, async (t) => {
+  const { spawn } = await import("node:child_process");
+  const { rm } = await import("node:fs/promises");
+  const runId = randomUUID();
+  const topic = `inflight-${runId}`;
+  const consumerGroup = `inflight-${runId}`;
+  const key = JSON.stringify([consumerGroup, `demo.echo:${runId}`]);
+  const taskId = createHash("sha256").update(key).digest("hex");
+  const value = message(runId, { marker: runId }).value;
+  const heartbeat = new URL(`./.heartbeat-inflight-${runId}.json`, import.meta.url).pathname;
+  const kafka = new Kafka({
+    clientId: `inflight-proof-${runId}`,
+    brokers: process.env.WORKER_TEST_KAFKA_BROKERS.split(","),
+    logLevel: logLevel.NOTHING,
+  });
+  const admin = kafka.admin();
+  const producer = kafka.producer();
+  const lock = await pool.connect();
+  const children = [];
+  async function waitFor(description, predicate) {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      if (await predicate()) return;
+      await sleep(50);
+    }
+    assert.fail(`${description}: ${children.map(child => child.stderr).join("\n")}`);
+  }
+  function startRuntime() {
+    const applicationName = `inflight-${children.length}-${runId}`;
+    const databaseUrl = new URL(process.env.WORKER_TEST_DATABASE_URL);
+    databaseUrl.searchParams.set("application_name", applicationName);
+    const processHandle = spawn(process.execPath, [
+      "--import", import.meta.resolve("tsx"),
+      new URL("../src/index.ts", import.meta.url).pathname,
+      "async-runtime", "--interval-ms", "100",
+    ], {
+      env: {
+        ...process.env,
+        DATABASE_URL: databaseUrl.toString(),
+        KAFKA_BROKERS: process.env.WORKER_TEST_KAFKA_BROKERS,
+        OUTBOX_PUBLISHER: "kafka",
+        OUTBOX_DRY_RUN: "0",
+        ASYNC_RUNTIME_TOPICS: topic,
+        KAFKA_CONSUMER_GROUP_ID: consumerGroup,
+        WORKER_HEARTBEAT_PATH: heartbeat,
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const child = { processHandle, applicationName, output: "", stderr: "", exited: false };
+    child.exit = new Promise(resolve => processHandle.once("exit", (code, signal) => {
+      child.exited = true;
+      resolve({ code, signal });
+    }));
+    processHandle.stdout.on("data", data => { child.output = (child.output + data).slice(-16384); });
+    processHandle.stderr.on("data", data => { child.stderr = (child.stderr + data).slice(-16384); });
+    children.push(child);
+    return child;
+  }
+  async function offset() {
+    const offsets = await admin.fetchOffsets({ groupId: consumerGroup, topics: [topic] });
+    return offsets[0].partitions[0].offset;
+  }
+  async function snapshot() {
+    return {
+      key: (await pool.query("SELECT * FROM app_idempotency_keys WHERE key=$1", [key])).rows,
+      task: (await pool.query("SELECT * FROM app_tasks WHERE id=$1", [taskId])).rows,
+      receipts: (await pool.query("SELECT * FROM app_async_receipts WHERE idempotency_key=$1", [key])).rows,
+      events: (await pool.query("SELECT * FROM app_task_events WHERE task_id=$1 ORDER BY created_at,id", [taskId])).rows,
+    };
+  }
+  async function assertStopped(child) {
+    await waitFor("runtime did not drain after SIGTERM", () => child.exited);
+    assert.deepEqual(await child.exit, { code: 0, signal: null }, child.stderr);
+    const savedHeartbeat = JSON.parse(await readFile(heartbeat, "utf8"));
+    assert.equal(savedHeartbeat.pid, child.processHandle.pid);
+    assert.equal(savedHeartbeat.state, "stopped");
+    assert.equal((await pool.query("SELECT count(*)::int n FROM pg_stat_activity WHERE application_name=$1", [child.applicationName])).rows[0].n, 0);
+  }
+  try {
+    await admin.connect();
+    await admin.createTopics({ topics: [{ topic, numPartitions: 1, replicationFactor: 1 }], waitForLeaders: true });
+    await producer.connect();
+    const first = startRuntime();
+    await waitFor("runtime did not start", () => first.output.includes('"iteration":1'));
+    await lock.query("BEGIN");
+    await lock.query("LOCK TABLE app_async_receipts IN ACCESS EXCLUSIVE MODE");
+    const blockerPid = (await lock.query("SELECT pg_backend_pid() pid")).rows[0].pid;
+    await producer.send({ topic, messages: [{ value }] });
+    const blockedReceipt = () => pool.query(
+      `SELECT a.pid FROM pg_stat_activity a JOIN pg_locks l ON l.pid=a.pid
+       WHERE a.application_name=$1 AND a.state='active' AND a.wait_event_type='Lock'
+       AND a.query LIKE 'INSERT INTO "app_async_receipts"%'
+       AND l.relation='app_async_receipts'::regclass AND NOT l.granted
+       AND $2::int=ANY(pg_blocking_pids(a.pid))`,
+      [first.applicationName, blockerPid],
+    );
+    await waitFor("worker did not block on the owned receipt-table lock", async () => (await blockedReceipt()).rowCount === 1);
+    const claimed = (await pool.query("SELECT status,locked_by FROM app_idempotency_keys WHERE key=$1", [key])).rows[0];
+    assert.deepEqual(claimed, { status: "processing", locked_by: `worker-${first.processHandle.pid}` });
+    assert.ok(BigInt(await offset()) <= 0n, "in-flight event must not have a committed offset");
+    assert.equal(first.processHandle.kill("SIGTERM"), true);
+    await sleep(500);
+    assert.equal(first.exited, false, "SIGTERM must wait for the in-flight database transaction");
+    assert.equal((await blockedReceipt()).rowCount, 1, "receipt transaction remains owned while draining");
+    assert.notEqual(JSON.parse(await readFile(heartbeat, "utf8")).state, "stopped");
+    await lock.query("COMMIT");
+    await assertStopped(first);
+    const drainedOffset = await offset();
+    assert.ok(BigInt(drainedOffset) <= 1n, "offset must not advance beyond durable work");
+    t.diagnostic(`Kafka offset after drain: ${drainedOffset}; -1 means no committed offset`);
+    const completed = await snapshot();
+    assert.equal(completed.key.length, 1);
+    assert.equal(completed.key[0].status, "succeeded");
+    assert.equal(Number(completed.key[0].lease_generation), 1);
+    assert.equal(completed.task.length, 1);
+    assert.equal(completed.task[0].status, "succeeded");
+    assert.equal(completed.receipts.length, 1);
+    assert.deepEqual(completed.receipts[0].result, { kind: "echo", value: { marker: runId } });
+    assert.deepEqual(completed.events.map(event => event.status), ["running", "succeeded"]);
+
+    const restarted = startRuntime();
+    await waitFor("restarted runtime did not start", () => restarted.output.includes('"iteration":1'));
+    await producer.send({ topic, messages: [{ value }] });
+    await waitFor("restarted runtime did not commit duplicate offset", async () => await offset() === "2");
+    assert.deepEqual(await snapshot(), completed, "duplicate delivery must not claim or execute the task again");
+    assert.equal(restarted.processHandle.kill("SIGTERM"), true);
+    await assertStopped(restarted);
+    assert.equal(await offset(), "2");
+  } finally {
+    await lock.query("ROLLBACK");
+    lock.release();
+    for (const child of children) {
+      if (!child.exited) child.processHandle.kill("SIGKILL");
+      await child.exit;
+    }
+    await producer.disconnect();
+    await admin.disconnect();
+    await rm(heartbeat, { force: true });
+  }
+});
+
 test("retention compacts worker history while preserving duplicate and conflict protection", async () => {
   const { runRetention } = await import("@pstack/database/repository");
   const { closeDatabase } = await import("@pstack/database/client");

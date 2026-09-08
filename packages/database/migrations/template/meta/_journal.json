@@ -22,6 +22,13 @@
       "when": 1788783052579,
       "tag": "0002_productive_glorian",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1788826847622,
+      "tag": "0003_bizarre_roughhouse",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ Use pstack for design, implementation and review. Project-specific instructions 
 - `apps/web` owns vinext pages, explicit App Router handlers and browser components.
 - `packages/contracts` owns Zod HTTP/message schemas, derived types and the operation registry. It may be imported by the browser.
 - `packages/database` owns PostgreSQL schema, Drizzle migrations, connection pool, transactions and repositories.
+- `packages/kafka` owns Node-only Kafka connection configuration and recovery checkpoints. Browser modules and contracts cannot import it.
 - `packages/server` owns authentication, authorization, application operations, storage and transport helpers. It must not import Web code.
 - `services/worker` owns Kafka delivery, durable task recovery and process shutdown. Its database handlers use the transaction client supplied by the worker.
 

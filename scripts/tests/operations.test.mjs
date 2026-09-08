@@ -48,7 +48,7 @@ test("project ownership is checkout-specific and down preserves volumes", () => 
 });
 test("clean --full and every source/config/deployment path retain all required gates", () => {
   const full = verificationPlan([], { full: true });
-  for (const gate of ["typecheck", "contract:check", "migration:check", "test:tools", "test:unit", "test:integration", "build", "db:integration", "test:e2e", "test:ui"]) assert.ok(full.includes(gate));
+  for (const gate of ["typecheck", "contract:check", "migration:check", "test:tools", "test:unit", "test:integration", "build", "db:integration", "test:e2e", "test:ui", "test:ui:production", "test:async-recovery", "test:kafka-security"]) assert.ok(full.includes(gate));
   for (const file of ["apps/web/lib/env.ts", "package.json", "pnpm-lock.yaml", "packages/server/src/auth.ts", "Dockerfile", "deploy/compose/docker-compose.yml", "unrecognized/path"]) {
     assert.ok(verificationPlan([file], {}).includes("build"));
     assert.ok(verificationPlan([file], {}).includes("test:unit"));

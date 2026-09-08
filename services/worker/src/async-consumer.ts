@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Kafka, logLevel } from "kafkajs";
+import { readKafkaConfig } from "@pstack/kafka";
+import type { RecoveryGuard } from "./kafka-recovery";
 import type { Pool, PoolClient } from "pg";
 import { getPool } from "@pstack/database/client";
 import {
@@ -701,6 +703,7 @@ export async function runKafkaConsumer(options: {
   topic?: string;
   topics?: string[];
   groupId: string;
+  recovery?: RecoveryGuard;
   clientId?: string;
   brokers?: string[];
   maxMessages?: number;
@@ -715,10 +718,11 @@ export async function runKafkaConsumer(options: {
   if (!brokers.length)
     throw new Error("KAFKA_BROKERS is required for Kafka consumers");
   const consumer = new Kafka({
+    ...readKafkaConfig({ ...process.env, KAFKA_BROKERS: brokers.join(",") }),
     clientId: options.clientId ?? "pstack-worker",
     brokers,
     logLevel: logLevel.NOTHING,
-  }).consumer({ groupId });
+  }).consumer({ groupId: options.recovery?.transportGroup ?? groupId });
   let processed = 0;
   let completed!: () => void;
   let failed!: (error: unknown) => void;
@@ -733,9 +737,19 @@ export async function runKafkaConsumer(options: {
   const abort = () => completed();
   options.signal?.addEventListener("abort", abort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let recoveryTimer: ReturnType<typeof setInterval> | undefined;
   try {
     if (options.signal?.aborted) return { processed };
     await consumer.connect();
+    if (options.recovery) {
+      await options.recovery.check();
+      let checking = false;
+      recoveryTimer = setInterval(() => {
+        if (checking) return;
+        checking = true;
+        void options.recovery?.check().catch(failed).finally(() => { checking = false; });
+      }, 1000);
+    }
     await consumer.subscribe({
       topics: options.topics ?? [options.topic ?? "app.tasks"],
       fromBeginning: true,
@@ -762,6 +776,8 @@ export async function runKafkaConsumer(options: {
             offset: record.offset,
             value: record.value,
           };
+          try { await options.recovery?.beforeMessage(message); }
+          catch (error) { failed(error); throw error; }
           while (isRunning() && !isStale() && !options.signal?.aborted) {
             const heartbeats = setInterval(() => {
               void heartbeat().catch(failed);
@@ -774,6 +790,8 @@ export async function runKafkaConsumer(options: {
             }
             if (isStale()) return;
             if (result.safeToCommit) {
+              try { await options.recovery?.check(); }
+              catch (error) { failed(error); throw error; }
               await consumer.commitOffsets([
                 {
                   topic: batch.topic,
@@ -781,6 +799,7 @@ export async function runKafkaConsumer(options: {
                   offset: nextKafkaOffset(record.offset),
                 },
               ]);
+              options.recovery?.committed(message);
               resolveOffset(record.offset);
               processed++;
               await heartbeat();
@@ -813,6 +832,7 @@ export async function runKafkaConsumer(options: {
     return { processed };
   } finally {
     if (timer) clearTimeout(timer);
+    if (recoveryTimer) clearInterval(recoveryTimer);
     options.signal?.removeEventListener("abort", abort);
     removeCrash();
     try {

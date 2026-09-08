@@ -31,6 +31,7 @@ pnpm dev
 | apps/web | 页面、API 路由、React 组件 |
 | packages/contracts | Zod 契约、类型、API 操作登记 |
 | packages/database | schema、迁移、事务和仓储 |
+| packages/kafka | 服务端 Kafka 安全连接与恢复检查点 |
 | packages/server | 身份权限、存储和应用服务 |
 | services/worker | 事件发布、消费、幂等和恢复 |
 | deploy/compose | PostgreSQL 与可选中间件 |
@@ -45,7 +46,10 @@ pnpm test:integration
 pnpm test:e2e
 pnpm test:ui
 pnpm test:production
+pnpm test:ui:production
 pnpm test:containers
+pnpm test:kafka-security
+pnpm test:async-recovery
 pnpm test:app-backup
 ```
 

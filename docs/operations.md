@@ -23,6 +23,14 @@ For host development, run `pnpm db:migrate`, initialize an administrator with `B
 
 The Compose configuration is for isolated development. Production TLS, secret distribution, managed database policy, image registry promotion and replica coordination remain deployment decisions for the consuming project.
 
+Kafka clients share `KAFKA_SECURITY_PROTOCOL`: `PLAINTEXT`, `SSL`, or `SASL_SSL`. TLS uses system trust by default; `KAFKA_SSL_CA_FILE` supplies a private CA. Mutual TLS requires both `KAFKA_SSL_CERT_FILE` and `KAFKA_SSL_KEY_FILE`. `SASL_SSL` additionally requires `KAFKA_SASL_MECHANISM` (`plain`, `scram-sha-256`, or `scram-sha-512`), `KAFKA_SASL_USERNAME`, and `KAFKA_SASL_PASSWORD`. Certificate verification cannot be disabled. Mount certificate files read-only into each production process and configure paths inside its container. `COMPOSE_KAFKA_BROKERS` overrides the container broker addresses. The local Compose broker remains plaintext; these client settings do not configure broker security.
+
+Multiple Web instances require Redis rate limiting and a shared persistent upload location or S3. Separate local directories on different hosts do not form shared storage. Anonymous telemetry has its own global limit of 120 requests per minute, enforced before body reads and database writes. Redis-backed instances share this budget and reject requests when Redis is unavailable.
+
+`OUTBOX_MAX_ATTEMPTS` sets the publishing attempt limit for new events created by the Web producer and defaults to 5. Existing events retain their stored limit when configuration changes. Worker retries use that stored policy; `ASYNC_TASK_DEFAULT_MAX_ATTEMPTS` separately controls consumer task execution.
+
+Production Worker execution requires an explicit `OUTBOX_PUBLISHER=kafka` or `dry-run`. A missing setting fails startup. `health`, `--iterations 0`, and explicitly requested read-only dry-run remain diagnostic operations; their success does not prove delivery.
+
 ## Database backups
 
 `pnpm backup:create --output backups/new-backup` requires a new output directory and explicit DATABASE_URL. It exports a repeatable-read PostgreSQL snapshot, reads the database migration ledger, and dumps both `public` and `drizzle` using that same snapshot. The manifest contains the actual ledger rows, latest database migration timestamp, database version, ledger hash, structural schema hash and archive SHA-256. It does not infer the applied schema version from local migration files.
@@ -39,13 +47,17 @@ Restore verifies the backup first, refuses nonempty target schemas, and uses a s
 
 Install matching PostgreSQL client tools or set `POSTGRES_TOOLS=docker` and `POSTGRES_TOOL_IMAGE=postgres:17-alpine`. Docker tools use host networking for loopback databases on Linux. On Docker Desktop they map loopback to `host.docker.internal`; remote hostnames remain unchanged. Passwords are passed in process environment, not command arguments. Backup archives contain sensitive application data and need access-controlled storage. This backup covers PostgreSQL, not uploaded objects, Kafka offsets or a distributed snapshot.
 
+For TLS, supply `sslmode`, `sslrootcert`, `sslcert` and `sslkey` in DATABASE_URL. Docker tools mount each explicit certificate file read-only, including files outside the backup directory. Relative paths resolve from the invoking working directory. Tools run with the invoking UID/GID where available, so private key ownership and permissions remain unchanged. On Docker Desktop, server certificates for loopback connections must also cover `host.docker.internal`. The Node PostgreSQL client used by backup preflight does not support `sslrootcert=system`; use a CA file for that workflow.
+
 ## Verification
 
-`pnpm test:tools` checks environment precedence, destructive-operation guards, project ownership and gate routing. `pnpm test:backup` starts its own uniquely named ephemeral PostgreSQL container on a dynamically assigned loopback port and performs a real dump/verify/restore round trip, including conflict rollback. It ignores configured DATABASE_URL and removes only its own container in cleanup. BACKUP_TEST_POSTGRES_IMAGE selects the test image and defaults to postgres:17-bullseye.
+`pnpm test:tools` checks environment precedence, destructive-operation guards, project ownership and gate routing. `pnpm test:backup` starts its own uniquely named ephemeral PostgreSQL container on a dynamically assigned loopback port and performs a real dump/verify/restore round trip over TLS with client certificate authentication, including conflict rollback. It requires OpenSSL and tests absolute and relative certificate paths containing spaces, commas and quotes outside the backup directory. It ignores configured DATABASE_URL and removes only its own container in cleanup. BACKUP_TEST_POSTGRES_IMAGE selects the test image and defaults to postgres:17-bullseye.
 
 `pnpm pr:verify` runs type checks, contracts, migration integrity, tool tests, unit/integration tests and a production build for every path, including unknown paths and a clean checkout. Web-related changes add browser tests. `--full` always adds database integration API, browser and production-serving checks, even when the tree is clean. Missing tools or unavailable services fail the gate. `artifacts/pr-verify/summary.json` records passed, failed and unexecuted gates.
 
 CI provisions PostgreSQL, installs Chromium, migrates and bootstraps the isolated database, runs the full gate, exercises backup/restore, validates all Compose profiles, and runs `pnpm test:containers`. That command builds both Docker targets, starts isolated PostgreSQL/Kafka plus Web/worker images, and verifies real API requests, event receipts and worker shutdown. It removes its own containers, network and tags and retains evidence.
+
+`pnpm test:ui:production` builds and starts the production artifact, then runs the browser suite before and after restoring its isolated PostgreSQL database. `pnpm test:kafka-security` uses an isolated Apache Kafka broker with SASL/PLAIN over TLS and checks successful connections, wrong CA rejection and wrong password rejection through every Kafka client entry point. SCRAM configuration parsing has separate unit coverage. `pnpm test:async-recovery` exercises application-bundle recovery against a Kafka group whose offsets have advanced. These commands are included in `pnpm verify` and the full PR gate.
 
 ## Application backup and recovery
 

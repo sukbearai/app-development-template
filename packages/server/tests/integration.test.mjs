@@ -33,6 +33,7 @@ test(
     process.env.DATABASE_URL = `postgres://postgres:isolated-test-only@127.0.0.1:${port}/pstack_test`;
     process.env.UPLOAD_STORAGE_DIR = storage;
     process.env.NODE_ENV = "test";
+    process.env.OUTBOX_MAX_ATTEMPTS = "2";
     const { getPool, closeDatabase } = await import("@pstack/database/client");
     try {
       for (let i = 0; i < 40; i++) {
@@ -68,6 +69,31 @@ test(
       );
       const auth = await import("../src/auth-service.ts");
       const product = await import("../src/product-service.ts");
+      await t.test("new outbox events persist configured attempts while workers preserve existing policies", async () => {
+        const event = await product.createOutboxEvent({
+          topic: "app.tasks", eventType: "demo.echo", payload: {}, traceId: "retry-policy",
+        });
+        const legacyId = `legacy-${randomUUID()}`;
+        await query("INSERT INTO app_outbox_events(id,topic,event_type,trace_id,payload,max_attempts) VALUES($1,'app.tasks','demo.echo','retry-policy','{}',5)", [legacyId]);
+        assert.equal((await query("SELECT max_attempts FROM app_outbox_events WHERE id=$1", [event.id])).rows[0].max_attempts, 2);
+        const { processOutboxOnce } = await import("../../../services/worker/src/outbox.ts");
+        const previous = process.env.OUTBOX_MAX_ATTEMPTS;
+        process.env.OUTBOX_MAX_ATTEMPTS = "1";
+        try {
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            await query("UPDATE app_outbox_events SET next_attempt_at=now()-interval '1 second' WHERE id=ANY($1::text[])", [[event.id, legacyId]]);
+            await processOutboxOnce({
+              pool: getPool(), dryRun: false, batchSize: 2, retryBaseMs: 60000, retryMaxMs: 60000,
+              producer: { send: async () => { throw new Error("broker unavailable"); } },
+            });
+            const rows = (await query("SELECT id,status,attempts,max_attempts FROM app_outbox_events WHERE id=ANY($1::text[])", [[event.id, legacyId]])).rows;
+            assert.deepEqual(rows.find(row => row.id === event.id), { id: event.id, status: attempt === 2 ? "dead_letter" : "failed", attempts: attempt, max_attempts: 2 });
+            assert.deepEqual(rows.find(row => row.id === legacyId), { id: legacyId, status: "failed", attempts: attempt, max_attempts: 5 });
+          }
+        } finally {
+          process.env.OUTBOX_MAX_ATTEMPTS = previous;
+        }
+      });
       const credentials = {
         account: "test-admin",
         password: "test-strong-password-abc123",

@@ -36,6 +36,9 @@ try {
   await retry(async () => { if (!(await fetch(`${endpoint}/minio/health/ready`)).ok) throw new Error("S3 not ready"); });
   s3 = new S3Client({ endpoint, region: "us-east-1", forcePathStyle: true, credentials: { accessKeyId: "appbackup", secretAccessKey: secret } });
   const env = { ...process.env, POSTGRES_TOOLS: "docker", POSTGRES_TOOL_IMAGE: postgresImage,
+    KAFKA_BROKERS: "unused.invalid:9092", OUTBOX_PUBLISHER: "dry-run",
+    KAFKA_CONSUMER_GROUP_ID: "", KAFKA_SECURITY_PROTOCOL: "", KAFKA_SSL_CA_FILE: "", KAFKA_SSL_CERT_FILE: "", KAFKA_SSL_KEY_FILE: "",
+    KAFKA_SASL_MECHANISM: "", KAFKA_SASL_USERNAME: "", KAFKA_SASL_PASSWORD: "",
     OBJECT_STORAGE_ENDPOINT: endpoint, OBJECT_STORAGE_ACCESS_KEY: "appbackup", OBJECT_STORAGE_SECRET_KEY: secret,
     OBJECT_STORAGE_FORCE_PATH_STYLE: "true", OBJECT_STORAGE_BUCKET: "source", UPLOAD_STORAGE_DIR: path.join(directory, "source-objects") };
   for (const name of ["source", "target", "corrupt", "missing", "binding", "occupied", "occupieds3"]) await control.query(`CREATE DATABASE "${name}"`);
@@ -92,6 +95,23 @@ try {
     const check = new Client({ connectionString: base + database }); await check.connect();
     try { assert.equal((await check.query("SELECT to_regclass('public.app_file_assets') IS NULL AS empty")).rows[0].empty, true); } finally { await check.end(); }
   }
+  await run(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", `
+    import assert from "node:assert/strict";
+    import { processGenericAsyncMessage } from "./services/worker/src/index.ts";
+    import { getPool, closeDatabase } from "./packages/database/src/client.ts";
+    import { captureKafkaRecovery } from "./scripts/kafka-recovery.mjs";
+    try {
+      await processGenericAsyncMessage({ topic: "app.tasks", partition: 0, offset: "0", value: JSON.stringify({
+        eventId: "failed-only", eventType: "demo.echo", traceId: "failed-only", payload: {} }) },
+        async () => { throw new Error("fixture handler failure"); }, { consumerGroup: "failed-only-group" });
+      assert.equal((await getPool().query("SELECT status FROM app_idempotency_keys")).rows[0].status, "failed");
+      for (const table of ["app_outbox_events", "app_async_receipts", "app_message_quarantine"])
+        assert.equal((await getPool().query("SELECT count(*)::int AS n FROM " + table)).rows[0].n, 0);
+      await assert.rejects(captureKafkaRecovery({ ...process.env, KAFKA_BROKERS: "", OUTBOX_PUBLISHER: "dry-run" }), /Existing Kafka activity requires Kafka configuration/);
+      await assert.rejects(captureKafkaRecovery({ ...process.env, KAFKA_BROKERS: "unused.invalid:9092", OUTBOX_PUBLISHER: "dry-run", KAFKA_CONSUMER_GROUP_ID: "wrong-group" }), /one logical consumer group/);
+      console.log("Failed-task-only backup proof passed: missing brokers and changed logical group rejected before Kafka connection");
+    } finally { await closeDatabase(); }
+  `], { cwd: root, env: { ...env, DATABASE_URL: base + "source", APP_TEMPLATE_WORKER_SKIP_ENV_FILES: "1" } });
   console.log("Application backup proof passed: real PostgreSQL/local/MinIO recovery, binding audit, preserved pending intent, corrupt/missing object and nonempty targets rejected before restore, database reference mismatch rejected");
 } finally {
   s3?.destroy(); if (control) await control.end();

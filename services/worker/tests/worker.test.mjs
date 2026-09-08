@@ -29,6 +29,56 @@ import { outboxKafkaMessageKey } from "../src/outbox.ts";
 
 process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = "1";
 
+test("production worker requires an explicit publisher while diagnostics remain available", async () => {
+  const { loadWorkerEnv } = await import("../src/env.ts");
+  const previous = { NODE_ENV: process.env.NODE_ENV, OUTBOX_PUBLISHER: process.env.OUTBOX_PUBLISHER };
+  try {
+    process.env.NODE_ENV = "production";
+    delete process.env.OUTBOX_PUBLISHER;
+    assert.throws(() => loadWorkerEnv(), /OUTBOX_PUBLISHER is required in production/);
+    assert.equal(loadWorkerEnv({ allowMissingPublisher: true }).outboxPublisher, "dry-run");
+    process.env.OUTBOX_PUBLISHER = "dry-run";
+    assert.equal(loadWorkerEnv().outboxPublisher, "dry-run");
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
+test("production health and runtime plans do not require a publisher or database", () => {
+  const env = { ...process.env, NODE_ENV: "production", APP_TEMPLATE_WORKER_SKIP_ENV_FILES: "1" };
+  delete env.OUTBOX_PUBLISHER;
+  delete env.DATABASE_URL;
+  for (const args of [["health"], ["async-runtime", "--iterations", "0"], ["outbox-loop", "--iterations", "0"]]) {
+    const child = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), new URL("../src/index.ts", import.meta.url).pathname, ...args], { env, encoding: "utf8" });
+    assert.equal(child.status, 0, child.stderr);
+    assert.ok(JSON.parse(child.stdout));
+  }
+  const runtime = spawnSync(process.execPath, ["--import", import.meta.resolve("tsx"), new URL("../src/index.ts", import.meta.url).pathname, "async-runtime", "--iterations", "1"], { env, encoding: "utf8" });
+  assert.equal(runtime.status, 1);
+  assert.match(runtime.stdout + runtime.stderr, /OUTBOX_PUBLISHER is required in production/);
+});
+
+test("explicit production outbox dry-run reads without claiming or connecting Kafka", async () => {
+  const { processOutboxOnce } = await import("../src/outbox.ts");
+  const previous = { NODE_ENV: process.env.NODE_ENV, OUTBOX_PUBLISHER: process.env.OUTBOX_PUBLISHER };
+  try {
+    process.env.NODE_ENV = "production";
+    delete process.env.OUTBOX_PUBLISHER;
+    const statements = [];
+    const result = await processOutboxOnce({ dryRun: true, pool: { query: async (sql) => { statements.push(sql); return { rows: [] }; } } });
+    assert.equal(result.inspected, 0);
+    assert.equal(statements.length, 1);
+    assert.match(statements[0].trim(), /^SELECT/);
+    assert.doesNotMatch(statements[0], /FOR UPDATE|UPDATE |INSERT |DELETE /);
+  } finally {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});
+
 test("payload identity is independent of Unicode key order at every depth", () => {
   const first = { taskType: "demo.echo", payload: { items: [{ "e\u0301": 2, "\u00e9": 1 }], z: true } };
   const reordered = { taskType: "demo.echo", payload: { z: true, items: [{ "\u00e9": 1, "e\u0301": 2 }] } };

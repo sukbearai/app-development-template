@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
+import { createWriteStream, realpathSync } from 'node:fs';
+import { buildSha256, processIdentity, sourceSha256 } from '../.agents/skills/verify-pstack-x/scripts/identity.mjs';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from 'pg';
 
-const root = fileURLToPath(new URL('../', import.meta.url));
+const root = realpathSync(fileURLToPath(new URL('../', import.meta.url)));
+const webRoot = path.join(root, 'apps/web');
+const vinextCLI = realpathSync(path.join(webRoot, 'node_modules/vinext/dist/cli.js'));
 const outputRoot = path.join(root, '.verification', 'app');
 await mkdir(outputRoot, { recursive: true });
 const output = await mkdtemp(path.join(outputRoot, 'run-'));
@@ -25,7 +28,7 @@ let interrupted = false;
 const commands = new Set();
 const childEnv = { ...process.env };
 for (const key of Object.keys(childEnv)) {
-  if (/^(DATABASE_|E2E_|UI_FLOW_|APP_|SESSION_|RATE_LIMIT_|LOGIN_RATE_|REDIS_|KAFKA_|OUTBOX_|ASYNC_|UPLOAD_|OBJECT_STORAGE_|CLICKHOUSE_|BOOTSTRAP_)/.test(key)) delete childEnv[key];
+  if (/^(PSTACK_VERIFY_|DATABASE_|E2E_|UI_FLOW_|APP_|SESSION_|RATE_LIMIT_|LOGIN_RATE_|REDIS_|KAFKA_|OUTBOX_|ASYNC_|UPLOAD_|OBJECT_STORAGE_|CLICKHOUSE_|BOOTSTRAP_)/.test(key)) delete childEnv[key];
 }
 Object.assign(childEnv, {
   APP_NAME: 'pstack-x', APP_ENV: 'test', NODE_ENV: 'test', RATE_LIMIT_DRIVER: 'memory',
@@ -94,26 +97,49 @@ try {
   if (mode === 'ui' && !production) {
     await command('bash', ['.agents/skills/verify-pstack-x/scripts/run.sh']);
   } else {
-    if (production) await command('pnpm', ['build']);
-    async function launchServer() {
-    serverOutput = '';
-    server = spawn('pnpm', ['--filter', '@pstack/web', production ? 'start' : 'dev', '--hostname', '127.0.0.1', '--port', String(port)], { cwd: root, env: { ...childEnv, ...(production ? { NODE_ENV: 'production', APP_ENV: 'production' } : {}) }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-    server.stdout.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
-    server.stderr.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
-    const deadline = Date.now() + 60_000;
-    while (true) {
-      if (interrupted) throw new Error('Verification interrupted');
-      if (server.exitCode !== null) throw new Error('Web server exited before readiness; inspect run.log');
-      try {
-        const response = await fetch(new URL('/api/hello', childEnv.APP_ORIGIN), { signal: AbortSignal.timeout(1000) });
-        if (response.ok) break;
-      } catch {}
-      if (Date.now() > deadline) throw new Error('Web server readiness timed out');
-      await new Promise(resolve => setTimeout(resolve, 300));
+    let buildIdentity;
+    if (production) {
+      const source = sourceSha256(root);
+      await command('pnpm', ['build'], { env: { ...childEnv, NODE_ENV: 'production', APP_ENV: 'production' } });
+      assert.equal(sourceSha256(root), source, 'Source changed during production build');
+      buildIdentity = { sourceSha256: source, buildSha256: buildSha256(root) };
     }
+    let launch = 0;
+    async function launchServer() {
+      serverOutput = '';
+      const startedAt = Date.now();
+      server = spawn(process.execPath, [vinextCLI, production ? 'start' : 'dev', '--hostname', '127.0.0.1', '--port', String(port)], { cwd: webRoot, env: { ...childEnv, ...(production ? { NODE_ENV: 'production', APP_ENV: 'production' } : {}) }, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      server.stdout.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
+      server.stderr.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
+      const deadline = Date.now() + 60_000;
+      while (true) {
+        if (interrupted) throw new Error('Verification interrupted');
+        if (server.exitCode !== null || server.signalCode !== null) throw new Error('Web server exited before readiness; inspect run.log');
+        try {
+          const response = await fetch(new URL('/api/hello', childEnv.APP_ORIGIN), { signal: AbortSignal.timeout(1000) });
+          if (response.ok) break;
+        } catch {}
+        if (Date.now() > deadline) throw new Error('Web server readiness timed out');
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      if (production) {
+        const identity = processIdentity(server.pid);
+        assert.equal(identity.ppid, process.pid);
+        assert.equal(identity.pgid, server.pid);
+        childEnv.PSTACK_VERIFY_MODE = 'production';
+        childEnv.PSTACK_VERIFY_STARTED_MS = String(startedAt);
+        childEnv.PSTACK_VERIFY_OWNER = path.join(output, `production-owner-${++launch}.json`);
+        await writeFile(childEnv.PSTACK_VERIFY_OWNER, JSON.stringify({
+          mode: 'production', root, cwd: webRoot, hostname: '127.0.0.1', port,
+          baseURL: childEnv.APP_ORIGIN, harnessPid: process.pid, pid: server.pid,
+          pgid: identity.pgid, processStarted: identity.processStarted, startedAt, ...buildIdentity,
+        }, null, 2), { flag: 'wx' });
+        await command('node', ['.agents/skills/verify-pstack-x/scripts/doctor.mjs']);
+      }
     }
     await launchServer();
     await command('node', ['apps/web/scripts/smoke.mjs']);
+    if (mode === 'ui') await command('bash', ['.agents/skills/verify-pstack-x/scripts/run.sh']);
     if (production) {
       const failures = serverOutput.split('\n').flatMap(line => {
         try {
@@ -138,10 +164,11 @@ try {
       await command('pnpm', ['--filter', '@pstack/database', 'db:integration']);
       await launchServer();
       await command('node', ['apps/web/scripts/smoke.mjs']);
+      if (mode === 'ui') await command('bash', ['.agents/skills/verify-pstack-x/scripts/run.sh']);
     }
 
   }
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', mode, production, containerName, databaseRestore: production, boundary: 'Owned ephemeral PostgreSQL and real application; production mode restores the application database and verifies login after migration. Uploaded files stay in the same owned local directory; object backups and optional middleware are verified separately.' }, null, 2));
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', mode, production, containerName, databaseRestore: production, browserRuns: mode === 'ui' ? (production ? 2 : 1) : 0, boundary: 'Owned ephemeral PostgreSQL and real application; production mode restores the application database and verifies login after migration. UI mode runs the same seven Playwright flows on each database. Uploaded files stay in the same owned local directory; object backups and optional middleware are verified separately.' }, null, 2));
 } catch (error) {
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'failed', mode, production, error: error.message }, null, 2));
   throw error;

@@ -10,7 +10,6 @@ type WorkerEnv = {
   databaseUrl?: string;
   outboxPublisher: "dry-run" | "kafka";
   outboxBatchSize: number;
-  outboxMaxAttempts: number;
   outboxRetryDelaySeconds: number;
   outboxRetryBaseMs: number;
   outboxRetryMaxMs: number;
@@ -71,7 +70,9 @@ function positiveInt(name: string, fallback: number) {
   return value;
 }
 
-function outboxPublisher() {
+function outboxPublisher(allowMissingPublisher: boolean) {
+  if (process.env.NODE_ENV === "production" && !process.env.OUTBOX_PUBLISHER && !allowMissingPublisher)
+    throw new Error("OUTBOX_PUBLISHER is required in production; use kafka or explicit dry-run");
   const value = process.env.OUTBOX_PUBLISHER || "dry-run";
   if (value !== "dry-run" && value !== "kafka") {
     throw new Error(`Unknown OUTBOX_PUBLISHER: ${value}`);
@@ -91,16 +92,15 @@ function logLevel() {
   return "info";
 }
 
-export function loadWorkerEnv(): WorkerEnv {
+export function loadWorkerEnv({ allowMissingPublisher = false } = {}): WorkerEnv {
   loadEnvFiles();
   return {
     appName: process.env.APP_NAME || "app-template-worker",
     logLevel: logLevel(),
     nodeEnv: process.env.NODE_ENV || "development",
     databaseUrl: process.env.DATABASE_URL,
-    outboxPublisher: outboxPublisher(),
+    outboxPublisher: outboxPublisher(allowMissingPublisher),
     outboxBatchSize: positiveInt("OUTBOX_BATCH_SIZE", 10),
-    outboxMaxAttempts: positiveInt("OUTBOX_MAX_ATTEMPTS", 5),
     outboxRetryDelaySeconds: positiveInt("OUTBOX_RETRY_DELAY_SECONDS", 60),
     outboxRetryBaseMs: positiveInt("OUTBOX_RETRY_BASE_MS", 1000),
     outboxRetryMaxMs: positiveInt("OUTBOX_RETRY_MAX_MS", 300000),

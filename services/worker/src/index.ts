@@ -2,6 +2,7 @@ import { closeDatabase } from "@pstack/database/client";
 import { inspectWorkerHeartbeat } from "./heartbeat";
 import type { KafkaConsumerOffset } from "@pstack/contracts";
 import { Kafka } from "kafkajs";
+import { readKafkaConfig } from "@pstack/kafka";
 import {
   createPostgresAsyncTaskStore,
   processAsyncConsumerMessage,
@@ -79,6 +80,7 @@ export async function publishEvent(row: LegacyOutboxRow) {
     if (!env.kafkaBrokers.length)
       throw new Error("KAFKA_BROKERS is required unless OUTBOX_DRY_RUN=1");
     const kafka = new Kafka({
+      ...readKafkaConfig(),
       clientId: env.kafkaClientId,
       brokers: env.kafkaBrokers,
     });
@@ -218,14 +220,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       })
       .finally(() => closeDatabase());
   } else if (command === "outbox-once") {
+    const explicitDryRun = flagEnabled(args, "--dry-run") || process.env.OUTBOX_DRY_RUN === "1";
+    const env = loadWorkerEnv({ allowMissingPublisher: explicitDryRun });
     processOutboxOnce({
       batchSize: Number(
-        flagValue(args, "--batch-size") || loadWorkerEnv().outboxBatchSize,
+        flagValue(args, "--batch-size") || env.outboxBatchSize,
       ),
       dryRun:
-        flagEnabled(args, "--dry-run") ||
-        process.env.OUTBOX_DRY_RUN === "1" ||
-        loadWorkerEnv().outboxPublisher === "dry-run",
+        explicitDryRun || env.outboxPublisher === "dry-run",
     })
       .then((result) =>
         logger.info("worker command complete", { command, result }),

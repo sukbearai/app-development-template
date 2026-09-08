@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test';
 
 const output = process.env.PSTACK_VERIFY_OUTPUT;
 if (!output) throw new Error('Use scripts/run.sh to allocate an evidence directory.');
+const production = process.env.PSTACK_VERIFY_MODE === 'production';
+if (production && !process.env.PSTACK_VERIFY_OWNER) throw new Error('Production verification requires the owning verify-app process.');
 const baseURL = `http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}`;
 
 export default defineConfig({
@@ -24,7 +26,7 @@ export default defineConfig({
     screenshot: 'on',
     video: 'off',
   },
-  webServer: {
+  webServer: production ? undefined : {
     command: `pnpm run dev --hostname 127.0.0.1 --port ${process.env.PSTACK_VERIFY_PORT}`,
     cwd: process.cwd(),
     url: `${baseURL}/api/hello`,

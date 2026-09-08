@@ -3,6 +3,7 @@ import { type Pool, type PoolClient } from "pg";
 import { getPool } from "@pstack/database/client";
 import type { AsyncTaskEventMessage } from "@pstack/contracts";
 import { loadWorkerEnv } from "./env";
+import { readKafkaConfig } from "@pstack/kafka";
 
 export type OutboxEvent = {
   id: string;
@@ -111,6 +112,7 @@ export async function createProducer() {
   if (!env.kafkaBrokers.length)
     throw new Error("KAFKA_BROKERS is required unless OUTBOX_DRY_RUN=1");
   const kafka = new Kafka({
+    ...readKafkaConfig(),
     clientId: env.kafkaClientId,
     brokers: env.kafkaBrokers,
   });
@@ -197,7 +199,7 @@ async function markFailed(
 export async function processOutboxOnce(
   options: OutboxWorkerOptions = {},
 ): Promise<OutboxWorkerResult> {
-  const env = loadWorkerEnv();
+  const env = loadWorkerEnv({ allowMissingPublisher: options.dryRun === true });
   const resolved = {
     batchSize: options.batchSize ?? env.outboxBatchSize,
     workerId:

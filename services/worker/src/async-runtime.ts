@@ -10,6 +10,8 @@ import {
 import { handleDomainEvent } from "./domain-handler";
 import { createHeartbeatWriter } from "./heartbeat";
 import { loadWorkerEnv } from "./env";
+import { loadKafkaRecovery, type RecoveryGuard } from "./kafka-recovery";
+import { readKafkaConfig } from "@pstack/kafka";
 
 export const ASYNC_RUNTIME_TOPICS = [
   "app.tasks",
@@ -82,9 +84,9 @@ function kafkaBrokers() {
   return brokers;
 }
 
-async function ensureAsyncRuntimeTopics(topics: string[]) {
+export async function ensureAsyncRuntimeTopics(topics: string[]) {
   const kafka = new Kafka({
-    clientId: process.env.KAFKA_CLIENT_ID || "app-template-worker",
+    ...readKafkaConfig(),
     brokers: kafkaBrokers(),
     connectionTimeout: 2000,
     requestTimeout: 3000,
@@ -135,9 +137,9 @@ function pause(ms: number, signal: AbortSignal) {
 }
 
 async function runRuntime(args: string[], consume: boolean) {
-  const env = loadWorkerEnv();
-  const plan = buildAsyncRuntimePlan(args);
   const iterations = numberFlag(args, "--iterations");
+  const env = loadWorkerEnv({ allowMissingPublisher: iterations === 0 || process.env.OUTBOX_DRY_RUN === "1" });
+  const plan = buildAsyncRuntimePlan(args);
   if (iterations === 0) {
     printJson({ command: "async-runtime", mode: "plan", ...plan });
     return;
@@ -155,6 +157,7 @@ async function runRuntime(args: string[], consume: boolean) {
     env.outboxPublisher === "kafka" && process.env.OUTBOX_DRY_RUN !== "1";
   let producer: Awaited<ReturnType<typeof createProducer>> | undefined;
   let consumer: Promise<unknown> | undefined;
+  let recovery: RecoveryGuard | undefined;
   let failure: unknown;
   let progress = Date.now();
   const heartbeatWriter = createHeartbeatWriter();
@@ -175,6 +178,7 @@ async function runRuntime(args: string[], consume: boolean) {
   };
   try {
     await pool.query("SELECT 1");
+    recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, plan.topics, kafka);
     if (kafka) {
       await ensureAsyncRuntimeTopics(plan.topics);
       producer = await createProducer();
@@ -182,6 +186,7 @@ async function runRuntime(args: string[], consume: boolean) {
         consumer = runKafkaConsumer({
           topics: plan.topics,
           groupId: env.kafkaConsumerGroupId,
+          recovery,
           brokers: env.kafkaBrokers,
           signal: controller.signal,
           eachMessage: async (message) => {
@@ -211,6 +216,7 @@ async function runRuntime(args: string[], consume: boolean) {
         batchSize: env.outboxBatchSize,
       });
       if (consume && kafka) {
+        await recovery?.check();
         for (const message of await store.dueMessages(
           env.kafkaConsumerGroupId,
         )) {
@@ -239,7 +245,8 @@ async function runRuntime(args: string[], consume: boolean) {
         await producer?.disconnect();
       } finally {
         try {
-          await closeDatabase();
+          try { await recovery?.close(); }
+          finally { await closeDatabase(); }
         } finally {
           process.removeListener("SIGTERM", stop);
           process.removeListener("SIGINT", stop);

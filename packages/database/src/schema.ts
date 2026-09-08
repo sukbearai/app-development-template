@@ -10,6 +10,7 @@ import {
   index,
   check,
   uniqueIndex,
+  boolean,
 } from "drizzle-orm/pg-core";
 
 export const appUsers = pgTable(
@@ -382,5 +383,21 @@ export const appMessageQuarantine = pgTable(
       table.partition,
       table.sourceOffset,
     ),
+  ],
+);
+
+export const appKafkaRecovery = pgTable(
+  "app_kafka_recovery",
+  {
+    singleton: boolean("singleton").primaryKey().default(true),
+    state: text("state", { enum: ["restoring", "ready"] }).notNull(),
+    logicalGroup: text("logical_group").notNull(),
+    transportGroup: text("transport_group").notNull(),
+    checkpoint: jsonb("checkpoint").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check("app_kafka_recovery_singleton_check", sql`${table.singleton} = true`),
+    check("app_kafka_recovery_state_check", sql`${table.state} in ('restoring','ready')`),
   ],
 );

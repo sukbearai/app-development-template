@@ -36,6 +36,12 @@ export const envSchema = z.object({
     .positive()
     .default(60),
   DATABASE_URL: z.string().trim().min(1).optional(),
+  OUTBOX_MAX_ATTEMPTS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(2147483647)
+    .default(5),
   UPLOAD_STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   UPLOAD_STORAGE_DIR: z.string().trim().min(1).default(".uploads"),
   UPLOAD_MAX_BYTES: z.coerce

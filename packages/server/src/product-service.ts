@@ -351,7 +351,7 @@ export async function createOutboxEvent(
     payload: input.payload,
     status: "pending",
     attempts: 0,
-    maxAttempts: 5,
+    maxAttempts: env.OUTBOX_MAX_ATTEMPTS,
     nextAttemptAt: now,
     traceId: input.traceId,
     createdAt: now,

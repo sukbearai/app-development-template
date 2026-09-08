@@ -14,7 +14,7 @@ const sensitiveFieldPattern =
   /(password|token|secret|cookie|authorization|api[_-]?key|access[_-]?key|session)/i;
 
 function logLevel(): LogLevel {
-  return loadWorkerEnv().logLevel;
+  return loadWorkerEnv({ allowMissingPublisher: true }).logLevel;
 }
 
 function normalizeError(error: unknown) {
@@ -22,7 +22,7 @@ function normalizeError(error: unknown) {
   return {
     name: error.name,
     message: error.message,
-    stack: loadWorkerEnv().nodeEnv === "production" ? undefined : error.stack,
+    stack: loadWorkerEnv({ allowMissingPublisher: true }).nodeEnv === "production" ? undefined : error.stack,
   };
 }
 
@@ -43,7 +43,7 @@ export function log(level: LogLevel, message: string, fields?: LogFields) {
     level,
     message,
     time: new Date().toISOString(),
-    service: loadWorkerEnv().appName,
+    service: loadWorkerEnv({ allowMissingPublisher: true }).appName,
     ...(redact(fields || {}) as LogFields),
     error:
       fields && "error" in fields ? normalizeError(fields.error) : undefined,

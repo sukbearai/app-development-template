@@ -12,7 +12,7 @@ async function sourceFiles(directory) {
     ? sourceFiles(path.join(directory, entry.name))
     : /\.(ts|tsx)$/.test(entry.name) ? [path.join(directory, entry.name)] : []))).flat();
 }
-const files = (await Promise.all(['apps/web/app', 'apps/web/components', 'apps/web/lib', 'packages/contracts/src', 'packages/database/src', 'packages/server/src'].map(directory => sourceFiles(path.join(root, directory))))).flat();
+const files = (await Promise.all(['apps/web/app', 'apps/web/components', 'apps/web/lib', 'packages/contracts/src', 'packages/database/src', 'packages/server/src', 'packages/kafka/src'].map(directory => sourceFiles(path.join(root, directory))))).flat();
 const modules = new Map();
 for (const file of files) {
   const source = ts.createSourceFile(file, await readFile(file, 'utf8'), ts.ScriptTarget.Latest, true);
@@ -27,7 +27,7 @@ for (const file of files) {
   visit(source);
   modules.set(file, { imports, client: source.statements.some(node => ts.isExpressionStatement(node) && ts.isStringLiteral(node.expression) && node.expression.text === 'use client') });
   for (const dependency of imports) {
-    if (file.includes('/packages/contracts/')) assert.ok(!isBuiltin(dependency) && !/^(node:|@pstack\/(server|database)|next)/.test(dependency), `${file}: contracts imports ${dependency}`);
+    if (file.includes('/packages/contracts/')) assert.ok(!isBuiltin(dependency) && !/^(node:|@pstack\/(server|database|kafka)|next)/.test(dependency), `${file}: contracts imports ${dependency}`);
     if (file.includes('/packages/database/')) assert.ok(!/^(next|vinext|@pstack\/server)/.test(dependency), `${file}: database imports ${dependency}`);
     if (file.includes('/packages/server/')) assert.ok(!/^(next|vinext|@\/)/.test(dependency), `${file}: server imports Web ${dependency}`);
   }
@@ -44,9 +44,9 @@ function visitClient(file, seen) {
   if (seen.has(file)) return;
   seen.add(file);
   for (const dependency of modules.get(file).imports) {
-    assert.ok(!isBuiltin(dependency) && !/^(node:|@pstack\/(server|database)|pg$|redis$|kafkajs$|drizzle-orm|@aws-sdk)/.test(dependency), `${file}: browser dependency ${dependency}`);
+    assert.ok(!isBuiltin(dependency) && !/^(node:|@pstack\/(server|database|kafka)|pg$|redis$|kafkajs$|drizzle-orm|@aws-sdk)/.test(dependency), `${file}: browser dependency ${dependency}`);
     const target = resolve(file, dependency);
-    if (target) assert.ok(!target.includes("/packages/server/") && !target.includes("/packages/database/"), `${file}: browser imports ${target}`);
+    if (target) assert.ok(!target.includes("/packages/server/") && !target.includes("/packages/database/") && !target.includes("/packages/kafka/"), `${file}: browser imports ${target}`);
     if (target) visitClient(target, seen);
   }
 }
