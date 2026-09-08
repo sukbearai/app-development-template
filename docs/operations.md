@@ -27,7 +27,11 @@ Kafka clients share `KAFKA_SECURITY_PROTOCOL`: `PLAINTEXT`, `SSL`, or `SASL_SSL`
 
 Multiple Web instances require Redis rate limiting and a shared persistent upload location or S3. Separate local directories on different hosts do not form shared storage. Anonymous telemetry has its own global limit of 120 requests per minute, enforced before body reads and database writes. Redis-backed instances share this budget and reject requests when Redis is unavailable.
 
+Verify HTTPS at the public entry point and set `APP_ORIGIN` to that HTTPS origin. Do not disable `SESSION_COOKIE_SECURE` on a public deployment. Login has an account limit and a shared global budget, which defaults to 200 requests per minute. Configure source-based abuse protection at the trusted ingress so one caller cannot exhaust that global budget. The application does not trust arbitrary forwarded IP headers as client identity.
+
 The Web health endpoint shares one in-flight dependency probe per process and reuses completed results for one second, including degraded results. Requests after expiry wait for a fresh probe. The response timestamp identifies the observation; responses use `Cache-Control: no-store`. This bounds dependency probing per Web process without making health checks depend on the request rate limiter.
+
+Administrator async health and Worker readiness share pending-count and oldest-wait thresholds across all topics. Worker `readiness` and `alerts` print their diagnostic state as JSON; monitoring must inspect `status` and `alerts`, not only the command exit code or HTTP status. Monitor Kafka consumer lag or task completion deadlines separately from outbox backlog and process heartbeats. Before enabling production traffic, stop delivery and consumption separately and verify that each condition reaches the alert recipient.
 
 `OUTBOX_MAX_ATTEMPTS` sets the publishing attempt limit for new events created by the Web producer and defaults to 5. Existing events retain their stored limit when configuration changes. Worker retries use that stored policy; `ASYNC_TASK_DEFAULT_MAX_ATTEMPTS` separately controls consumer task execution.
 

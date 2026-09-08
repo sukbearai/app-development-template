@@ -9,6 +9,76 @@ import { asyncIdentifierSchema } from "@pstack/contracts";
 import { redact, withAccessLog } from "../src/logger.ts";
 import { verifyRequestOrigin, setSessionCookie } from "../src/request-auth.ts";
 
+import {
+  buildAsyncRuntimeHealthSnapshot,
+  buildRuntimePlanFromEnv,
+} from "../src/async-runtime-health-service.ts";
+
+const healthNow = new Date("2026-09-08T00:00:00.000Z");
+function backlogHealth(events, options = {}) {
+  return buildAsyncRuntimeHealthSnapshot({
+    now: healthNow,
+    runtimePlan: buildRuntimePlanFromEnv({}),
+    tasks: [],
+    thresholds: { pendingWarn: 50, pendingBlocked: 200, failedWarn: 10 },
+    outboxEvents: events.map((event) => ({
+      topic: "app.tasks", status: "pending", createdAt: healthNow, ...event,
+    })),
+    ...options,
+  });
+}
+
+for (const [pending, expected] of [[49, "ok"], [50, "degraded"], [199, "degraded"], [200, "blocked"]]) {
+  test(`async runtime health reports ${pending} pending as ${expected}`, () => {
+    const snapshot = backlogHealth([{ count: pending }]);
+    assert.equal(snapshot.status, expected);
+    const alert = snapshot.alerts.find((item) => item.metric === "pending");
+    assert.equal(alert?.value, pending < 50 ? undefined : pending);
+    assert.deepEqual(snapshot.blockedReasons, pending >= 200 ? ["outbox_pending_blocked"] : []);
+  });
+}
+for (const [age, expected] of [[31999, "ok"], [32000, "degraded"]]) {
+  test(`async runtime health reports pending age ${age} as ${expected}`, () => {
+    const snapshot = backlogHealth([{ createdAt: new Date(healthNow.getTime() - age) }]);
+    assert.equal(snapshot.status, expected);
+    assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age")?.threshold,
+      age < 32000 ? undefined : 32000);
+  });
+}
+test("async runtime health applies pending thresholds across topics", () => {
+  const snapshot = backlogHealth([{ topic: "one", count: 100 }, { topic: "two", count: 100 }]);
+  assert.equal(snapshot.status, "blocked");
+  assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_pending_blocked").value, 200);
+});
+test("async runtime health retains topic and stale-lock diagnostics", () => {
+  const snapshot = backlogHealth([
+    { status: "dead_letter", count: 1 },
+    { status: "failed", count: 1 },
+    { status: "processing", staleCount: 1 },
+  ], { staleLockMs: 1234 });
+  assert.deepEqual(snapshot.alerts.map((item) => item.reason), [
+    "async_topic_dead_letter", "async_topic_failed_backlog", "outbox_stale_processing_lock",
+  ]);
+  assert.equal(snapshot.alerts[2].threshold, 1234);
+});
+
+test("async runtime health applies custom thresholds to aggregate metrics", () => {
+  const thresholds = { pendingWarn: 5, pendingBlocked: 20, failedWarn: 2 };
+  const snapshot = backlogHealth([
+    { topic: "one", count: 10 }, { topic: "two", count: 10 },
+    { topic: "one", status: "failed" }, { topic: "two", status: "failed" },
+  ], { thresholds });
+  assert.equal(snapshot.status, "blocked");
+  const globalAlerts = snapshot.alerts.filter((item) => !item.topic);
+  assert.deepEqual(globalAlerts.map(({ reason, value, threshold }) => [reason, value, threshold]), [
+    ["outbox_pending_blocked", 20, 20], ["outbox_failed_backlog", 2, 2],
+  ]);
+});
+test("async runtime health includes failed retries in the oldest pending age", () => {
+  const snapshot = backlogHealth([{ status: "failed", createdAt: new Date(healthNow.getTime() - 32000) }]);
+  assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age").value, 32000);
+});
+
 test("request trace IDs preserve valid identities and replace invalid metadata before use", () => {
   for (const value of ["client-trace", "a".repeat(2000), "é".repeat(1000)]) {
     const traceId = getTraceId(new Request("https://app.example", { headers: { "x-trace-id": value } }));

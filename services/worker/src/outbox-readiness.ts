@@ -1,13 +1,19 @@
 import pg from "pg";
-import { retryDelayMs, type OutboxWorkerOptions } from "./outbox";
+import {
+  evaluateOutboxBacklog,
+  readOutboxHealthThresholds,
+  statusFromOutboxAlerts,
+  type OutboxBacklogMetrics,
+  type OutboxHealthAlert,
+  type OutboxHealthThresholds,
+} from "@pstack/contracts/outbox-health";
+import type { OutboxWorkerOptions } from "./outbox";
 
-export type OutboxAlert = {
-  severity: "warning" | "critical";
-  reason: string;
-  message: string;
-  metric: string;
-  value: number;
-  threshold?: number;
+export type OutboxAlert = OutboxHealthAlert;
+
+type OutboxReadinessInput = OutboxBacklogMetrics & OutboxHealthThresholds & {
+  deadLetter: number;
+  staleLocks: number;
 };
 
 export type OutboxReadiness = {
@@ -28,11 +34,7 @@ export type OutboxReadiness = {
     count: number;
     eventIds: string[];
   };
-  thresholds: {
-    pendingWarn: number;
-    pendingBlocked: number;
-    failedWarn: number;
-  };
+  thresholds: OutboxHealthThresholds;
   blockedReasons: string[];
   alerts: OutboxAlert[];
   checkedAt: string;
@@ -46,39 +48,11 @@ function numberOption(
   return value ?? Number(process.env[envName] || fallback);
 }
 
-export function outboxReadinessStatus(input: {
-  pending: number;
-  failed: number;
-  deadLetter: number;
-  staleLocks: number;
-  oldestPendingAgeMs: number;
-  pendingWarn: number;
-  pendingBlocked: number;
-  failedWarn: number;
-}) {
-  if (input.deadLetter > 0) return "blocked";
-  if (input.pending >= input.pendingBlocked) return "blocked";
-  if (input.staleLocks > 0) return "degraded";
-  if (input.pending >= input.pendingWarn) return "degraded";
-  if (input.failed >= input.failedWarn) return "degraded";
-  if (
-    input.oldestPendingAgeMs > 0 &&
-    input.oldestPendingAgeMs >= retryDelayMs(6)
-  )
-    return "degraded";
-  return "ok";
+export function outboxReadinessStatus(input: OutboxReadinessInput) {
+  return statusFromOutboxAlerts(buildOutboxAlerts(input));
 }
 
-export function buildOutboxAlerts(input: {
-  pending: number;
-  failed: number;
-  deadLetter: number;
-  staleLocks: number;
-  oldestPendingAgeMs: number;
-  pendingWarn: number;
-  pendingBlocked: number;
-  failedWarn: number;
-}) {
+export function buildOutboxAlerts(input: OutboxReadinessInput) {
   const alerts: OutboxAlert[] = [];
   if (input.deadLetter > 0) {
     alerts.push({
@@ -91,35 +65,7 @@ export function buildOutboxAlerts(input: {
       threshold: 1,
     });
   }
-  if (input.pending >= input.pendingBlocked) {
-    alerts.push({
-      severity: "critical",
-      reason: "outbox_pending_blocked",
-      message: "Outbox pending backlog reached the blocked threshold.",
-      metric: "pending",
-      value: input.pending,
-      threshold: input.pendingBlocked,
-    });
-  } else if (input.pending >= input.pendingWarn) {
-    alerts.push({
-      severity: "warning",
-      reason: "outbox_pending_backlog",
-      message: "Outbox pending backlog reached the warning threshold.",
-      metric: "pending",
-      value: input.pending,
-      threshold: input.pendingWarn,
-    });
-  }
-  if (input.failed >= input.failedWarn) {
-    alerts.push({
-      severity: "warning",
-      reason: "outbox_failed_backlog",
-      message: "Outbox failed retry backlog reached the warning threshold.",
-      metric: "failed",
-      value: input.failed,
-      threshold: input.failedWarn,
-    });
-  }
+  alerts.push(...evaluateOutboxBacklog(input, input));
   if (input.staleLocks > 0) {
     alerts.push({
       severity: "warning",
@@ -128,20 +74,6 @@ export function buildOutboxAlerts(input: {
       metric: "staleLocks",
       value: input.staleLocks,
       threshold: 1,
-    });
-  }
-  if (
-    input.oldestPendingAgeMs > 0 &&
-    input.oldestPendingAgeMs >= retryDelayMs(6)
-  ) {
-    alerts.push({
-      severity: "warning",
-      reason: "outbox_oldest_pending_age",
-      message:
-        "Oldest retryable outbox event has waited longer than the retry-age warning threshold.",
-      metric: "oldestPendingAgeMs",
-      value: input.oldestPendingAgeMs,
-      threshold: retryDelayMs(6),
     });
   }
   return alerts;
@@ -157,17 +89,10 @@ export async function inspectOutboxReadiness(
 ): Promise<OutboxReadiness> {
   const databaseUrl = options.databaseUrl || process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
-  const pendingWarn = numberOption(
-    options.pendingWarn,
-    "OUTBOX_PENDING_WARN",
-    50,
-  );
-  const pendingBlocked = numberOption(
-    options.pendingBlocked,
-    "OUTBOX_PENDING_BLOCKED",
-    200,
-  );
-  const failedWarn = numberOption(options.failedWarn, "OUTBOX_FAILED_WARN", 10);
+  const defaults = readOutboxHealthThresholds(process.env);
+  const pendingWarn = options.pendingWarn ?? defaults.pendingWarn;
+  const pendingBlocked = options.pendingBlocked ?? defaults.pendingBlocked;
+  const failedWarn = options.failedWarn ?? defaults.failedWarn;
   const staleLockMs = numberOption(
     options.staleLockMs,
     "OUTBOX_STALE_LOCK_MS",
@@ -222,7 +147,7 @@ export async function inspectOutboxReadiness(
     const alerts = buildOutboxAlerts(statusInput);
     return {
       service: "worker",
-      status: outboxReadinessStatus(statusInput),
+      status: statusFromOutboxAlerts(alerts),
       mode: "outbox_observer",
       backlog: {
         pending,

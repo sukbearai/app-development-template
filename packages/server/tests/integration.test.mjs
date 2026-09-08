@@ -69,6 +69,25 @@ test(
       );
       const auth = await import("../src/auth-service.ts");
       const product = await import("../src/product-service.ts");
+      await t.test("persisted pending backlog and age degrade administrator health", async () => {
+        const { readAdminAsyncRuntimeHealth } = await import("../src/async-runtime-health-service.ts");
+        const prefix = `health-${randomUUID()}`;
+        try {
+          assert.equal((await readAdminAsyncRuntimeHealth()).status, "ok");
+          await query("INSERT INTO app_outbox_events(id,topic,event_type,trace_id,payload) SELECT $1 || n, CASE WHEN n <= 100 THEN 'health.one' ELSE 'health.two' END, 'demo.echo', $1, '{}' FROM generate_series(1,200) n", [prefix]);
+          const blocked = await readAdminAsyncRuntimeHealth();
+          assert.equal(blocked.status, "blocked");
+          assert.ok(blocked.alerts.some(alert => alert.metric === "pending" && alert.value === 200 && alert.severity === "critical"));
+          await query("DELETE FROM app_outbox_events WHERE trace_id=$1", [prefix]);
+          await query("INSERT INTO app_outbox_events(id,topic,event_type,trace_id,payload,created_at) VALUES($1,'health.one','demo.echo',$1,'{}',now()-interval '1 hour')", [prefix]);
+          const aged = await readAdminAsyncRuntimeHealth();
+          assert.equal(aged.status, "degraded");
+          assert.ok(aged.alerts.some(alert => alert.metric === "oldestPendingAgeMs"));
+        } finally {
+          await query("DELETE FROM app_outbox_events WHERE trace_id=$1", [prefix]);
+        }
+        assert.equal((await readAdminAsyncRuntimeHealth()).status, "ok");
+      });
       await t.test("new outbox events persist configured attempts while workers preserve existing policies", async () => {
         const event = await product.createOutboxEvent({
           topic: "app.tasks", eventType: "demo.echo", payload: {}, traceId: "retry-policy",

@@ -1,3 +1,9 @@
+import {
+  evaluateOutboxBacklog,
+  readOutboxHealthThresholds,
+  statusFromOutboxAlerts,
+  type OutboxHealthThresholds,
+} from "@pstack/contracts/outbox-health";
 import { getAsyncRuntimeHealthRows } from "@pstack/database/repository";
 
 type AsyncRuntimeOutboxEvent = {
@@ -85,14 +91,6 @@ function positiveIntegerEnv(
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
 
-function statusFromAlerts(alerts: AsyncRuntimeHealthAlert[]) {
-  return alerts.some((alert) => alert.severity === "critical")
-    ? "blocked"
-    : alerts.length
-      ? "degraded"
-      : "ok";
-}
-
 function topicBucket(topic: string): AsyncRuntimeOutboxTopicCounts {
   return {
     topic,
@@ -163,6 +161,7 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
   runtimePlan: AsyncRuntimePlanSnapshot;
   now?: Date;
   staleLockMs?: number;
+  thresholds?: OutboxHealthThresholds;
 }): AsyncRuntimeHealthSnapshot {
   const now = input.now || new Date();
   const nowMs = now.getTime();
@@ -243,6 +242,24 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
     }
   }
 
+  const backlog = Array.from(topicMap.values()).reduce(
+    (total, bucket) => ({
+      pending: total.pending + bucket.pending,
+      failed: total.failed + bucket.failed,
+      oldestPendingAgeMs: Math.max(
+        total.oldestPendingAgeMs,
+        bucket.oldestPendingAgeMs,
+      ),
+    }),
+    { pending: 0, failed: 0, oldestPendingAgeMs: 0 },
+  );
+  alerts.push(
+    ...evaluateOutboxBacklog(
+      backlog,
+      input.thresholds ?? readOutboxHealthThresholds(process.env),
+    ),
+  );
+
   if (staleLockCount > 0) {
     alerts.push({
       severity: "warning",
@@ -277,7 +294,7 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
     });
   }
 
-  const status = statusFromAlerts(alerts);
+  const status = statusFromOutboxAlerts(alerts);
   return {
     service: "async-runtime",
     status,

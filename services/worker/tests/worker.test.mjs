@@ -254,6 +254,29 @@ test("outbox readiness classifies backlog and alerts", () => {
   );
 });
 
+test("outbox readiness uses shared backlog boundary decisions and custom thresholds", () => {
+  const base = {
+    pending: 0, failed: 0, deadLetter: 0, staleLocks: 0, oldestPendingAgeMs: 0,
+    pendingWarn: 50, pendingBlocked: 200, failedWarn: 10,
+  };
+  for (const [changes, expected] of [
+    [{ pending: 49 }, "ok"], [{ pending: 50 }, "degraded"],
+    [{ pending: 199 }, "degraded"], [{ pending: 200 }, "blocked"],
+    [{ failed: 9 }, "ok"], [{ failed: 10 }, "degraded"],
+    [{ oldestPendingAgeMs: 31999 }, "ok"], [{ oldestPendingAgeMs: 32000 }, "degraded"],
+    [{ pending: 5, pendingWarn: 5 }, "degraded"],
+    [{ pending: 20, pendingBlocked: 20 }, "blocked"],
+    [{ failed: 2, failedWarn: 2 }, "degraded"],
+    [{ deadLetter: 1, staleLocks: 1 }, "blocked"],
+  ]) {
+    const input = { ...base, ...changes };
+    const alerts = buildOutboxAlerts(input);
+    assert.equal(outboxReadinessStatus(input), expected, JSON.stringify(changes));
+    assert.equal(alerts.some((item) => item.severity === "critical"), expected === "blocked");
+    assert.equal(alerts.length === 0, expected === "ok");
+  }
+});
+
 test("async consumer parses Kafka messages and derives idempotency keys", () => {
   const message = {
     topic: "tests",
