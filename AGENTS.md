@@ -2,6 +2,8 @@
 
 Use pstack for design, implementation and review. Project-specific instructions below define runtime and verification boundaries.
 
+After installing dependencies, run `pnpm hooks:install` once per repository to enable the native `.githooks/pre-commit` hook. It exports the Git index to a temporary staged snapshot, then runs `pnpm lint` and `pnpm duplication:check`; the working tree and index remain unchanged. Do not bypass the hook to avoid fixing violations; CI runs the same gates.
+
 ## Structure
 
 - `apps/web` owns vinext pages, explicit App Router handlers and browser components.

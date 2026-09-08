@@ -56,7 +56,9 @@
     "duplication:check": "node scripts/check-duplication.mjs",
     "duplication:baseline": "node scripts/check-duplication.mjs --update-baseline",
     "test:anti-slop": "node --import tsx --test tools/anti-slop/src/rules/*.test.ts tools/anti-slop/src/effect/rules/*.test.ts",
-    "test:quality": "node --test scripts/tests/quality-gates.test.mjs"
+    "test:quality": "node --test scripts/tests/quality-gates.test.mjs",
+    "hooks:install": "node scripts/install-hooks.mjs",
+    "test:hooks": "node --test scripts/tests/git-hooks.test.mjs"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
