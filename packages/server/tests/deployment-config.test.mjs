@@ -51,6 +51,13 @@ for (const [name, values, key, code] of [
   ["invalid token", { METRICS_TOKEN: " secret " }, "METRICS_TOKEN", "INVALID_VALUE"],
   ["invalid shared boolean", { UPLOAD_STORAGE_SHARED: "yes" }, "UPLOAD_STORAGE_SHARED", "INVALID_VALUE"],
   ["invalid drain", { WEB_SHUTDOWN_TIMEOUT_MS: "0" }, "WEB_SHUTDOWN_TIMEOUT_MS", "INVALID_VALUE"],
+  ["invalid worker drain", { WORKER_SHUTDOWN_TIMEOUT_MS: "0" }, "WORKER_SHUTDOWN_TIMEOUT_MS", "INVALID_VALUE"],
+  ["worker drain exceeds limit", { WORKER_SHUTDOWN_TIMEOUT_MS: "300001" }, "WORKER_SHUTDOWN_TIMEOUT_MS", "INVALID_VALUE"],
+  ["worker grace below drain", { WORKER_STOP_GRACE_PERIOD: "10s" }, "WORKER_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
+  ["worker grace equals drain", { WORKER_SHUTDOWN_TIMEOUT_MS: "40000", WORKER_STOP_GRACE_PERIOD: "40s" }, "WORKER_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
+  ["omitted worker grace below custom drain", { WORKER_SHUTDOWN_TIMEOUT_MS: "60000" }, "WORKER_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
+  ["empty worker grace uses Compose default", { WORKER_SHUTDOWN_TIMEOUT_MS: "60000", WORKER_STOP_GRACE_PERIOD: "" }, "WORKER_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
+  ["omitted web grace below custom drain", { WEB_SHUTDOWN_TIMEOUT_MS: "60000" }, "WEB_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
   ["grace below default drain", { WEB_STOP_GRACE_PERIOD: "10s" }, "WEB_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
   ["grace equals drain", { WEB_SHUTDOWN_TIMEOUT_MS: "40000", WEB_STOP_GRACE_PERIOD: "40s" }, "WEB_STOP_GRACE_PERIOD", "INSUFFICIENT_GRACE"],
   ["invalid publisher", { OUTBOX_PUBLISHER: "typo" }, "OUTBOX_PUBLISHER", "INVALID_VALUE"],
@@ -69,6 +76,7 @@ for (const [name, values, key, code] of [
 test("deployment accepts explicit local, S3, or attested shared local configurations without NODE_ENV", () => {
   for (const config of [local, s3, { ...local, DATABASE_URL: "postgres://postgres:generated-password@db/app?sslmode=require" }, { ...s3, UPLOAD_STORAGE_DRIVER: "local", UPLOAD_STORAGE_SHARED: "true" },
     { ...local, WEB_SHUTDOWN_TIMEOUT_MS: "30000", WEB_STOP_GRACE_PERIOD: "40s" },
+    { ...local, WORKER_SHUTDOWN_TIMEOUT_MS: "30000", WORKER_STOP_GRACE_PERIOD: "40s" },
     { ...local, OUTBOX_PUBLISHER: "kafka", KAFKA_BROKERS: "broker:9092", KAFKA_SECURITY_PROTOCOL: "SSL" },
     { ...local, OUTBOX_PUBLISHER: "kafka", KAFKA_BROKERS: "broker:9092", KAFKA_SECURITY_PROTOCOL: "SASL_SSL", KAFKA_SASL_MECHANISM: "scram-sha-512", KAFKA_SASL_USERNAME: "app", KAFKA_SASL_PASSWORD: "generated-kafka-credential" },
   ]) assert.deepEqual(assessDeploymentConfig(config), []);

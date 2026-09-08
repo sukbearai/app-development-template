@@ -52,3 +52,18 @@ test('resource cleanup awaits every disposer and reports failures', async () => 
   assert.equal(released, true);
   await assert.rejects(lifecycle.trackWork(async () => assert.fail('Admission reopened')));
 });
+
+test('repeated drain calls share one cleanup attempt and retain falsy rejection reasons', async () => {
+  const lifecycle = createWebLifecycle();
+  let attempts = 0;
+  lifecycle.registerCleanup(() => { attempts++; throw undefined; });
+  const first = lifecycle.drain();
+  assert.equal(lifecycle.drain(), first);
+  await assert.rejects(first, error => {
+    assert.ok(error instanceof AggregateError);
+    assert.deepEqual(error.errors, [undefined]);
+    return true;
+  });
+  assert.equal(lifecycle.drain(), first);
+  assert.equal(attempts, 1);
+});

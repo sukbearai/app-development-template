@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:unit": "tsx --test tests/worker.test.mjs",
+    "test:unit": "tsx --test tests/worker.test.mjs tests/consumer-restart.test.mjs",
     "start": "tsx src/index.ts async-runtime",
     "test:integration": "node scripts/test-integration.mjs",
     "test:integration:external": "tsx --test tests/integration.test.mjs"

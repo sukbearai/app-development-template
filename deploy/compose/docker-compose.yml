@@ -143,6 +143,7 @@ services:
       <<: *environment
       OUTBOX_PUBLISHER: *worker-publisher
       WORKER_HEARTBEAT_PATH: /tmp/pstack-worker-heartbeat.json
+      WORKER_SHUTDOWN_TIMEOUT_MS: ${WORKER_SHUTDOWN_TIMEOUT_MS:-30000}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -154,7 +155,7 @@ services:
       timeout: 10s
       retries: 6
       start_period: 30s
-    stop_grace_period: 40s
+    stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-40s}
 
   minio:
     profiles: [storage]

@@ -12,10 +12,12 @@ export function createHeartbeatWriter(
 ) {
   const temporary = `${destination}.${process.pid}.${randomUUID()}.tmp`;
   let pending = Promise.resolve();
-  let stopped = false;
-  function write(state: "running" | "stopped", lastProgressAt: number) {
-    if (stopped) return pending;
-    if (state === "stopped") stopped = true;
+  let phase: "active" | "stopping" | "terminal" = "active";
+  function write(state: "starting" | "running" | "stopping" | "stopped" | "failed", lastProgressAt: number) {
+    if (phase === "terminal") return pending;
+    if (phase === "stopping" && (state === "starting" || state === "running")) return pending;
+    if (state === "stopping") phase = "stopping";
+    if (state === "stopped" || state === "failed") phase = "terminal";
     const next = pending
       .catch(() => undefined)
       .then(async () => {
@@ -31,14 +33,16 @@ export function createHeartbeatWriter(
             { mode: 0o600 },
           );
           await rename(temporary, destination);
-        } finally {
-          await rm(temporary, { force: true });
+        } catch (error) {
+          try { await rm(temporary, { force: true }); }
+          catch (cleanupError) { throw new AggregateError([error, cleanupError], "Heartbeat write and cleanup failed"); }
+          throw error;
         }
       });
     pending = next;
     return next;
   }
-  return { write, destination };
+  return { write, flush: () => pending, destination };
 }
 
 export async function inspectWorkerHeartbeat(

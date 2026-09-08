@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Kafka, Partitioners, type Producer } from "kafkajs";
+import { Kafka, Partitioners, type Producer, type Admin } from "kafkajs";
 import { type Pool, type PoolClient } from "pg";
 import { getPool } from "@pstack/database/client";
 import { loadWorkerEnv } from "./env";
@@ -25,6 +25,7 @@ export type OutboxWorkerOptions = {
   retryBaseMs?: number;
   retryMaxMs?: number;
   producer?: Producer;
+  kafkaAdmin?: Admin;
   pool?: Pool;
   leaseMs?: number;
   signal?: AbortSignal;
@@ -115,7 +116,7 @@ export function outboxKafkaMessageKey(event: OutboxEvent) {
   return event.traceId || event.id;
 }
 
-export async function createProducer() {
+export function createProducer() {
   const env = loadWorkerEnv();
   if (!env.kafkaBrokers.length)
     throw new Error("KAFKA_BROKERS is required unless OUTBOX_DRY_RUN=1");
@@ -127,7 +128,6 @@ export async function createProducer() {
   const producer = kafka.producer({
     createPartitioner: Partitioners.LegacyPartitioner,
   });
-  await producer.connect();
   return producer;
 }
 
@@ -246,12 +246,13 @@ export async function processOutboxOnce(
     result.inspected = preview.rows.length;
     return result;
   }
-  await assertKafkaPublishingReady(pool);
-  const producer = options.producer ?? (await createProducer());
+  await assertKafkaPublishingReady(pool, options.kafkaAdmin);
+  const producer = options.producer ?? createProducer();
   try {
+    if (!options.producer) await producer.connect();
     // Claim one event at a time so queued sends cannot outlive a batch lease.
     for (let i = 0; i < resolved.batchSize && !options.signal?.aborted; i++) {
-      if (i > 0) await assertKafkaPublishingReady(pool);
+      if (i > 0) await assertKafkaPublishingReady(pool, options.kafkaAdmin);
       const client = await pool.connect();
       let event: OutboxEvent | undefined;
       try {

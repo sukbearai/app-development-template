@@ -18,7 +18,7 @@ import {
   publishOutboxOnce,
   workerHealth,
 } from "../src/index.ts";
-import { redact } from "../src/logger.ts";
+import { log, redact } from "../src/logger.ts";
 import {
   buildOutboxAlerts,
   outboxReadinessStatus,
@@ -162,6 +162,75 @@ test("worker logger redacts sensitive fields recursively", () => {
       nested: { accessKey: "[REDACTED]", ok: true },
     },
   );
+});
+
+function loggedError(t, error) {
+  let line;
+  t.mock.method(console, "error", (value) => { line = value; });
+  log("error", "Worker command failed", { error });
+  return JSON.parse(line).error;
+}
+
+test("worker logger retains recovery reasons and cleanup siblings inside nested aggregates", (t) => {
+  const recovery = new AggregateError([
+    new Error("Application restore is incomplete; worker startup is blocked"),
+    new Error("Kafka recovery is incomplete; worker startup is blocked"),
+    new Error('Kafka recovery transport offset missing or reset: ["private-topic",0]'),
+    new Error('Kafka recovery history unavailable: ["private-topic",0] next=1 low=2 high=3'),
+  ], "Kafka recovery initialization and cleanup failed");
+  const result = loggedError(t, new AggregateError([recovery, new Error("cleanup password=hidden")], "Worker runtime failed"));
+  assert.equal(result.message, "Worker runtime failed");
+  for (const reason of ["Application restore is incomplete", "recovery is incomplete", "offset missing or reset", "history unavailable"]) {
+    assert.ok(JSON.stringify(result.diagnostics).includes(reason), reason);
+  }
+  assert.equal(result.diagnostics.filter((item) => item.path === "errors[1]").length, 1);
+  assert.doesNotMatch(JSON.stringify(result.diagnostics), /hidden|private-topic|next=|stack/);
+});
+
+test("worker logger bounds nested diagnostics and never includes nested secrets or sensitive paths", (t) => {
+  const error = new Error("connect postgres://user:password@host/db token=secret /private/credentials");
+  error.name = "SECRET_NAME";
+  error.stack = "/private/secret-stack";
+  error.password = "FIELD_SECRET";
+  const nested = new Error("wrapper", { cause: error });
+  const result = loggedError(t, new AggregateError([nested, { secret: "VALUE_SECRET" }, false, 0, null, undefined], "Worker runtime failed"));
+  assert.equal(result.diagnostics.length, 7);
+  assert.doesNotMatch(JSON.stringify(result.diagnostics), /postgres|password|token|secret|SECRET|private|credentials|wrapper/);
+  assert.equal(result.diagnostics.filter((item) => item.message === "Non-Error thrown value").length, 5);
+});
+
+test("worker logger does not invoke nested error accessors", (t) => {
+  let calls = 0;
+  const getter = () => { calls++; throw new Error("secret accessor"); };
+  const hostile = new AggregateError([], "message");
+  for (const property of ["message", "cause", "errors"]) {
+    Object.defineProperty(hostile, property, { get: getter, enumerable: true });
+  }
+  const accessorEntry = new AggregateError([], "Kafka consumer failed");
+  Object.defineProperty(accessorEntry.errors, "0", { get: getter });
+  const invalidMembers = new AggregateError([], "Kafka consumer failed");
+  invalidMembers.errors = { secret: "must not traverse" };
+  const result = loggedError(t, new AggregateError([hostile, accessorEntry, invalidMembers], "Worker runtime failed"));
+  assert.equal(calls, 0);
+  assert.doesNotMatch(JSON.stringify(result.diagnostics), /secret|accessor|must not traverse/);
+});
+
+test("worker logger handles cycles, falsy causes, and diagnostic depth and size limits", (t) => {
+  const cyclic = new Error("cyclic");
+  cyclic.cause = cyclic;
+  assert.match(JSON.stringify(loggedError(t, cyclic).diagnostics), /Circular error reference/);
+  for (const cause of [false, 0, null, undefined]) {
+    assert.equal(loggedError(t, new Error("wrapper", { cause })).diagnostics[0].message, "Non-Error thrown value");
+  }
+  let deep = new Error("bottom secret");
+  for (let i = 0; i < 100; i++) deep = new Error("wrapper secret", { cause: deep });
+  const depthResult = loggedError(t, new AggregateError([deep], "Worker runtime failed"));
+  assert.match(JSON.stringify(depthResult.diagnostics), /Error diagnostics truncated/);
+  assert.ok(depthResult.diagnostics.length <= 17);
+  const wide = loggedError(t, new AggregateError(Array.from({ length: 1000 }, () => new Error("secret")), "Worker runtime failed"));
+  assert.ok(wide.diagnostics.length <= 17);
+  assert.match(JSON.stringify(wide.diagnostics), /Error diagnostics truncated/);
+  assert.ok(JSON.stringify(wide.diagnostics).length < 4096);
 });
 
 test("outbox Kafka message values use async task envelope fields", () => {
@@ -595,4 +664,44 @@ test("worker configuration rejects oversized groups and preserves existing group
     if (skip === undefined) delete process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES;
     else process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = skip;
   }
+});
+
+
+test("worker shutdown timeout validates the documented integer range", async () => {
+  const { loadWorkerEnv } = await import("../src/env.ts");
+  const previous = process.env.WORKER_SHUTDOWN_TIMEOUT_MS;
+  try {
+    delete process.env.WORKER_SHUTDOWN_TIMEOUT_MS;
+    assert.equal(loadWorkerEnv().workerShutdownTimeoutMs, 30000);
+    for (const value of ["1", "300000"]) {
+      process.env.WORKER_SHUTDOWN_TIMEOUT_MS = value;
+      assert.equal(loadWorkerEnv().workerShutdownTimeoutMs, Number(value));
+    }
+    for (const value of ["0", "-1", "1.5", "300001", "Infinity", "invalid"]) {
+      process.env.WORKER_SHUTDOWN_TIMEOUT_MS = value;
+      assert.throws(() => loadWorkerEnv(), /WORKER_SHUTDOWN_TIMEOUT_MS/);
+    }
+  } finally {
+    if (previous === undefined) delete process.env.WORKER_SHUTDOWN_TIMEOUT_MS;
+    else process.env.WORKER_SHUTDOWN_TIMEOUT_MS = previous;
+  }
+});
+
+test("heartbeat stopping rejects late progress and failed is terminal", async () => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createHeartbeatWriter, inspectWorkerHeartbeat } = await import("../src/heartbeat.ts");
+  const directory = await mkdtemp(join(tmpdir(), "worker-heartbeat-states-"));
+  try {
+    const file = join(directory, "heartbeat.json"), writer = createHeartbeatWriter(file);
+    for (const state of ["starting", "running", "stopping"]) {
+      await writer.write(state, Date.now());
+      assert.equal((await inspectWorkerHeartbeat(file)).status, state === "running" ? "ok" : "degraded");
+    }
+    await writer.write("running", 1);
+    assert.equal(JSON.parse(await readFile(file, "utf8")).state, "stopping");
+    await Promise.all([writer.write("failed", 2), writer.write("running", 3), writer.write("stopped", 4)]);
+    assert.equal(JSON.parse(await readFile(file, "utf8")).state, "failed");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

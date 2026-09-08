@@ -1,8 +1,10 @@
-import { Kafka, logLevel } from "kafkajs";
+import { writeSync } from "node:fs";
+import { Kafka, logLevel, type Admin } from "kafkajs";
 import { flagValue, numberFlag, printJson } from "./cli-utils";
 import { createProducer, processOutboxOnce } from "./outbox";
 import { closeDatabase, getPool } from "@pstack/database/client";
 import {
+  createKafkaConsumer,
   createPostgresAsyncTaskStore,
   processAsyncConsumerMessage,
   runKafkaConsumer,
@@ -11,6 +13,7 @@ import { handleDomainEvent } from "./domain-handler";
 import { createHeartbeatWriter } from "./heartbeat";
 import { asyncRuntimeTopics, loadWorkerEnv } from "./env";
 import { loadKafkaRecovery, type RecoveryGuard } from "./kafka-recovery";
+import { recoveryAdmin } from "@pstack/kafka/recovery";
 import { readKafkaConfig } from "@pstack/kafka";
 
 function positiveIntegerEnv(
@@ -70,7 +73,7 @@ function kafkaBrokers() {
   return brokers;
 }
 
-export async function ensureAsyncRuntimeTopics(topics: string[]) {
+function createTopicAdmin() {
   const kafka = new Kafka({
     ...readKafkaConfig(),
     brokers: kafkaBrokers(),
@@ -79,9 +82,14 @@ export async function ensureAsyncRuntimeTopics(topics: string[]) {
     logLevel: logLevel.NOTHING,
     retry: { retries: 1 },
   });
-  const admin = kafka.admin();
-  await admin.connect();
+  return kafka.admin();
+}
+
+export async function ensureAsyncRuntimeTopics(topics: string[], ownedAdmin?: Admin, signal?: AbortSignal) {
+  const admin = ownedAdmin ?? createTopicAdmin();
   try {
+    await admin.connect();
+    if (signal?.aborted) return;
     const configuredPartitions = Number(
       process.env.ASYNC_RUNTIME_TOPIC_PARTITIONS || 1,
     );
@@ -93,6 +101,7 @@ export async function ensureAsyncRuntimeTopics(topics: string[]) {
       process.env.ASYNC_RUNTIME_TOPIC_REPLICATION_FACTOR || 1,
     );
     const existing = new Set(await admin.listTopics());
+    if (signal?.aborted) return;
     const missing = topics.filter((topic) => !existing.has(topic));
     if (missing.length) {
       await admin.createTopics({
@@ -105,7 +114,7 @@ export async function ensureAsyncRuntimeTopics(topics: string[]) {
       });
     }
   } finally {
-    await admin.disconnect().catch(() => undefined);
+    if (!ownedAdmin) await admin.disconnect();
   }
 }
 
@@ -131,119 +140,140 @@ async function runRuntime(args: string[], consume: boolean) {
     return;
   }
   const controller = new AbortController();
-  const stop = () => controller.abort();
-  process.once("SIGTERM", stop);
-  process.once("SIGINT", stop);
-  const pool = getPool();
-  const store = createPostgresAsyncTaskStore({
-    pool,
-    ttlHours: env.asyncTaskIdempotencyTtlHours,
-  });
-  const kafka =
-    env.outboxPublisher === "kafka" && process.env.OUTBOX_DRY_RUN !== "1";
-  let producer: Awaited<ReturnType<typeof createProducer>> | undefined;
-  let consumer: Promise<unknown> | undefined;
-  let recovery: RecoveryGuard | undefined;
-  let failure: unknown;
-  let progress = Date.now();
+  const errors: unknown[] = [];
   const heartbeatWriter = createHeartbeatWriter();
-  const heartbeat = setInterval(() => {
-    void heartbeatWriter.write("running", progress).catch((error) => {
-      failure = error;
-      stop();
-    });
-  }, 3000);
-  const consumerOptions = {
-    consumerGroup: env.kafkaConsumerGroupId,
-    workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
-    store,
-    handler: handleDomainEvent,
-    defaultMaxAttempts: env.asyncTaskDefaultMaxAttempts,
-    retryBaseMs: env.asyncTaskRetryBaseMs,
-    retryMaxMs: env.asyncTaskRetryMaxMs,
-  };
+  let progress = Date.now();
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  function stop() {
+    if (deadline) return;
+    deadline = setTimeout(() => {
+      try { writeSync(2, '{"level":"error","message":"worker shutdown deadline exceeded"}\n'); }
+      finally { process.exit(1); }
+    }, env.workerShutdownTimeoutMs);
+    clearInterval(heartbeat);
+    controller.abort();
+    void heartbeatWriter.write("stopping", progress).catch(fail);
+  }
+  function fail(cause: unknown) {
+    errors.push(cause);
+    stop();
+  }
+  process.on("SIGTERM", stop);
+  process.on("SIGINT", stop);
+  const kafka = env.outboxPublisher === "kafka" && process.env.OUTBOX_DRY_RUN !== "1";
+  let producer: ReturnType<typeof createProducer> | undefined;
+  let kafkaConsumer: ReturnType<typeof createKafkaConsumer> | undefined;
+  let consumer: Promise<void> | undefined;
+  let recovery: RecoveryGuard | undefined;
+  let admin: Admin | undefined;
+  let topicAdmin: Admin | undefined;
   try {
+    await heartbeatWriter.write("starting", progress);
+    if (controller.signal.aborted) return;
+    const pool = getPool();
+    const store = createPostgresAsyncTaskStore({ pool, ttlHours: env.asyncTaskIdempotencyTtlHours });
+    const consumerOptions = {
+      consumerGroup: env.kafkaConsumerGroupId,
+      workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
+      store,
+      handler: handleDomainEvent,
+      defaultMaxAttempts: env.asyncTaskDefaultMaxAttempts,
+      retryBaseMs: env.asyncTaskRetryBaseMs,
+      retryMaxMs: env.asyncTaskRetryMaxMs,
+    };
     await pool.query("SELECT 1");
-    recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, plan.topics, kafka);
-    if (!consume) {
-      await recovery?.close();
-      recovery = undefined;
-    }
+    if (controller.signal.aborted) return;
+    if (kafka) admin = recoveryAdmin();
+    recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, plan.topics, kafka, admin, controller.signal);
+    if (controller.signal.aborted) return;
     if (kafka) {
-      await ensureAsyncRuntimeTopics(plan.topics);
-      producer = await createProducer();
-      if (consume)
+      topicAdmin = createTopicAdmin();
+      await ensureAsyncRuntimeTopics(plan.topics, topicAdmin, controller.signal);
+      if (controller.signal.aborted) return;
+      producer = createProducer();
+      await producer.connect();
+      if (controller.signal.aborted) return;
+      if (consume) {
+        kafkaConsumer = createKafkaConsumer({ groupId: env.kafkaConsumerGroupId, recovery, brokers: env.kafkaBrokers, signal: controller.signal });
+        let ready!: () => void;
+        const initialized = new Promise<void>((resolve) => { ready = resolve; });
         consumer = runKafkaConsumer({
+          consumer: kafkaConsumer,
           topics: plan.topics,
           groupId: env.kafkaConsumerGroupId,
           recovery,
           brokers: env.kafkaBrokers,
           signal: controller.signal,
+          onReady: ready,
+          onFailure: fail,
           eachMessage: async (message) => {
-            const result = await processAsyncConsumerMessage(
-              message,
-              consumerOptions,
-            );
+            const result = await processAsyncConsumerMessage(message, consumerOptions);
             progress = Date.now();
             return result;
           },
-        }).catch((error) => {
-          failure = error;
-          stop();
-        });
+        }).then(() => undefined, fail);
+        await Promise.race([initialized, consumer]);
+        if (controller.signal.aborted) return;
+      }
     }
-    for (
-      let iteration = 0;
-      !controller.signal.aborted &&
-      (iterations === undefined || iteration < iterations);
-      iteration++
-    ) {
+    progress = Date.now();
+    await heartbeatWriter.write("running", progress);
+    if (controller.signal.aborted) return;
+    heartbeat = setInterval(() => {
+      void heartbeatWriter.write("running", progress).catch(fail);
+    }, 3000);
+    for (let iteration = 0; !controller.signal.aborted &&
+      (iterations === undefined || iteration < iterations); iteration++) {
       const result = await processOutboxOnce({
-        pool,
-        producer,
-        dryRun: !kafka,
-        signal: controller.signal,
-        batchSize: env.outboxBatchSize,
+        pool, producer, kafkaAdmin: admin, dryRun: !kafka,
+        signal: controller.signal, batchSize: env.outboxBatchSize,
       });
-      if (consume && kafka) {
+      if (consume && kafka && !controller.signal.aborted) {
         await recovery?.check();
-        for (const message of await store.dueMessages(
-          env.kafkaConsumerGroupId,
-        )) {
-          if (controller.signal.aborted) break;
-          await processAsyncConsumerMessage(message, consumerOptions);
+        if (!controller.signal.aborted) {
+          for (const message of await store.dueMessages(env.kafkaConsumerGroupId)) {
+            if (controller.signal.aborted) break;
+            await processAsyncConsumerMessage(message, consumerOptions);
+          }
         }
       }
       progress = Date.now();
-      await heartbeatWriter.write("running", progress);
-      printJson({
-        command: consume ? "async-runtime" : "outbox-loop",
-        ...result,
-        iteration: iteration + 1,
-      });
+      if (!controller.signal.aborted) await heartbeatWriter.write("running", progress);
+      printJson({ command: consume ? "async-runtime" : "outbox-loop", ...result, iteration: iteration + 1 });
       if (iterations === undefined || iteration + 1 < iterations)
         await pause(plan.outboxIntervalMs, controller.signal);
     }
-    if (failure) throw failure;
+  } catch (error) {
+    fail(error);
   } finally {
     stop();
-    clearInterval(heartbeat);
-    try {
-      await consumer;
-    } finally {
-      try {
-        await producer?.disconnect();
-      } finally {
-        try {
-          try { await recovery?.close(); }
-          finally { await closeDatabase(); }
-        } finally {
-          process.removeListener("SIGTERM", stop);
-          process.removeListener("SIGINT", stop);
-          await heartbeatWriter.write("stopped", progress);
-        }
-      }
+    await consumer;
+    for (const cleanup of [
+      () => kafkaConsumer?.stop(),
+      () => kafkaConsumer?.disconnect(),
+      () => producer?.disconnect(),
+      () => recovery?.close(),
+      () => topicAdmin?.disconnect(),
+      () => admin?.disconnect(),
+      () => closeDatabase(),
+    ]) {
+      try { await cleanup(); }
+      catch (error) { fail(error); }
     }
+    try { await heartbeatWriter.flush(); }
+    catch (error) { fail(error); }
+    try { await heartbeatWriter.write(errors.length ? "failed" : "stopped", progress); }
+    catch (error) { fail(error); }
+    if (errors.length) {
+      process.exitCode = 1;
+      // Failed disposers can leave sockets alive; retain the original deadline without keeping a closed process alive.
+      deadline?.unref();
+      throw new AggregateError(errors, "Worker runtime failed");
+    }
+    clearTimeout(deadline);
+    process.removeListener("SIGTERM", stop);
+    process.removeListener("SIGINT", stop);
   }
 }
 

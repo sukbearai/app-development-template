@@ -23,7 +23,9 @@ The explicit deployment mode runs even when `NODE_ENV` is unset. It rejects inva
 
 Set `METRICS_TOKEN` to 32 through 256 ASCII base64url characters without whitespace. Ordinary local runs allow an omitted or empty token, which disables metrics access. Deployment preflight requires a nonempty token.
 
-Keep the container or service stop grace longer than `WEB_SHUTDOWN_TIMEOUT_MS`. If you declare `WEB_STOP_GRACE_PERIOD`, the preflight checks this relationship. Start with the examples' 30000 ms drain deadline and 40 s grace, and configure the actual process manager to use those values.
+Keep the container or service stop grace longer than `WEB_SHUTDOWN_TIMEOUT_MS`. The preflight checks `WEB_STOP_GRACE_PERIOD`, using Compose's default 40s when omitted or empty. Start with the examples' 30000 ms drain deadline and 40 s grace, and configure the actual process manager to use those values.
+
+Workers use `WORKER_SHUTDOWN_TIMEOUT_MS`, also 30000 ms by default with a supported range of 1 through 300000. Set `WORKER_STOP_GRACE_PERIOD` longer than that deadline. The preflight also assumes 40s when this grace is omitted or empty. If another orchestrator uses a different value, declare it for the preflight and configure it in that orchestrator. A checked environment variable does not configure another process manager.
 
 A successful preflight establishes static configuration validity. It does not check database connectivity, certificates served by remote endpoints, mounted storage, source-based abuse protection, backups, or recovery objectives. Ordinary `pnpm config:check` retains the local production policy and accepts loopback HTTP configurations.
 

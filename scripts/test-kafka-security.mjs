@@ -33,8 +33,9 @@ async function probe(mode) {
     } finally { await producer.disconnect(); }
   } else if (mode === "producer") {
     const { createProducer } = await import("../services/worker/src/outbox.ts");
-    const producer = await createProducer();
-    try { await producer.send({ topic: "security-proof", messages: [{ value: "security-proof" }] }); }
+    const producer = createProducer();
+    try {
+      await producer.connect(); await producer.send({ topic: "security-proof", messages: [{ value: "security-proof" }] }); }
     finally { await producer.disconnect(); }
   } else if (mode === "consumer") {
     const { runKafkaConsumer } = await import("../services/worker/src/async-consumer.ts");

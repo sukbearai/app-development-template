@@ -1,3 +1,4 @@
+import { registerWorkerLifecycleTests } from "./lifecycle-integration.mjs";
 import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { readFile, readdir } from "node:fs/promises";
@@ -1522,3 +1523,5 @@ test("retention compacts worker history while preserving duplicate and conflict 
     else process.env.DATABASE_URL = previousDatabase;
   }
 });
+
+registerWorkerLifecycleTests(pool);

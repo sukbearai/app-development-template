@@ -10,6 +10,7 @@ type WorkerEnv = {
   databaseUrl?: string;
   outboxPublisher: "dry-run" | "kafka";
   outboxBatchSize: number;
+  workerShutdownTimeoutMs: number;
   outboxRetryDelaySeconds: number;
   outboxRetryBaseMs: number;
   outboxRetryMaxMs: number;
@@ -60,12 +61,12 @@ function loadEnvFiles() {
   }
 }
 
-function positiveInt(name: string, fallback: number) {
+function positiveInt(name: string, fallback: number, maximum = Infinity) {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error(`${name} must be a positive integer`);
+  if (!Number.isInteger(value) || value <= 0 || value > maximum) {
+    throw new Error(`${name} must be a positive integer${maximum === Infinity ? "" : ` no greater than ${maximum}`}`);
   }
   return value;
 }
@@ -100,6 +101,7 @@ export function loadWorkerEnv({ allowMissingPublisher = false } = {}): WorkerEnv
     nodeEnv: process.env.NODE_ENV || "development",
     databaseUrl: process.env.DATABASE_URL,
     outboxPublisher: outboxPublisher(allowMissingPublisher),
+    workerShutdownTimeoutMs: positiveInt("WORKER_SHUTDOWN_TIMEOUT_MS", 30000, 300000),
     outboxBatchSize: positiveInt("OUTBOX_BATCH_SIZE", 10),
     outboxRetryDelaySeconds: positiveInt("OUTBOX_RETRY_DELAY_SECONDS", 60),
     outboxRetryBaseMs: positiveInt("OUTBOX_RETRY_BASE_MS", 1000),

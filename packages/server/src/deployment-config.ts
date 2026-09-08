@@ -31,17 +31,22 @@ function checkUrlCredentials(url: URL, key: string, issues: ConfigIssue[]) {
 }
 
 function checkShutdown(raw: NodeJS.ProcessEnv, issues: ConfigIssue[]) {
-  const drain = Number(raw.WEB_SHUTDOWN_TIMEOUT_MS ?? "30000");
-  if (!Number.isInteger(drain) || drain < 1 || drain > 300000) {
-    issues.push({ key: "WEB_SHUTDOWN_TIMEOUT_MS", code: "INVALID_VALUE", message: "Use an integer from 1 through 300000 milliseconds." });
-    return;
-  }
-  if (raw.WEB_STOP_GRACE_PERIOD === undefined) return;
-  const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(raw.WEB_STOP_GRACE_PERIOD);
   const multipliers = new Map([["ms", 1], ["s", 1000], ["m", 60000], ["h", 3600000]]);
-  const grace = match ? Number(match[1]) * (multipliers.get(match[2] ?? "") ?? 0) : 0;
-  if (!Number.isFinite(grace) || grace <= drain)
-    issues.push({ key: "WEB_STOP_GRACE_PERIOD", code: "INSUFFICIENT_GRACE", message: "Use a duration with ms, s, m, or h that exceeds WEB_SHUTDOWN_TIMEOUT_MS." });
+  for (const [timeoutKey, graceKey] of [
+    ["WEB_SHUTDOWN_TIMEOUT_MS", "WEB_STOP_GRACE_PERIOD"],
+    ["WORKER_SHUTDOWN_TIMEOUT_MS", "WORKER_STOP_GRACE_PERIOD"],
+  ]) {
+    const drain = Number(raw[timeoutKey] ?? "30000");
+    if (!Number.isInteger(drain) || drain < 1 || drain > 300000) {
+      issues.push({ key: timeoutKey, code: "INVALID_VALUE", message: "Use an integer from 1 through 300000 milliseconds." });
+      continue;
+    }
+    const value = raw[graceKey] || "40s";
+    const match = /^(\d+(?:\.\d+)?)(ms|s|m|h)$/.exec(value);
+    const grace = match ? Number(match[1]) * (multipliers.get(match[2] ?? "") ?? 0) : 0;
+    if (!Number.isFinite(grace) || grace <= drain)
+      issues.push({ key: graceKey, code: "INSUFFICIENT_GRACE", message: `Use a duration with ms, s, m, or h that exceeds ${timeoutKey}.` });
+  }
 }
 
 function checkKafka(raw: NodeJS.ProcessEnv, issues: ConfigIssue[]) {

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createHash, randomUUID } from "node:crypto";
-import { Kafka, logLevel } from "kafkajs";
+import { Kafka, logLevel, type Consumer } from "kafkajs";
 import { readKafkaConfig } from "@pstack/kafka";
 import type { RecoveryGuard } from "./kafka-recovery";
 import type { Pool, PoolClient } from "pg";
@@ -788,7 +788,7 @@ export async function processConsumerMessagesSequentially(
   return { processed, stoppedOnRetryableFailure: false };
 }
 
-export async function runKafkaConsumer(options: {
+type KafkaConsumerOptions = {
   topic?: string;
   topics?: string[];
   groupId: string;
@@ -799,51 +799,83 @@ export async function runKafkaConsumer(options: {
   maxWaitMs?: number;
   signal?: AbortSignal;
   eachMessage: (message: ConsumerMessage) => Promise<AsyncConsumerResult>;
-}) {
+};
+
+export function createKafkaConsumer(options: Pick<KafkaConsumerOptions, "groupId" | "brokers" | "clientId" | "recovery" | "signal">) {
   const groupId = asyncConsumerGroupSchema.parse(options.groupId);
   const brokers =
     options.brokers ??
     (process.env.KAFKA_BROKERS ?? "").split(",").filter(Boolean);
   if (!brokers.length)
     throw new Error("KAFKA_BROKERS is required for Kafka consumers");
-  const consumer = new Kafka({
+  return new Kafka({
     ...readKafkaConfig({ ...process.env, KAFKA_BROKERS: brokers.join(",") }),
     clientId: options.clientId ?? "pstack-worker",
     brokers,
     logLevel: logLevel.NOTHING,
-  }).consumer({ groupId: options.recovery?.transportGroup ?? groupId });
+  }).consumer({
+    groupId: options.recovery?.transportGroup ?? groupId,
+    retry: { restartOnFailure: async () => !options.signal?.aborted },
+  });
+}
+
+export async function runKafkaConsumer(options: KafkaConsumerOptions & {
+  consumer?: Consumer;
+  onReady?: () => void;
+  onFailure?: (cause: unknown) => void;
+}) {
+  const controller = new AbortController();
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  const consumer = options.consumer ?? createKafkaConsumer({ ...options, signal });
+  const failures: unknown[] = [];
+  const batches = new Set<Promise<void>>();
+  let recoveryCheck = Promise.resolve();
   let processed = 0;
   let completed!: () => void;
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This is the Promise rejection callback; failure values propagate without reinterpretation.
   let failed!: (error: unknown) => void;
   const done = new Promise<void>((resolve, reject) => {
     completed = resolve;
-    failed = reject;
+    failed = (cause) => {
+      failures.push(cause);
+      reject(cause);
+      options.onFailure?.(cause);
+    };
   });
   void done.catch(() => undefined);
+  let joined = false;
+  let groupJoined!: () => void;
+  const ready = new Promise<void>((resolve) => { groupJoined = resolve; });
+  const removeJoin = consumer.on(consumer.events.GROUP_JOIN, () => {
+    joined = true;
+    groupJoined();
+  });
   const removeCrash = consumer.on(consumer.events.CRASH, (event) => {
     if (!event.payload.restart) failed(event.payload.error);
   });
   const abort = () => completed();
-  options.signal?.addEventListener("abort", abort, { once: true });
+  signal.addEventListener("abort", abort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let recoveryTimer: ReturnType<typeof setInterval> | undefined;
   try {
-    if (options.signal?.aborted) return { processed };
+    if (signal.aborted) return { processed };
     await consumer.connect();
+    if (signal.aborted) return { processed };
     if (options.recovery) {
       await options.recovery.check();
+      if (signal.aborted) return { processed };
       let checking = false;
       recoveryTimer = setInterval(() => {
-        if (checking) return;
+        if (checking || signal.aborted) return;
         checking = true;
-        void options.recovery?.check().catch(failed).finally(() => { checking = false; });
+        recoveryCheck = Promise.resolve(options.recovery?.check()).catch(failed).finally(() => { checking = false; });
       }, 1000);
     }
     await consumer.subscribe({
       topics: options.topics ?? [options.topic ?? "app.tasks"],
       fromBeginning: true,
     });
+    if (signal.aborted) return { processed };
     if (options.maxWaitMs)
       timer = setTimeout(
         () => failed(new Error("Kafka consumer timed out")),
@@ -852,83 +884,106 @@ export async function runKafkaConsumer(options: {
     await consumer.run({
       autoCommit: false,
       eachBatchAutoResolve: false,
-      eachBatch: async ({
+      eachBatch: ({
         batch,
         resolveOffset,
         heartbeat,
         isRunning,
         isStale,
       }) => {
-        for (const record of batch.messages) {
-          const message = {
-            topic: batch.topic,
-            partition: batch.partition,
-            offset: record.offset,
-            value: record.value,
-          };
-          try { await options.recovery?.beforeMessage(message); }
-          catch (error) { failed(error); throw error; }
-          while (isRunning() && !isStale() && !options.signal?.aborted) {
-            const heartbeats = setInterval(() => {
-              void heartbeat().catch(failed);
-            }, 1000);
-            let result: AsyncConsumerResult;
-            try {
-              result = await options.eachMessage(message);
-            } finally {
-              clearInterval(heartbeats);
-            }
-            if (isStale()) return;
-            if (result.safeToCommit) {
-              try { await options.recovery?.check(); }
-              catch (error) { failed(error); throw error; }
-              await consumer.commitOffsets([
-                {
-                  topic: batch.topic,
-                  partition: batch.partition,
-                  offset: nextKafkaOffset(record.offset),
-                },
-              ]);
-              options.recovery?.committed(message);
-              resolveOffset(record.offset);
-              processed++;
-              await heartbeat();
-              if (options.maxMessages && processed >= options.maxMessages) {
-                completed();
-                return;
+        if (signal.aborted) return Promise.resolve();
+        const operation = (async () => {
+          for (const record of batch.messages) {
+            if (!isRunning() || isStale() || signal.aborted) return;
+            const message = {
+              topic: batch.topic,
+              partition: batch.partition,
+              offset: record.offset,
+              value: record.value,
+            };
+            await options.recovery?.beforeMessage(message);
+            while (isRunning() && !isStale() && !signal.aborted) {
+              const pendingHeartbeats = new Set<Promise<void>>();
+              const heartbeats = setInterval(() => {
+                const pending = heartbeat().catch(failed);
+                pendingHeartbeats.add(pending);
+                void pending.then(() => pendingHeartbeats.delete(pending));
+              }, 1000);
+              let result: AsyncConsumerResult;
+              try {
+                result = await options.eachMessage(message);
+              } catch (cause) {
+                failed(cause);
+                throw cause;
+              } finally {
+                clearInterval(heartbeats);
+                await Promise.all(pendingHeartbeats);
               }
-              break;
+              if (isStale()) return;
+              if (result.safeToCommit) {
+                await options.recovery?.check();
+                await consumer.commitOffsets([
+                  {
+                    topic: batch.topic,
+                    partition: batch.partition,
+                    offset: nextKafkaOffset(record.offset),
+                  },
+                ]);
+                options.recovery?.committed(message);
+                resolveOffset(record.offset);
+                processed++;
+                await heartbeat();
+                if (options.maxMessages && processed >= options.maxMessages) {
+                  completed();
+                  return;
+                }
+                break;
+              }
+              // Retry this exact offset in the same batch, including already-overdue retries.
+              const until = Math.max(
+                Date.now() + 25,
+                Date.parse(result.nextRetryAt ?? "") || Date.now(),
+              );
+              while (
+                Date.now() < until &&
+                isRunning() &&
+                !isStale() &&
+                !signal.aborted
+              ) {
+                await sleep(Math.min(250, until - Date.now()));
+                await heartbeat();
+              }
             }
-            // Retry this exact offset in the same batch, including already-overdue retries.
-            const until = Math.max(
-              Date.now() + 25,
-              Date.parse(result.nextRetryAt ?? "") || Date.now(),
-            );
-            while (
-              Date.now() < until &&
-              isRunning() &&
-              !isStale() &&
-              !options.signal?.aborted
-            ) {
-              await sleep(Math.min(250, until - Date.now()));
-              await heartbeat();
-            }
+            if (!isRunning() || isStale() || signal.aborted) return;
           }
-          if (!isRunning() || isStale() || options.signal?.aborted) return;
-        }
+        })();
+        const pending = operation.catch(failed);
+        batches.add(pending);
+        void pending.then(() => batches.delete(pending));
+        return operation;
       },
     });
+    await Promise.race([ready, done]);
+    if (joined && !signal.aborted) options.onReady?.();
     await done;
-    return { processed };
+  } catch (cause) {
+    failed(cause);
   } finally {
+    controller.abort();
     if (timer) clearTimeout(timer);
     if (recoveryTimer) clearInterval(recoveryTimer);
-    options.signal?.removeEventListener("abort", abort);
+    await Promise.all(batches);
+    await recoveryCheck;
+    signal.removeEventListener("abort", abort);
     removeCrash();
-    try {
-      await consumer.stop();
-    } finally {
-      await consumer.disconnect();
+    removeJoin();
+    if (!options.consumer) {
+      try { await consumer.stop(); }
+      catch (cause) { failed(cause); }
+      try { await consumer.disconnect(); }
+      catch (cause) { failed(cause); }
     }
+    if (failures.length) throw new AggregateError(failures, "Kafka consumer failed");
   }
+  return { processed };
 }

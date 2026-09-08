@@ -1,4 +1,5 @@
 import { asyncRuntimeTopics, loadWorkerEnv } from "./env";
+import type { Admin } from "kafkajs";
 import type { Pool } from "pg";
 import type { appKafkaRecovery } from "@pstack/database/schema";
 import {
@@ -23,18 +24,24 @@ export async function readReadyKafkaRecovery(pool: Pool) {
   return row;
 }
 
-export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics: string[], kafkaEnabled: boolean): Promise<RecoveryGuard | undefined> {
+export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics: string[], kafkaEnabled: boolean, ownedAdmin?: Admin, signal?: AbortSignal): Promise<RecoveryGuard | undefined> {
   const row = await readReadyKafkaRecovery(pool);
-  if (!row) return;
+  if (!row || signal?.aborted) return;
   if (!kafkaEnabled) throw new Error("Restored Kafka database requires its permanent recovery transport");
   const checkpoint = kafkaCheckpointSchema.parse(row.checkpoint);
   if (row.logicalGroup !== logicalGroup || checkpoint.logicalGroup !== logicalGroup) throw new Error("Kafka recovery logical group differs from worker configuration");
   if (row.transportGroup === null || !row.transportGroup.startsWith("pstack-recovery-") || row.transportGroup === logicalGroup || row.transportGroup === checkpoint.sourceTransportGroup) throw new Error("Invalid Kafka recovery transport binding");
   if (topics.length !== checkpoint.topics.length || topics.some((topic) => !checkpoint.topics.some((saved) => saved.topic === topic))) throw new Error("Kafka recovery subscriptions differ from checkpoint");
-  const admin = recoveryAdmin();
+  const admin = ownedAdmin ?? recoveryAdmin();
   let floors: PartitionOffset[];
   try { await admin.connect(); floors = await verifyRecoveryTransport(admin, checkpoint, row.transportGroup); }
-  catch (error) { await admin.disconnect(); throw error; }
+  catch (error) {
+    if (!ownedAdmin) {
+      try { await admin.disconnect(); }
+      catch (cleanupError) { throw new AggregateError([error, cleanupError], "Kafka recovery initialization and cleanup failed"); }
+    }
+    throw error;
+  }
   let checks = Promise.resolve();
   function check() {
     checks = checks.then(async () => {
@@ -57,15 +64,15 @@ export async function loadKafkaRecovery(pool: Pool, logicalGroup: string, topics
       if (!floor) throw new Error("Kafka recovery committed an unknown partition");
       floor.nextOffset = (BigInt(message.offset) + 1n).toString();
     },
-    async close() { await checks.catch(() => undefined); await admin.disconnect(); },
+    async close() { await checks.catch(() => undefined); if (!ownedAdmin) await admin.disconnect(); },
   };
 }
 
-export async function assertKafkaPublishingReady(pool: Pool): Promise<void> {
+export async function assertKafkaPublishingReady(pool: Pool, ownedAdmin?: Admin): Promise<void> {
   const env = loadWorkerEnv();
   let recovery: RecoveryGuard | undefined;
   try {
-    recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, asyncRuntimeTopics(), true);
+    recovery = await loadKafkaRecovery(pool, env.kafkaConsumerGroupId, asyncRuntimeTopics(), true, ownedAdmin);
   } finally {
     await recovery?.close();
   }

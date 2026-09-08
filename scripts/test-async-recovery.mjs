@@ -43,7 +43,8 @@ if (process.argv[2] === "--interrupt-restore") {
   try {
     await admin.connect();
     recovery = await loadKafkaRecovery(pool, group, asyncRuntimeTopics(), true);
-    producer = await createProducer();
+    producer = createProducer();
+    await producer.connect();
     const store = createPostgresAsyncTaskStore({ pool });
     consumer = runKafkaConsumer({
       topics: asyncRuntimeTopics(), groupId: group, recovery,
