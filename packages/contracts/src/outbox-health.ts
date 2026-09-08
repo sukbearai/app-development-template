@@ -14,6 +14,11 @@ export type OutboxBacklogMetrics = {
   oldestPendingAgeMs: number;
 };
 
+export type AsyncQuarantineCounts = {
+  messageQuarantine: number;
+  recoveryQuarantine: number;
+};
+
 export type OutboxHealthAlert = {
   severity: "warning" | "critical";
   reason: string;
@@ -88,6 +93,35 @@ export function evaluateOutboxBacklog(
       metric: "oldestPendingAgeMs",
       value: metrics.oldestPendingAgeMs,
       threshold: OUTBOX_RETRY_AGE_WARN_MS,
+    });
+  }
+  return alerts;
+}
+
+export function evaluateAsyncQuarantine(
+  counts: AsyncQuarantineCounts,
+): OutboxHealthAlert[] {
+  const alerts: OutboxHealthAlert[] = [];
+  if (counts.messageQuarantine > 0) {
+    alerts.push({
+      severity: "critical",
+      reason: "async_message_quarantine",
+      message:
+        "Isolated async message records are retained and require investigation.",
+      metric: "messageQuarantine",
+      value: counts.messageQuarantine,
+      threshold: 1,
+    });
+  }
+  if (counts.recoveryQuarantine > 0) {
+    alerts.push({
+      severity: "critical",
+      reason: "async_recovery_quarantine",
+      message:
+        "Isolated async recovery records are retained and require investigation.",
+      metric: "recoveryQuarantine",
+      value: counts.recoveryQuarantine,
+      threshold: 1,
     });
   }
   return alerts;

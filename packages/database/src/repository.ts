@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, lte, sql } from "drizzle-orm";
+import type { AsyncQuarantineCounts } from "@pstack/contracts/outbox-health";
 
 import type {
   AuditEvent,
@@ -518,11 +519,29 @@ export async function getAdminCounts(context: DatabaseContext = getDatabase()) {
   };
 }
 
+export async function getAsyncQuarantineCounts(
+  context: DatabaseContext = getDatabase(),
+): Promise<AsyncQuarantineCounts> {
+  const result = await context.execute<{
+    message_quarantine: string;
+    recovery_quarantine: string;
+  }>(sql`
+    select
+      (select count(*) from app_message_quarantine) as message_quarantine,
+      (select count(*) from app_async_recovery_quarantine) as recovery_quarantine
+  `);
+  const row = result.rows[0];
+  return {
+    messageQuarantine: Number(row.message_quarantine),
+    recoveryQuarantine: Number(row.recovery_quarantine),
+  };
+}
+
 export async function getAsyncRuntimeHealthRows(
   context: DatabaseContext = getDatabase(),
   staleBefore = new Date(Date.now() - 300000),
 ) {
-  const [outbox, tasks] = await Promise.all([
+  const [outbox, tasks, quarantine] = await Promise.all([
     context.execute<{
       topic: string;
       status: string;
@@ -536,8 +555,10 @@ export async function getAsyncRuntimeHealthRows(
     context.execute<{ status: string; count: string }>(
       sql`select status,count(*) as count from app_tasks group by status`,
     ),
+    getAsyncQuarantineCounts(context),
   ]);
   return {
+    quarantine,
     outboxEvents: outbox.rows.map((row) => ({
       topic: row.topic,
       status: row.status,

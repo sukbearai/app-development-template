@@ -1,7 +1,9 @@
 import {
+  evaluateAsyncQuarantine,
   evaluateOutboxBacklog,
   readOutboxHealthThresholds,
   statusFromOutboxAlerts,
+  type AsyncQuarantineCounts,
   type OutboxHealthThresholds,
 } from "@pstack/contracts/outbox-health";
 import { getAsyncRuntimeHealthRows } from "@pstack/database/repository";
@@ -158,6 +160,7 @@ export function buildRuntimePlanFromEnv(
 export function buildAsyncRuntimeHealthSnapshot(input: {
   outboxEvents: AsyncRuntimeOutboxEvent[];
   tasks: AsyncRuntimeTask[];
+  quarantine: AsyncQuarantineCounts;
   runtimePlan: AsyncRuntimePlanSnapshot;
   now?: Date;
   staleLockMs?: number;
@@ -167,7 +170,9 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
   const nowMs = now.getTime();
   const staleLockMs =
     input.staleLockMs ?? positiveIntegerEnv("OUTBOX_STALE_LOCK_MS", 300000);
-  const alerts: AsyncRuntimeHealthAlert[] = [];
+  const alerts: AsyncRuntimeHealthAlert[] = evaluateAsyncQuarantine(
+    input.quarantine,
+  );
   const topicMap = new Map<string, AsyncRuntimeOutboxTopicCounts>();
 
   function ensureTopic(topic: string) {
@@ -324,6 +329,7 @@ export async function readAdminAsyncRuntimeHealth() {
     staleLockMs,
     outboxEvents: rows.outboxEvents,
     tasks: rows.tasks,
+    quarantine: rows.quarantine,
     runtimePlan: buildRuntimePlanFromEnv(),
   });
 }

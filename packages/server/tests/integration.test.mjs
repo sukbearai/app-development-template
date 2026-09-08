@@ -88,6 +88,75 @@ test(
         }
         assert.equal((await readAdminAsyncRuntimeHealth()).status, "ok");
       });
+      await t.test("retained message and recovery quarantine block health while consumption continues", async () => {
+        const { readAdminAsyncRuntimeHealth } = await import("../src/async-runtime-health-service.ts");
+        const { inspectOutboxReadiness } = await import("../../../services/worker/src/outbox-readiness.ts");
+        const { createPostgresAsyncTaskStore, processAsyncConsumerMessage } = await import("../../../services/worker/src/async-consumer.ts");
+        const consumerGroup = `health-quarantine-${randomUUID()}`;
+        const key = JSON.stringify([consumerGroup, "invalid-recovery"]);
+        const poison = { topic: "health.poison", partition: 0, offset: "19", value: "{broken" };
+        const inspect = async (expected) => {
+          for (const health of [await readAdminAsyncRuntimeHealth(), await inspectOutboxReadiness()]) {
+            assert.equal(health.status, expected.length ? "blocked" : "ok");
+            assert.deepEqual(health.alerts.map(({ reason, metric, value, threshold, severity }) =>
+              ({ reason, metric, value, threshold, severity })), expected.map(([reason, metric]) =>
+              ({ reason, metric, value: 1, threshold: 1, severity: "critical" })));
+            assert.deepEqual(health.blockedReasons, expected.map(([reason]) => reason));
+          }
+        };
+        const messageAlert = ["async_message_quarantine", "messageQuarantine"];
+        const recoveryAlert = ["async_recovery_quarantine", "recoveryQuarantine"];
+        try {
+          await inspect([]);
+          const consumePoison = async () => {
+            const result = await processAsyncConsumerMessage(poison, {
+              store: createPostgresAsyncTaskStore({ pool: getPool() }), consumerGroup, workerId: "health-test",
+              handler: async () => assert.fail("malformed JSON reached handler"),
+              commitOffset: async () => {
+                assert.equal((await query("SELECT error_code FROM app_message_quarantine WHERE consumer_group=$1", [consumerGroup])).rows[0].error_code, "INVALID_MESSAGE");
+              },
+            });
+            assert.equal(result.status, "quarantined");
+            assert.equal(result.committed, true);
+          };
+          await consumePoison();
+          await inspect([messageAlert]);
+          await query("INSERT INTO app_idempotency_keys(key,scope,request_hash,response_data,status,expires_at) VALUES($1,$2,'invalid-recovery',NULL,'failed',now()+interval '1 day')", [key, consumerGroup]);
+          const original = (await query("SELECT to_jsonb(r) AS record FROM app_idempotency_keys r WHERE key=$1", [key])).rows[0].record;
+          assert.deepEqual(await createPostgresAsyncTaskStore({ pool: getPool() }).dueMessages(consumerGroup), []);
+          const retained = async () => ({
+            message: (await query("SELECT * FROM app_message_quarantine WHERE consumer_group=$1", [consumerGroup])).rows,
+            recovery: (await query("SELECT * FROM app_async_recovery_quarantine WHERE consumer_group=$1", [consumerGroup])).rows,
+            original: (await query("SELECT to_jsonb(r) AS record FROM app_idempotency_keys r WHERE key=$1", [key])).rows[0].record,
+          });
+          const before = await retained();
+          assert.equal(before.recovery[0].error_code, "INVALID_RECOVERY_RECORD");
+          assert.deepEqual(before.recovery[0].original_record, original);
+          await inspect([messageAlert, recoveryAlert]);
+          await inspect([messageAlert, recoveryAlert]);
+          assert.deepEqual(await retained(), before, "health observations must not mutate retained evidence");
+          await closeDatabase();
+          await inspect([messageAlert, recoveryAlert]);
+          assert.deepEqual(await retained(), before, "quarantine must remain visible after database reconnection");
+          await consumePoison();
+          assert.deepEqual(await createPostgresAsyncTaskStore({ pool: getPool() }).dueMessages(consumerGroup), []);
+          await inspect([messageAlert, recoveryAlert]);
+          assert.deepEqual((await retained()).original, original);
+          const valid = await processAsyncConsumerMessage({ ...poison, offset: "20", value: JSON.stringify({
+            eventId: "valid-health-message", eventType: "demo.echo", traceId: consumerGroup, payload: {},
+          }) }, {
+            store: createPostgresAsyncTaskStore({ pool: getPool() }), consumerGroup, workerId: "health-test",
+            handler: async () => ({ ok: true }),
+          });
+          assert.equal(valid.status, "succeeded", "blocked health is diagnostic and must not stop valid consumption");
+          await inspect([messageAlert, recoveryAlert]);
+        } finally {
+          await query("DELETE FROM app_message_quarantine WHERE consumer_group=$1", [consumerGroup]);
+          await query("DELETE FROM app_async_recovery_quarantine WHERE consumer_group=$1", [consumerGroup]);
+          await query("DELETE FROM app_idempotency_keys WHERE scope=$1", [consumerGroup]);
+        }
+        await inspect([]);
+      });
       await t.test("new outbox events persist configured attempts while workers preserve existing policies", async () => {
         const event = await product.createOutboxEvent({
           topic: "app.tasks", eventType: "demo.echo", payload: {}, traceId: "retry-policy",

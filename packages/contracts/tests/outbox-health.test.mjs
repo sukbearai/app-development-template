@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  evaluateAsyncQuarantine,
   evaluateOutboxBacklog,
   readOutboxHealthThresholds,
   statusFromOutboxAlerts,
@@ -60,3 +61,21 @@ test("custom outbox thresholds preserve critical precedence and report actual li
     ["outbox_pending_blocked", 20], ["outbox_failed_backlog", 2], ["outbox_oldest_pending_age", 32000],
   ]);
 });
+
+for (const [counts, reasons] of [
+  [{ messageQuarantine: 0, recoveryQuarantine: 0 }, []],
+  [{ messageQuarantine: 2, recoveryQuarantine: 0 }, [["async_message_quarantine", "messageQuarantine", 2]]],
+  [{ messageQuarantine: 0, recoveryQuarantine: 3 }, [["async_recovery_quarantine", "recoveryQuarantine", 3]]],
+  [{ messageQuarantine: 2, recoveryQuarantine: 3 }, [["async_message_quarantine", "messageQuarantine", 2], ["async_recovery_quarantine", "recoveryQuarantine", 3]]],
+]) {
+  test(`quarantine health reports retained record counts ${JSON.stringify(counts)}`, () => {
+    const alerts = evaluateAsyncQuarantine(counts);
+    assert.deepEqual(alerts.map(({ reason, metric, value }) => [reason, metric, value]), reasons);
+    assert.equal(statusFromOutboxAlerts(alerts), reasons.length ? "blocked" : "ok");
+    for (const alert of alerts) {
+      assert.equal(alert.severity, "critical");
+      assert.equal(alert.threshold, 1);
+      assert.match(alert.message, /retained.*investigation/i);
+    }
+  });
+}

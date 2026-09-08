@@ -240,6 +240,7 @@ test("outbox readiness classifies backlog and alerts", () => {
     deadLetter: 0,
     staleLocks: 0,
     oldestPendingAgeMs: 0,
+    quarantine: { messageQuarantine: 0, recoveryQuarantine: 0 },
     pendingWarn: 50,
     pendingBlocked: 200,
     failedWarn: 10,
@@ -257,6 +258,7 @@ test("outbox readiness classifies backlog and alerts", () => {
 test("outbox readiness uses shared backlog boundary decisions and custom thresholds", () => {
   const base = {
     pending: 0, failed: 0, deadLetter: 0, staleLocks: 0, oldestPendingAgeMs: 0,
+    quarantine: { messageQuarantine: 0, recoveryQuarantine: 0 },
     pendingWarn: 50, pendingBlocked: 200, failedWarn: 10,
   };
   for (const [changes, expected] of [
@@ -268,6 +270,9 @@ test("outbox readiness uses shared backlog boundary decisions and custom thresho
     [{ pending: 20, pendingBlocked: 20 }, "blocked"],
     [{ failed: 2, failedWarn: 2 }, "degraded"],
     [{ deadLetter: 1, staleLocks: 1 }, "blocked"],
+    [{ quarantine: { messageQuarantine: 1, recoveryQuarantine: 0 } }, "blocked"],
+    [{ quarantine: { messageQuarantine: 0, recoveryQuarantine: 1 } }, "blocked"],
+    [{ quarantine: { messageQuarantine: 1, recoveryQuarantine: 1 } }, "blocked"],
   ]) {
     const input = { ...base, ...changes };
     const alerts = buildOutboxAlerts(input);

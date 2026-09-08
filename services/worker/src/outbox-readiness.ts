@@ -1,12 +1,16 @@
 import pg from "pg";
 import {
+  evaluateAsyncQuarantine,
   evaluateOutboxBacklog,
   readOutboxHealthThresholds,
   statusFromOutboxAlerts,
+  type AsyncQuarantineCounts,
   type OutboxBacklogMetrics,
   type OutboxHealthAlert,
   type OutboxHealthThresholds,
 } from "@pstack/contracts/outbox-health";
+import { createPgDrizzleClient } from "@pstack/database/client";
+import { getAsyncQuarantineCounts } from "@pstack/database/repository";
 import type { OutboxWorkerOptions } from "./outbox";
 
 export type OutboxAlert = OutboxHealthAlert;
@@ -14,6 +18,7 @@ export type OutboxAlert = OutboxHealthAlert;
 type OutboxReadinessInput = OutboxBacklogMetrics & OutboxHealthThresholds & {
   deadLetter: number;
   staleLocks: number;
+  quarantine: AsyncQuarantineCounts;
 };
 
 export type OutboxReadiness = {
@@ -53,7 +58,7 @@ export function outboxReadinessStatus(input: OutboxReadinessInput) {
 }
 
 export function buildOutboxAlerts(input: OutboxReadinessInput) {
-  const alerts: OutboxAlert[] = [];
+  const alerts: OutboxAlert[] = evaluateAsyncQuarantine(input.quarantine);
   if (input.deadLetter > 0) {
     alerts.push({
       severity: "critical",
@@ -100,7 +105,7 @@ export async function inspectOutboxReadiness(
   );
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
   try {
-    const [statusCounts, oldestPending, staleLocks] = await Promise.all([
+    const [statusCounts, oldestPending, staleLocks, quarantine] = await Promise.all([
       pool.query(
         "SELECT status, count(*)::int AS count, count(*) FILTER (WHERE next_attempt_at <= now())::int AS due FROM app_outbox_events GROUP BY status",
       ),
@@ -118,6 +123,7 @@ export async function inspectOutboxReadiness(
       `,
         [staleLockMs],
       ),
+      getAsyncQuarantineCounts(createPgDrizzleClient(pool)),
     ]);
     const countByStatus = new Map(
       statusCounts.rows.map((row) => [
@@ -135,6 +141,7 @@ export async function inspectOutboxReadiness(
     );
     const staleLockIds = staleLocks.rows.map((row) => String(row.id));
     const statusInput = {
+      quarantine,
       pending,
       failed,
       deadLetter,

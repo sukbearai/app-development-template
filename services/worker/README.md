@@ -15,7 +15,7 @@ A consumer holds the idempotency row lock while its database handler and receipt
 Commands remain available through `pnpm --filter @pstack/worker exec tsx src/index.ts <command>`:
 
 - `health` lists command capabilities. `health --live` checks the runtime heartbeat and process identity. Compose uses the latter.
-- `readiness` and `alerts` inspect database backlog, due retries, and expired locks.
+- `readiness` and `alerts` inspect database backlog, due retries, expired locks, and retained message and recovery quarantine counts. Nonempty quarantine produces critical alerts and a `blocked` diagnostic status without stopping unrelated processing.
 - `outbox-once --dry-run` performs a SELECT only, without claims or status changes.
 - `outbox-loop` publishes continuously. `async-runtime --iterations 0` prints a plan without opening dependencies.
 - `replay --key <idempotency-key>` resets a failed or dead-letter task in the configured consumer group. The runtime scans the durable envelope and executes it without depending on Kafka retention. Successful tasks are not reset.

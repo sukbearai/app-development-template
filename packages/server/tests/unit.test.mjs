@@ -20,6 +20,7 @@ function backlogHealth(events, options = {}) {
     now: healthNow,
     runtimePlan: buildRuntimePlanFromEnv({}),
     tasks: [],
+    quarantine: { messageQuarantine: 0, recoveryQuarantine: 0 },
     thresholds: { pendingWarn: 50, pendingBlocked: 200, failedWarn: 10 },
     outboxEvents: events.map((event) => ({
       topic: "app.tasks", status: "pending", createdAt: healthNow, ...event,
@@ -78,6 +79,19 @@ test("async runtime health includes failed retries in the oldest pending age", (
   const snapshot = backlogHealth([{ status: "failed", createdAt: new Date(healthNow.getTime() - 32000) }]);
   assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age").value, 32000);
 });
+
+for (const [quarantine, expected] of [
+  [{ messageQuarantine: 1, recoveryQuarantine: 0 }, ["async_message_quarantine"]],
+  [{ messageQuarantine: 0, recoveryQuarantine: 1 }, ["async_recovery_quarantine"]],
+  [{ messageQuarantine: 1, recoveryQuarantine: 1 }, ["async_message_quarantine", "async_recovery_quarantine"]],
+]) {
+  test(`administrator health reports quarantine ${JSON.stringify(quarantine)}`, () => {
+    const snapshot = backlogHealth([], { quarantine });
+    assert.equal(snapshot.status, "blocked");
+    assert.deepEqual(snapshot.blockedReasons, expected);
+    assert.deepEqual(snapshot.alerts.map(({ reason }) => reason), expected);
+  });
+}
 
 test("request trace IDs preserve valid identities and replace invalid metadata before use", () => {
   for (const value of ["client-trace", "a".repeat(2000), "é".repeat(1000)]) {
