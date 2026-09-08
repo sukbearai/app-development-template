@@ -27,6 +27,8 @@ Kafka clients share `KAFKA_SECURITY_PROTOCOL`: `PLAINTEXT`, `SSL`, or `SASL_SSL`
 
 Multiple Web instances require Redis rate limiting and a shared persistent upload location or S3. Separate local directories on different hosts do not form shared storage. Anonymous telemetry has its own global limit of 120 requests per minute, enforced before body reads and database writes. Redis-backed instances share this budget and reject requests when Redis is unavailable.
 
+The Web health endpoint shares one in-flight dependency probe per process and reuses completed results for one second, including degraded results. Requests after expiry wait for a fresh probe. The response timestamp identifies the observation; responses use `Cache-Control: no-store`. This bounds dependency probing per Web process without making health checks depend on the request rate limiter.
+
 `OUTBOX_MAX_ATTEMPTS` sets the publishing attempt limit for new events created by the Web producer and defaults to 5. Existing events retain their stored limit when configuration changes. Worker retries use that stored policy; `ASYNC_TASK_DEFAULT_MAX_ATTEMPTS` separately controls consumer task execution.
 
 Production Worker execution requires an explicit `OUTBOX_PUBLISHER=kafka` or `dry-run`. A missing setting fails startup. `health`, `--iterations 0`, and explicitly requested read-only dry-run remain diagnostic operations; their success does not prove delivery.

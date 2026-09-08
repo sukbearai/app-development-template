@@ -4,8 +4,10 @@ import { withAccessLog } from "@pstack/server/logger";
 
 export async function GET(request: Request) {
   const traceId = getTraceId(request);
-  return withAccessLog(request, traceId, async () => {
+  const response = await withAccessLog(request, traceId, async () => {
     const health = await healthCheck();
     return ok(health, traceId, { status: health.status === "ok" ? 200 : 503 });
   });
+  response.headers.set("cache-control", "no-store");
+  return response;
 }
