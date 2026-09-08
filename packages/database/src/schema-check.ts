@@ -302,8 +302,10 @@ async function assertTables(
     predicate: string | null;
     columns: string[];
     included: number;
+    key_options: number[];
   }>(`select rel.relname as table_name,idx.relname as name,i.indisunique as unique,i.indisvalid as valid,am.amname as method,pg_get_expr(i.indpred,i.indrelid) as predicate,
-    array(select pg_get_indexdef(i.indexrelid,n,true) from generate_series(1,i.indnkeyatts) n) as columns,(i.indnatts-i.indnkeyatts) as included
+    array(select pg_get_indexdef(i.indexrelid,n,true) from generate_series(1,i.indnkeyatts) n) as columns,
+    array(select i.indoption[n-1]::integer from generate_series(1,i.indnkeyatts) n) as key_options,(i.indnatts-i.indnkeyatts) as included
     from pg_index i join pg_class rel on rel.oid=i.indrelid join pg_class idx on idx.oid=i.indexrelid join pg_namespace ns on ns.oid=rel.relnamespace join pg_am am on am.oid=idx.relam where ns.nspname='public'`);
   const columns = new Map(
     result.rows.map((row) => [`${row.table_name}.${row.column_name}`, row]),
@@ -423,16 +425,16 @@ async function assertTables(
       const actual = indexes.rows.find(
         (row) => row.table_name === config.name && row.name === index.name,
       );
-      const expectedColumns = index.columns.map((column) =>
-        expression(
-          `${column.expression}${!column.asc ? " desc" : ""}${column.nulls === "first" ? " nulls first" : ""}`,
-        ),
+      const expectedColumns = index.columns.map((column) => expression(column.expression));
+      const expectedOptions = index.columns.map((column) =>
+        (column.asc ? 0 : 1) | (column.nulls === "first" ? 2 : 0),
       );
       if (
         !actual?.valid ||
         actual.unique !== index.isUnique ||
         actual.method !== index.method ||
         actual.included !== 0 ||
+        JSON.stringify(actual.key_options) !== JSON.stringify(expectedOptions) ||
         !sameColumns(actual.columns.map(expression), expectedColumns) ||
         checkExpression(actual.predicate || "") !==
           checkExpression(index.where || "")

@@ -1,10 +1,11 @@
-import { requireWritePermission } from "./auth-service";
+import { requirePermission, requireWritePermission } from "./auth-service";
 import { randomUUID } from "node:crypto";
 import { fileAssetSchema } from "@pstack/contracts";
 import type {
   AdminSummary,
   AuditEvent,
   FileAsset,
+  FilePageQuery,
   OutboxEvent,
   TelemetryEvent,
 } from "@pstack/contracts";
@@ -333,8 +334,9 @@ export async function reconcileUploads(
   return results;
 }
 
-export async function listFiles() {
-  return repo.getFileAssets();
+export async function listFiles(token: string | undefined, query: FilePageQuery) {
+  await requirePermission(token, "admin.read");
+  return repo.getFileAssetPage(query);
 }
 
 export async function createOutboxEvent(

@@ -1,3 +1,4 @@
+import { registerProcessCleanup } from "@pstack/database/process-lifecycle";
 import { z } from "zod";
 import { createClient } from "redis";
 
@@ -32,6 +33,7 @@ async function clientFor(url: string): Promise<ReturnType<typeof createClient>> 
       if (clients.get(url) === pending) clients.delete(url);
     });
     clients.set(url, pending);
+    registerProcessCleanup(closeRedis);
   }
   return pending;
 }

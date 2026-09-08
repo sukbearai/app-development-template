@@ -15,7 +15,7 @@
     "migration:check": "node scripts/migration-check.mjs",
     "db:integration": "tsx scripts/integration.ts",
     "db:migrate:legacy": "tsx scripts/migrate.ts --legacy-upgrade",
-    "test:integration": "tsx --test tests/integration.test.mjs"
+    "test:integration": "tsx --test tests/*.integration.test.mjs tests/integration.test.mjs"
   },
   "dependencies": {
     "zod": "4.4.3",

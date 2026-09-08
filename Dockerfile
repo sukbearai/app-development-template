@@ -25,7 +25,8 @@ ENV HOST=0.0.0.0 PORT=3000
 RUN mkdir -p /app/uploads && chown node:node /app/uploads
 USER node
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@pstack/web", "start", "--hostname", "0.0.0.0", "--port", "3000"]
+WORKDIR /app/apps/web
+CMD ["node", "scripts/start.mjs", "--hostname", "0.0.0.0", "--port", "3000"]
 
 FROM dependencies AS worker
 COPY . .

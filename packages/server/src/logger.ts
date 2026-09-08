@@ -1,5 +1,6 @@
+import { isWebDraining, trackWebWork } from "@pstack/database/process-lifecycle";
 import { env } from "./env";
-import { fail } from "./api-response";
+import { ApiError, fail } from "./api-response";
 import { findApiOperation, parseApiResponse } from "@pstack/contracts/http";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
@@ -121,7 +122,17 @@ export function log(level: LogLevel, message: string, fields?: LogFields) {
   else if (level === "warn") console.warn(line);
   else console.log(line);
 }
-export async function withAccessLog(
+export function withAccessLog(
+  request: Request,
+  traceId: string,
+  handler: () => Promise<Response>,
+) {
+  if (isWebDraining())
+    return Promise.resolve(fail(new ApiError(503, "SERVICE_UNAVAILABLE", "服务正在停止，请稍后重试"), traceId));
+  return trackWebWork(() => accessLog(request, traceId, handler));
+}
+
+async function accessLog(
   request: Request,
   traceId: string,
   handler: () => Promise<Response>,

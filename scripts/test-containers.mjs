@@ -172,6 +172,10 @@ try {
   await command("docker", ["cp", `${worker}:/tmp/pstack-worker-heartbeat.json`, path.join(output, "worker-heartbeat.json")], { capture: true });
   assert.equal(JSON.parse(await readFile(path.join(output, "worker-heartbeat.json"), "utf8")).state, "stopped");
   summary.checks.push("Docker SIGTERM drains worker and records stopped heartbeat with exit 0");
+  await command("docker", ["stop", "--time", "40", web], { capture: true });
+  const webState = JSON.parse(await command("docker", ["inspect", "--format", "{{json .State}}", web], { capture: true }));
+  assert.equal(webState.ExitCode, 0);
+  summary.checks.push("Docker SIGTERM drains the built Web process with exit 0");
   summary.status = "passed";
   console.log("Container artifact integration passed");
 } catch (error) {

@@ -1,0 +1,2 @@
+CREATE INDEX "app_file_assets_page_idx" ON "app_file_assets" USING btree ("uploaded_at" DESC NULLS LAST,"id" DESC NULLS LAST);--> statement-breakpoint
+CREATE INDEX "app_user_sessions_retention_idx" ON "app_user_sessions" USING btree (least("expires_at", "revoked_at"),"id");

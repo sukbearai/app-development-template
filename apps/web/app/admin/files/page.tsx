@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { filePageQuerySchema } from "@pstack/contracts";
 import { cookies } from "next/headers";
 import { listRoles, requirePermission } from "@pstack/server/auth-service";
 import { listFiles } from "@pstack/server/product-service";
@@ -7,11 +9,22 @@ import { EmptyState, PageHeader, PermissionNotice, Section, formatBytes, formatD
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminFilesPage() {
+type FilesPageProps = {
+  searchParams: Promise<{ cursor?: string | string[]; limit?: string | string[] }>;
+};
+
+export default async function AdminFilesPage({ searchParams }: FilesPageProps) {
   const cookieStore = await cookies();
   const token = cookieStore.get(sessionCookieName)?.value;
   const actor = await requirePermission(token, "admin.read");
-  const [roles, files] = await Promise.all([listRoles(), listFiles()]);
+  const parsed = filePageQuerySchema.safeParse(await searchParams);
+  if (!parsed.success) return <>
+    <PageHeader title="文件资产" description="分页参数无效，请返回最新文件重试。" />
+    <Link href="/admin/files">最新文件</Link>
+  </>;
+  const [roles, result] = await Promise.all([listRoles(), listFiles(token, parsed.data)]);
+  const files = result.items;
+  const nextSearch = result.nextCursor ? new URLSearchParams({ cursor: JSON.stringify(result.nextCursor), limit: String(parsed.data.limit) }) : null;
   const canUpload = roles.some((role) => role.status === "active" && actor.roleIds.includes(role.id) && role.permissionIds.includes("file.upload"));
 
   return (
@@ -24,7 +37,7 @@ export default async function AdminFilesPage() {
       ) : (
         <PermissionNotice message="当前账号没有 file.upload 权限。" />
       )}
-      <Section title="资产列表" description={`${files.length} 个文件。`}>
+      <Section title="资产列表" description={`本页 ${files.length} 个文件。`}>
         {files.length ? (
           <div className="table-wrap">
             <table className="data-table">
@@ -56,6 +69,10 @@ export default async function AdminFilesPage() {
           <EmptyState title="暂无文件" description="上传成功后，文件会显示在这里。" />
         )}
       </Section>
+      <nav aria-label="文件分页">
+        {parsed.data.cursor && <Link href="/admin/files">最新文件</Link>}
+        {nextSearch && <Link href={`/admin/files?${nextSearch}`}>下一页</Link>}
+      </nav>
     </>
   );
 }

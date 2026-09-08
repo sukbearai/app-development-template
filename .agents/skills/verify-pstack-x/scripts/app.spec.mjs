@@ -240,3 +240,68 @@ test('password: administrator reset and self-service rotation revoke old session
   expect((await newLogin.json()).data.user.id).toBe(userId);
   expect(errors).toEqual([]);
 });
+
+test('files: keyset navigation, invalid cursor and session pruning preserve live login', async ({ page }, testInfo) => {
+  const { Client } = await import('pg');
+  const database = new Client({ connectionString: process.env.DATABASE_URL });
+  await database.connect();
+  const prefix = `page_${Date.now()}_`;
+  try {
+    await database.query(`insert into app_file_assets(id,file_name,mime_type,size_bytes,storage_key,uploaded_at)
+      select $1||lpad(n::text,3,'0'),$1||n,'text/plain',1,$1||n,
+        '2098-01-01'::timestamptz + (n%3)*interval '1 microsecond' from generate_series(1,237) n`, [prefix]);
+    await page.goto('/login?next=/admin/files');
+    await page.getByLabel('账号', { exact: true }).fill(account);
+    await page.getByLabel('密码', { exact: true }).fill(password);
+    await page.getByRole('button', { name: '登录管理端' }).click();
+    await expect(page).toHaveURL(/\/admin\/files$/);
+    const expected = (await database.query('select file_name from app_file_assets where id like $1 order by uploaded_at desc,id desc', [`${prefix}%`])).rows.map(row => row.file_name);
+    await expect(page.getByText('本页 100 个文件。', { exact: true })).toBeVisible();
+    const names = await page.locator('tbody tr td:first-child').allTextContents();
+    await database.query("insert into app_file_assets(id,file_name,mime_type,size_bytes,storage_key,uploaded_at) values($1,$1,'text/plain',1,$1,'2099-01-01')", [`${prefix}new`]);
+    await page.getByRole('link', { name: '下一页', exact: true }).click();
+    await expect(page).toHaveURL(/cursor=/);
+    names.push(...await page.locator('tbody tr td:first-child').allTextContents());
+    await page.getByRole('link', { name: '下一页', exact: true }).click();
+    await expect(page.getByRole('link', { name: '下一页', exact: true })).toHaveCount(0);
+    names.push(...await page.locator('tbody tr td:first-child').allTextContents());
+    expect(names.filter(name => name.startsWith(prefix))).toEqual(expected);
+    await page.getByRole('link', { name: '最新文件', exact: true }).click();
+    await expect(page.locator('tbody tr').first()).toContainText(`${prefix}new`);
+    await page.goto('/admin/files?cursor=invalid');
+    await expect(page.getByText('分页参数无效，请返回最新文件重试。')).toBeVisible();
+    await expect(page.locator('tbody tr')).toHaveCount(0);
+    await page.getByRole('link', { name: '最新文件', exact: true }).click();
+    await database.query("insert into app_user_sessions(id,user_id,secret_hash,expires_at) select $1,id,'unused','2020-01-01' from app_users where account=$2", [`${prefix}expired`, account]);
+    const pruned = execFileSync(process.execPath, ['--import', 'tsx', 'scripts/history-prune.mjs', '--days', '30', '--session-days', '7', '--apply'], { cwd: fileURLToPath(new URL('../../../../', import.meta.url)), env: process.env, encoding: 'utf8' });
+    expect(JSON.parse(pruned).counts.sessions).toBe(1);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: '文件资产', exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('file-pagination.png'), fullPage: true, caret: 'initial', animations: 'disabled' });
+    const adminLogin = await page.request.post('/api/auth/login', { headers: { origin: new URL(page.url()).origin }, data: { account, password } });
+    expect(adminLogin.status()).toBe(200);
+    const headers = { authorization: `Bearer ${(await adminLogin.json()).data.token}` };
+    const roleId = `${prefix}reader`;
+    const readerPassword = 'File-Reader-Password-57!';
+    expect((await page.request.post('/api/admin/roles', { headers, data: { id: roleId, name: 'File reader', permissionIds: ['admin.read'], status: 'active' } })).status()).toBe(201);
+    expect((await page.request.post('/api/admin/users', { headers, data: { account: roleId, displayName: 'File reader', password: readerPassword, roleIds: [roleId], status: 'enabled' } })).status()).toBe(201);
+    await page.context().clearCookies();
+    await page.goto('/login?next=/admin/files');
+    await page.getByLabel('账号', { exact: true }).fill(roleId);
+    await page.getByLabel('密码', { exact: true }).fill(readerPassword);
+    await page.getByRole('button', { name: '登录管理端' }).click();
+    await expect(page).toHaveURL(/\/admin\/files$/);
+    await expect(page.getByText('当前账号没有 file.upload 权限。', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('选择文件')).toHaveCount(0);
+    await page.getByRole('link', { name: '下一页', exact: true }).click();
+    await expect(page).toHaveURL(/cursor=/);
+    const protectedPage = page.url();
+    await page.context().clearCookies();
+    await page.goto(protectedPage);
+    await expect(page).toHaveURL(/\/login/);
+
+  } finally {
+    await database.query('delete from app_file_assets where id like $1', [`${prefix}%`]);
+    await database.end();
+  }
+});

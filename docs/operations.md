@@ -19,7 +19,11 @@ For host development, run `pnpm db:migrate`, initialize an administrator with `B
 
 ## Images
 
-`docker build --target web -t my-project-web .` builds the vinext production artifact and starts it with `vinext start`. The worker target starts the workspace entrypoint with tsx, so the image retains the required TypeScript runtime and workspace sources. Both targets run as the Node user. The migration service reuses the Web image and exits before Web starts.
+`docker build --target web -t my-project-web .` builds the vinext production artifact and starts it with the application's `apps/web/scripts/start.mjs` launcher. The worker target starts the workspace entrypoint with tsx, so the image retains the required TypeScript runtime and workspace sources. Both targets run as the Node user. The migration service reuses the Web image and exits before Web starts.
+
+The Web launcher handles SIGTERM and SIGINT by refusing new work and waiting for admitted HTTP requests and API operations. An API operation remains active until its promise settles, including when its client disconnects. The launcher then closes clients registered by the running application. `WEB_SHUTDOWN_TIMEOUT_MS` defaults to 30000 and bounds the entire shutdown. A timeout forces termination with a nonzero exit code. Repeated signals do not extend the deadline.
+
+Set the container's stop grace period longer than the application deadline. Local Compose defaults `WEB_STOP_GRACE_PERIOD` to `40s`; update it when changing the application deadline. A forced termination can leave a committed mutation without a delivered response, or an uncertain upload awaiting reconciliation. Check durable application state before retrying such operations.
 
 The Compose configuration is for isolated development. Production TLS, secret distribution, managed database policy, image registry promotion and replica coordination remain deployment decisions for the consuming project.
 
@@ -86,3 +90,13 @@ See [Recovery](recovery.md) for restoration, worker replay and blocked upload ha
 Choose the retention age according to the application's audit obligations and recovery window. No retention age or destructive schedule is enabled by default. Preview one bounded batch with `pnpm history:prune --days 90 --batch-size 100`. The command requires an explicit age in days, defaults to dry-run and prints the cutoff and eligible counts. Use `--apply` only after reviewing that policy and the preview. Batch size is 1 to 1000 per history table; rerun or schedule bounded invocations instead of one unbounded transaction.
 
 The retention operation removes eligible completed task history, published outbox payloads, telemetry and audit events older than the cutoff. It compacts completed request envelopes with valid `v2:` identity hashes and eligible receipt results while retaining their idempotency keys and identity hashes. Legacy request envelopes stay available for payload comparison; they are not automatically rehashed or compacted. Active tasks, retryable work, dead letters and permanent deduplication identities remain available. Database backups made before pruning retain the older records under the backup retention policy. Manage backup expiry separately from application history.
+
+Session cleanup requires an additional explicit `--session-days N` policy. Omitting it preserves the existing command's scope and output. The session age starts when the session first becomes invalid, at expiration or first revocation, whichever comes first. A session's creation time or last access does not make an otherwise valid session eligible. Repeated revocation preserves the first revocation time.
+
+Preview the selected history and session policies together before adding `--apply`. Each session batch is bounded by `--batch-size` and skips locked rows. Concurrent runs can remove separate batches; the batch limit is per invocation. Review the policies before scheduling the command. No automatic session cleanup schedule is installed.
+
+Disabling session cleanup stops future deletion but does not restore deleted sessions. Application rollback must not restore old session credentials. Database recovery needs a separate session-invalidation decision before traffic is enabled.
+
+## File navigation
+
+The file management page lists a bounded page of assets, with links to older files and the latest page. Its count describes the current page. Continuation uses upload time and file ID, so a newer upload does not shift the remaining pages. Refresh the latest page to see new uploads. Every page request checks the current user's permission.

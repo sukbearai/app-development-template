@@ -8,6 +8,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from 'pg';
+import { verifyWebShutdown } from './web-shutdown-scenarios.mjs';
 
 const root = realpathSync(fileURLToPath(new URL('../', import.meta.url)));
 const webRoot = path.join(root, 'apps/web');
@@ -106,12 +107,12 @@ try {
       buildIdentity = { sourceSha256: source, buildSha256: buildSha256(root) };
     }
     let launch = 0;
-    async function launchServer() {
+    async function launchServer(overrides = {}) {
       serverOutput = '';
       const startedAt = Date.now();
-      const serverEnv = { ...childEnv };
+      const serverEnv = { ...childEnv, WEB_SHUTDOWN_TIMEOUT_MS: '5000', ...overrides };
       if (production) Object.assign(serverEnv, { NODE_ENV: 'production', APP_ENV: 'production' });
-      server = spawn(process.execPath, [vinextCLI, production ? 'start' : 'dev', '--hostname', '127.0.0.1', '--port', String(port)], { cwd: webRoot, env: serverEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      server = spawn(process.execPath, [...(production ? [path.join(webRoot, 'scripts/start.mjs')] : [vinextCLI, 'dev']), '--hostname', '127.0.0.1', '--port', String(port)], { cwd: webRoot, env: serverEnv, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
       server.stdout.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
       server.stderr.on('data', chunk => { serverOutput += chunk; log.write(chunk); });
       const deadline = Date.now() + 60_000;
@@ -139,6 +140,7 @@ try {
         }, null, 2), { flag: 'wx' });
         await command('node', ['.agents/skills/verify-pstack-x/scripts/doctor.mjs']);
       }
+      return server;
     }
     await launchServer();
     await command('node', ['apps/web/scripts/smoke.mjs']);
@@ -168,10 +170,12 @@ try {
       await launchServer();
       await command('node', ['apps/web/scripts/smoke.mjs']);
       if (mode === 'ui') await command('bash', ['.agents/skills/verify-pstack-x/scripts/run.sh']);
+      await stopServer();
+      await verifyWebShutdown({ launch: launchServer, env: childEnv, output });
     }
 
   }
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', mode, production, containerName, databaseRestore: production, browserRuns: mode === 'ui' ? (production ? 2 : 1) : 0, boundary: 'Owned ephemeral PostgreSQL and real application; production mode restores the application database and verifies login after migration. UI mode runs the same seven Playwright flows on each database. Uploaded files stay in the same owned local directory; object backups and optional middleware are verified separately.' }, null, 2));
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'passed', mode, production, containerName, databaseRestore: production, browserRuns: mode === 'ui' ? (production ? 2 : 1) : 0, webShutdown: production, boundary: 'Owned ephemeral PostgreSQL and real application; production mode restores the application database, verifies login after migration and exercises Web shutdown. UI mode runs the same eight Playwright flows on each database. Uploaded files stay in the same owned local directory; object backups and optional middleware are verified separately.' }, null, 2));
 } catch (error) {
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ status: 'failed', mode, production, error: error.message }, null, 2));
   throw error;

@@ -1,3 +1,4 @@
+import { registerProcessCleanup } from "@pstack/database/process-lifecycle";
 import {
   DeleteObjectCommand,
   HeadBucketCommand,
@@ -25,6 +26,7 @@ function getClient() {
     // A retried PUT can succeed while an earlier disconnected attempt still writes.
     maxAttempts: 1,
   });
+  registerProcessCleanup(closeS3);
   return client;
 }
 export async function putS3Object(input: {

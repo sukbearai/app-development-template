@@ -77,3 +77,16 @@ test("blocked upload resolution requires explicit write and remote outcome evide
   assert.throws(() => parseResolveArguments(["--id", "intent", "--confirm-writer-stopped", "--confirm-remote-write-settled"]));
   assert.deepEqual(parseResolveArguments(["--id", "intent", "--apply", "--confirm-writer-stopped", "--confirm-remote-write-settled"]), { id: "intent", evidence: { writerStopped: true, remoteWriteSettled: true } });
 });
+
+test("session retention requires separate bounded opt-in and keeps the history age", () => {
+  const now = new Date('2026-09-08T00:00:00Z');
+  const previous = parseRetentionArguments(['--days', '30'], now);
+  assert.equal('sessionBefore' in previous, false);
+  assert.equal('sessionDays' in previous, false);
+  const options = parseRetentionArguments(['--days', '30', '--session-days', '7'], now);
+  assert.equal(options.before.toISOString(), previous.before.toISOString());
+  assert.equal(options.sessionBefore.toISOString(), '2026-09-01T00:00:00.000Z');
+  assert.equal(options.dryRun, true);
+  for (const age of ['0', '-1', '1.5', '36501', 'NaN', '9007199254740992']) assert.throws(() => parseRetentionArguments(['--days', '30', '--session-days', age]));
+  assert.throws(() => parseRetentionArguments(['--session-days', '7']));
+});

@@ -112,6 +112,7 @@ export const appUserSessions = pgTable(
   },
   (table) => ({
     userIdx: index("app_user_sessions_user_idx").on(table.userId),
+    retentionIdx: index("app_user_sessions_retention_idx").on(sql`least(${table.expiresAt}, ${table.revokedAt})`, table.id),
   }),
 );
 
@@ -169,7 +170,7 @@ export const appFileAssets = pgTable("app_file_assets", {
   uploadedAt: timestamp("uploaded_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
-});
+}, (table) => [index("app_file_assets_page_idx").on(table.uploadedAt.desc(), table.id.desc())]);
 
 export const appOutboxEvents = pgTable(
   "app_outbox_events",

@@ -1,3 +1,4 @@
+import { registerProcessCleanup } from "./process-lifecycle";
 import { loadEnvironment } from "./environment";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -23,6 +24,7 @@ export function getPool() {
       statement_timeout: 15000,
       max: 10,
     });
+    registerProcessCleanup(closeDatabase);
     pool.on("error", () =>
       process.stderr.write(
         '{"level":"error","message":"database idle connection failed"}\n',

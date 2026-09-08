@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vinext dev --port 3100",
     "build": "vinext build",
-    "start": "vinext start",
+    "start": "node scripts/start.mjs",
     "lint": "pnpm -w lint",
     "typecheck": "tsc -p tsconfig.check.json --noEmit",
     "api:docs": "tsx scripts/generate-openapi.mjs",

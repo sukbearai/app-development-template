@@ -14,6 +14,7 @@ x-app: &app
     RATE_LIMIT_DRIVER: ${RATE_LIMIT_DRIVER:-memory}
     LOGIN_RATE_LIMIT_MAX: ${LOGIN_RATE_LIMIT_MAX:-20}
     LOGIN_RATE_LIMIT_GLOBAL_MAX: ${LOGIN_RATE_LIMIT_GLOBAL_MAX:-200}
+    WEB_SHUTDOWN_TIMEOUT_MS: ${WEB_SHUTDOWN_TIMEOUT_MS:-30000}
     WEB_REPLICAS: ${WEB_REPLICAS:-1}
     OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
     ASYNC_RUNTIME_PUBLISHER: &worker-publisher kafka
@@ -71,6 +72,7 @@ services:
 
   web:
     <<: *app
+    stop_grace_period: ${WEB_STOP_GRACE_PERIOD:-40s}
     profiles: [app]
     ports:
       - "127.0.0.1:${WEB_PORT:-3100}:3000"

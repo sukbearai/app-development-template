@@ -6,6 +6,8 @@ import type {
   AuditEvent,
   AuthSession,
   FileAsset,
+  FileAssetPage,
+  FilePageQuery,
   OutboxEvent,
   Permission,
   Role,
@@ -333,8 +335,8 @@ export async function revokeSession(
 ) {
   await context
     .update(appUserSessions)
-    .set({ revokedAt: new Date() })
-    .where(eq(appUserSessions.id, sessionId));
+    .set({ revokedAt: sql`now()` })
+    .where(and(eq(appUserSessions.id, sessionId), sql`${appUserSessions.revokedAt} is null`, sql`${appUserSessions.expiresAt} > now()`));
 }
 
 export async function insertAuditEvent(
@@ -422,23 +424,31 @@ export async function insertFileAsset(
   });
 }
 
-export async function getFileAssets(context: DatabaseContext = getDatabase()) {
+export async function getFileAssetPage(
+  query: FilePageQuery,
+  context: DatabaseContext = getDatabase(),
+): Promise<FileAssetPage> {
   const rows = await context
-    .select()
+    .select({
+      file: appFileAssets,
+      cursorTime: sql<string>`to_char(${appFileAssets.uploadedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    })
     .from(appFileAssets)
-    .orderBy(desc(appFileAssets.uploadedAt))
-    .limit(100);
-  return rows.map(
-    (row): FileAsset => ({
-      id: row.id,
-      fileName: row.fileName,
-      mimeType: row.mimeType,
-      sizeBytes: row.sizeBytes,
-      storageKey: row.storageKey,
-      uploadedBy: row.uploadedBy || undefined,
-      uploadedAt: iso(row.uploadedAt),
-    }),
-  );
+    .where(query.cursor ? sql`(${appFileAssets.uploadedAt}, ${appFileAssets.id}) < (${query.cursor.uploadedAt}::timestamptz, ${query.cursor.id})` : undefined)
+    .orderBy(sql`${appFileAssets.uploadedAt} desc nulls last`, sql`${appFileAssets.id} desc nulls last`)
+    .limit(query.limit + 1);
+  const page = rows.slice(0, query.limit);
+  const last = page.at(-1);
+  return {
+    items: page.map(({ file }): FileAsset => ({
+      ...file,
+      uploadedBy: file.uploadedBy || undefined,
+      uploadedAt: iso(file.uploadedAt),
+    })),
+    nextCursor: rows.length > query.limit && last
+      ? { uploadedAt: last.cursorTime, id: last.file.id }
+      : null,
+  };
 }
 
 export async function insertOutboxEvent(
@@ -583,8 +593,8 @@ export async function revokeUserSessions(
 ) {
   await context
     .update(appUserSessions)
-    .set({ revokedAt: new Date() })
-    .where(eq(appUserSessions.userId, userId));
+    .set({ revokedAt: sql`now()` })
+    .where(and(eq(appUserSessions.userId, userId), sql`${appUserSessions.revokedAt} is null`, sql`${appUserSessions.expiresAt} > now()`));
 }
 export async function databaseProbe() {
   await getDatabase().execute(sql`select 1`);
@@ -699,13 +709,20 @@ export type RetentionOptions = {
   before: Date;
   batchSize: number;
   dryRun: boolean;
+  sessionBefore?: Date;
 };
 export async function runRetention(options: RetentionOptions) {
   if (
     !Number.isInteger(options.batchSize) ||
     options.batchSize < 1 ||
     options.batchSize > 1000 ||
-    !Number.isFinite(options.before.getTime())
+    !(options.before instanceof Date) ||
+    !Number.isFinite(options.before.getTime()) ||
+    ![true, false].includes(options.dryRun) ||
+    (options.sessionBefore !== undefined &&
+      (!(options.sessionBefore instanceof Date) ||
+        !Number.isFinite(options.sessionBefore.getTime()) ||
+        options.sessionBefore.getTime() > Date.now()))
   )
     throw new Error("Invalid retention cutoff or batch size");
   const specs = [
@@ -787,6 +804,14 @@ export async function runRetention(options: RetentionOptions) {
         counts[spec.key] = result.rowCount ?? 0;
       }
     }
-    return counts;
+    if (options.sessionBefore === undefined) return counts;
+    const selectedSessions = sql`select id from app_user_sessions
+      where least(expires_at, revoked_at) < ${options.sessionBefore} and least(expires_at, revoked_at) < now()
+      order by least(expires_at, revoked_at), id limit ${options.batchSize}`;
+    const sessions = options.dryRun
+      ? Number((await tx.execute<{ count: string }>(sql`select count(*) from (${selectedSessions}) selected`)).rows[0].count)
+      : (await tx.execute(sql`with selected as (${selectedSessions} for update skip locked)
+          delete from app_user_sessions where id in (select id from selected) returning id`)).rowCount ?? 0;
+    return { ...counts, sessions };
   });
 }
