@@ -563,6 +563,193 @@ test("index budget boundary succeeds and legacy serialized terminal keys still d
   assert.equal(duplicate.safeToCommit, true);
 });
 
+async function seedRecoveryRow(consumerGroup, index, transform = (task) => task) {
+  const input = { ...message(`recovery-${index}`), offset: String(index) };
+  const task = parseAsyncTaskMessage(input, consumerGroup);
+  const key = JSON.stringify([consumerGroup, task.idempotencyKey]);
+  await pool.query(
+    "INSERT INTO app_idempotency_keys(key,scope,request_hash,response_data,status,expires_at,created_at,lease_generation) VALUES($1,$2,$3,$4::jsonb,'failed',now()+interval '1 day','2020-01-01'::timestamptz+$5*interval '1 microsecond',7)",
+    [key, consumerGroup, payloadHash(task), JSON.stringify(transform(task)), index],
+  );
+  return { key, task, input };
+}
+
+async function recoverySnapshot(key) {
+  return (await pool.query("SELECT to_jsonb(task) AS snapshot FROM app_idempotency_keys task WHERE key=$1", [key])).rows[0].snapshot;
+}
+
+test("malformed recovery records are durably isolated without changing their original evidence", async () => {
+  const consumerGroup = `malformed-${randomUUID()}`;
+  const transforms = [
+    () => null, () => null, () => 42, () => [],
+    (task) => ({ ...task, source: undefined }),
+    (task) => ({ ...task, source: { ...task.source, offset: undefined } }),
+    (task) => ({ ...task, nextRetryAt: "not-a-date" }),
+    (task) => ({ ...task, createdAt: "not-a-date" }),
+    (task) => ({ ...task, idempotencyKey: "another-key" }),
+    (task) => ({ ...task, source: { ...task.source, offset: { ...task.source.offset, consumerGroup: "another-group" } } }),
+  ];
+  const invalid = [];
+  for (const [index, transform] of transforms.entries()) {
+    const row = await seedRecoveryRow(consumerGroup, index, transform);
+    invalid.push({ ...row, snapshot: await recoverySnapshot(row.key) });
+  }
+  await pool.query("UPDATE app_idempotency_keys SET response_data=NULL WHERE key=$1", [invalid[0].key]);
+  invalid[0].snapshot = await recoverySnapshot(invalid[0].key);
+  await pool.query("UPDATE app_idempotency_keys SET status='processing',lease_until=NULL WHERE key=$1", [invalid[1].key]);
+  invalid[1].snapshot = await recoverySnapshot(invalid[1].key);
+  await seedRecoveryRow(consumerGroup, 100);
+  const fresh = createPostgresAsyncTaskStore({ pool });
+  const due = await fresh.dueMessages(consumerGroup, 1);
+  assert.equal(due.length, 1);
+  assert.equal(JSON.parse(due[0].value).eventId, "recovery-100");
+  assert.equal((await processAsyncConsumerMessage(due[0], { ...options, consumerGroup })).status, "succeeded");
+  for (const row of invalid) {
+    const isolated = (await pool.query("SELECT * FROM app_async_recovery_quarantine WHERE idempotency_key=$1", [row.key])).rows;
+    assert.equal(isolated.length, 1);
+    assert.equal(isolated[0].consumer_group, consumerGroup);
+    assert.equal(isolated[0].error_code, "INVALID_RECOVERY_RECORD");
+    assert.deepEqual(isolated[0].original_record, row.snapshot);
+    assert.deepEqual(await recoverySnapshot(row.key), row.snapshot);
+    assert.equal(await fresh.replay(consumerGroup, row.task.idempotencyKey), false);
+  }
+  assert.equal((await pool.query("SELECT count(*)::int n FROM app_message_quarantine WHERE consumer_group=$1", [consumerGroup])).rows[0].n, 0);
+  const restarted = createPostgresAsyncTaskStore({ pool });
+  assert.deepEqual(await restarted.dueMessages(consumerGroup), []);
+  assert.deepEqual(await fresh.dueMessages(consumerGroup), []);
+  const duplicate = await processAsyncConsumerMessage(invalid[0].input, {
+    ...options, consumerGroup, store: restarted,
+    handler: async () => assert.fail("isolated task must not execute"),
+  });
+  assert.equal(duplicate.errorCode, "IDEMPOTENCY_UNVERIFIABLE");
+  assert.deepEqual(await recoverySnapshot(invalid[0].key), invalid[0].snapshot);
+});
+
+test("recovery isolation failure preserves the cursor and retries before later work", async () => {
+  const consumerGroup = `isolation-failure-${randomUUID()}`;
+  const bad = await seedRecoveryRow(consumerGroup, 0, () => null);
+  const snapshot = await recoverySnapshot(bad.key);
+  await seedRecoveryRow(consumerGroup, 1);
+  const fresh = createPostgresAsyncTaskStore({ pool });
+  await pool.query(`
+    CREATE FUNCTION reject_recovery_test() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN RAISE EXCEPTION 'recovery isolation unavailable'; END $$;
+    CREATE TRIGGER reject_recovery_test BEFORE INSERT ON app_async_recovery_quarantine
+    FOR EACH ROW EXECUTE FUNCTION reject_recovery_test();
+  `);
+  try {
+    for (let attempt = 0; attempt < 2; attempt++)
+      await assert.rejects(fresh.dueMessages(consumerGroup, 1), /recovery isolation unavailable/);
+    assert.deepEqual(await recoverySnapshot(bad.key), snapshot);
+  } finally {
+    await pool.query("DROP TRIGGER reject_recovery_test ON app_async_recovery_quarantine; DROP FUNCTION reject_recovery_test()");
+  }
+  const due = await fresh.dueMessages(consumerGroup, 1);
+  assert.equal(due.length, 1);
+  assert.equal((await processAsyncConsumerMessage(due[0], { ...options, consumerGroup })).status, "succeeded");
+  assert.deepEqual(await fresh.dueMessages(consumerGroup), []);
+});
+
+test("bounded recovery scanning reaches due work after a larger future backlog", async () => {
+  const consumerGroup = `future-${randomUUID()}`;
+  for (let index = 0; index < 205; index++)
+    await seedRecoveryRow(consumerGroup, index, (task) => ({ ...task, nextRetryAt: "2999-01-01T00:00:00Z" }));
+  await seedRecoveryRow(consumerGroup, 205);
+  const fresh = createPostgresAsyncTaskStore({ pool });
+  assert.deepEqual(await fresh.dueMessages(consumerGroup, 1), []);
+  assert.deepEqual(await fresh.dueMessages(consumerGroup, 1), []);
+  const due = await fresh.dueMessages(consumerGroup, 1);
+  assert.equal(due.length, 1);
+  assert.equal(JSON.parse(due[0].value).eventId, "recovery-205");
+  assert.deepEqual(await fresh.dueMessages(consumerGroup, 1), due, "unprocessed due message stays visible");
+  assert.equal((await processAsyncConsumerMessage(due[0], { ...options, consumerGroup })).status, "succeeded");
+  const restarted = createPostgresAsyncTaskStore({ pool });
+  for (let poll = 0; poll < 4; poll++) assert.deepEqual(await restarted.dueMessages(consumerGroup, 1), []);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM app_idempotency_keys WHERE scope=$1 AND status='failed'", [consumerGroup])).rows[0].n, 205);
+});
+
+test("recovery isolation rechecks a corrected record or active lease under the row lock", async () => {
+  for (const activeLease of [false, true]) {
+    const consumerGroup = `recheck-${randomUUID()}`;
+    const bad = await seedRecoveryRow(consumerGroup, 0, () => null);
+    let scanned;
+    let resume;
+    const observed = new Promise((resolve) => { scanned = resolve; });
+    const release = new Promise((resolve) => { resume = resolve; });
+    const observingPool = {
+      connect: () => pool.connect(),
+      async query(sql, parameters) {
+        const result = await pool.query(sql, parameters);
+        if (sql.includes("SELECT task.created_at::text,task.key,task.response_data")) {
+          scanned();
+          await release;
+        }
+        return result;
+      },
+    };
+    const fresh = createPostgresAsyncTaskStore({ pool: observingPool });
+    const pending = fresh.dueMessages(consumerGroup, 1);
+    await observed;
+    try {
+      await pool.query(
+        "UPDATE app_idempotency_keys SET response_data=$2::jsonb,status=$3,lease_until=$4,locked_by=$5,lease_generation=8 WHERE key=$1",
+        [bad.key, JSON.stringify(bad.task), activeLease ? "processing" : "failed", activeLease ? "2999-01-01" : null, activeLease ? "current-owner" : null],
+      );
+    } finally { resume(); }
+    const corrected = await recoverySnapshot(bad.key);
+    const due = await pending;
+    assert.equal(due.length, activeLease ? 0 : 1);
+    assert.equal((await pool.query("SELECT count(*)::int n FROM app_async_recovery_quarantine WHERE idempotency_key=$1", [bad.key])).rows[0].n, 0);
+    assert.deepEqual(await recoverySnapshot(bad.key), corrected);
+    if (!activeLease)
+      assert.equal((await processAsyncConsumerMessage(due[0], { ...options, consumerGroup })).status, "succeeded");
+  }
+});
+
+test("concurrent recovery isolation stays idempotent and its marker blocks corrected-row claim and replay", async () => {
+  const consumerGroup = `isolated-marker-${randomUUID()}`;
+  const bad = await seedRecoveryRow(consumerGroup, 0, () => null);
+  const stores = [createPostgresAsyncTaskStore({ pool }), createPostgresAsyncTaskStore({ pool })];
+  assert.deepEqual(await Promise.all(stores.map((current) => current.dueMessages(consumerGroup))), [[], []]);
+  assert.equal((await pool.query("SELECT count(*)::int n FROM app_async_recovery_quarantine WHERE idempotency_key=$1", [bad.key])).rows[0].n, 1);
+  await pool.query("UPDATE app_idempotency_keys SET response_data=$2::jsonb WHERE key=$1", [bad.key, JSON.stringify(bad.task)]);
+  const corrected = await recoverySnapshot(bad.key);
+  await assert.rejects(stores[1].claim(bad.task, "duplicate-worker"), /isolated from recovery/);
+  assert.equal(await stores[1].replay(consumerGroup, bad.task.idempotencyKey), false);
+  assert.deepEqual(await recoverySnapshot(bad.key), corrected);
+});
+
+test("recovery keyset scan advances across equal creation timestamps", async () => {
+  const consumerGroup = `equal-timestamps-${randomUUID()}`;
+  for (let index = 0; index < 105; index++)
+    await seedRecoveryRow(consumerGroup, index, (task) => ({ ...task, nextRetryAt: "2999-01-01T00:00:00Z" }));
+  await seedRecoveryRow(consumerGroup, 999);
+  await pool.query("UPDATE app_idempotency_keys SET created_at='2020-01-01' WHERE scope=$1", [consumerGroup]);
+  const fresh = createPostgresAsyncTaskStore({ pool });
+  assert.deepEqual(await fresh.dueMessages(consumerGroup, 1), []);
+  const due = await fresh.dueMessages(consumerGroup, 1);
+  assert.equal(due.length, 1);
+  assert.equal(JSON.parse(due[0].value).eventId, "recovery-999");
+});
+
+test("recovery scan wraps despite new future records arriving beyond its cycle boundary", async () => {
+  const consumerGroup = `scan-wrap-${randomUUID()}`;
+  let first;
+  for (let index = 0; index < 102; index++) {
+    const row = await seedRecoveryRow(consumerGroup, index, (task) => ({ ...task, nextRetryAt: "2999-01-01T00:00:00Z" }));
+    first ??= row;
+  }
+  const fresh = createPostgresAsyncTaskStore({ pool });
+  assert.deepEqual(await fresh.dueMessages(consumerGroup, 1), []);
+  await pool.query("UPDATE app_idempotency_keys SET response_data=response_data-'nextRetryAt' WHERE key=$1", [first.key]);
+  for (let index = 102; index < 252; index++)
+    await seedRecoveryRow(consumerGroup, index, (task) => ({ ...task, nextRetryAt: "2999-01-01T00:00:00Z" }));
+  assert.deepEqual(await fresh.dueMessages(consumerGroup, 1), []);
+  const due = await fresh.dueMessages(consumerGroup, 1);
+  assert.equal(due.length, 1);
+  assert.equal(JSON.parse(due[0].value).eventId, "recovery-0");
+});
+
 test("quarantined legacy oversized retries cannot starve later valid durable work", async () => {
   const legacyGroup = `legacy-${randomUUID()}`;
   for (let index = 0; index < 11; index++) {

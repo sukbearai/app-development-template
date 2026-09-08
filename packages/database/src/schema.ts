@@ -361,6 +361,16 @@ export const appAsyncReceipts = pgTable("app_async_receipts", {
     .notNull()
     .defaultNow(),
 });
+export const appAsyncRecoveryQuarantine = pgTable("app_async_recovery_quarantine", {
+  idempotencyKey: text("idempotency_key").primaryKey(),
+  consumerGroup: text("consumer_group").notNull(),
+  originalRecord: jsonb("original_record").notNull(),
+  errorCode: text("error_code").notNull(),
+  errorMessage: text("error_message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 export const appMessageQuarantine = pgTable(
   "app_message_quarantine",
   {

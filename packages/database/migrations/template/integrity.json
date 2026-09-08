@@ -3,11 +3,13 @@
   "0001_glorious_firebird.sql": "906659f131ac7d93aa4c805900709e6fb2df7feb5ac024bf2d5b97fc2abf2bad",
   "0002_productive_glorian.sql": "2052d57e31b69b25127abcec0c42477dc69eeb50a4fc918b23b23bb2f5ba134d",
   "0003_bizarre_roughhouse.sql": "1b68a81046db302d4d900f891b505cd6917b598820ee8bef18312c023e7b8c71",
+  "0004_confused_nova.sql": "d2c54691f3ee2a7cc90a3137803b26940d02294251dbb4353c964b9fb6ef584c",
   "meta/0000_snapshot.json": "4a8e1c2d8ba72e6b1411d1163efd44cd1ea18253fcdbe1d5f9989d05c5bd12bb",
   "meta/0001_snapshot.json": "20b0f3de2111cc8217531a60138936d391a8bf26e7b2d8f264db7dfb4bc2d5b4",
   "meta/0002_snapshot.json": "fc65e89bfbbf0c6a8a5db55801d3aff5eb20c486a70c70fda0c87be7cb5e2a29",
   "meta/0003_snapshot.json": "734242bec3805f712deef5941842e07f6ff28bdcfaf815dc874eeb88ac14dfd4",
-  "meta/_journal.json": "1aeeb831b169d09337ea034908e9b6bc8edcc538b22f266bf366ec5559ec61a6",
+  "meta/0004_snapshot.json": "71b6e1d54be5b4556a80d2cbf6ba72ff2088329c422fee3e71098b0009c61d0c",
+  "meta/_journal.json": "843a5b5b2e9e87b8e189e3dc1d7a07bd12886ae5ca1a08e81dc39fefcb9b8c95",
   "$journal": [
     {
       "idx": 0,
@@ -35,6 +37,13 @@
       "version": "7",
       "when": 1788826847622,
       "tag": "0003_bizarre_roughhouse",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788834423239,
+      "tag": "0004_confused_nova",
       "breakpoints": true
     }
   ]

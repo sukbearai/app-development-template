@@ -272,7 +272,7 @@ export function payloadHash(
     .digest("hex")}`;
 }
 
-function storedTask<T>(value: unknown): AsyncTaskEnvelope<T> {
+function storedTask<T>(value: unknown, allowLegacyIdentifiers = false): AsyncTaskEnvelope<T> {
   if (!value || typeof value !== "object" || Array.isArray(value))
     throw new PayloadUnverifiableError("Stored task envelope is missing or invalid");
   const record = value as Record<string, unknown>;
@@ -284,7 +284,9 @@ function storedTask<T>(value: unknown): AsyncTaskEnvelope<T> {
     !Object.hasOwn(record, "payload") ||
     !asyncTaskStatusSchema.safeParse(record.status).success ||
     !["taskId", "taskType", "traceId", "idempotencyKey", "sourceEventId"].every(
-      (field) => asyncIdentifierSchema.safeParse(record[field]).success,
+      (field) => allowLegacyIdentifiers
+        ? typeof record[field] === "string" && record[field].trim() !== ""
+        : asyncIdentifierSchema.safeParse(record[field]).success,
     ) ||
     ![record.attemptCount, record.maxAttempts].every(
       (count) => typeof count === "number" && Number.isInteger(count) && count > 0,
@@ -423,6 +425,20 @@ export function createPostgresAsyncTaskStore<T = unknown>(
   const keys = table("app_idempotency_keys"),
     tasks = table("app_tasks"),
     events = table("app_task_events");
+  const recoveryQuarantine = table("app_async_recovery_quarantine");
+  type RecoveryPosition = { created_at: string; key: string };
+  type RecoveryRow = RecoveryPosition & { response_data: unknown };
+  type RecoveryScan = { after?: RecoveryPosition; through: RecoveryPosition };
+  const recoveryScans = new Map<string, RecoveryScan>();
+  const recoveryEligible = `((task.status IN ('pending','failed') AND (task.lease_until IS NULL OR task.lease_until<=now())) OR (task.status='processing' AND (task.lease_until IS NULL OR task.lease_until<=now())))
+    AND NOT EXISTS (SELECT 1 FROM ${recoveryQuarantine} AS isolated WHERE isolated.idempotency_key=task.key)
+    AND NOT EXISTS (
+      SELECT 1 FROM ${table("app_message_quarantine")} AS quarantine
+      WHERE quarantine.consumer_group=task.scope AND quarantine.error_code IN ('INVALID_MESSAGE','IDEMPOTENCY_UNVERIFIABLE')
+        AND quarantine.topic=task.response_data#>>'{source,offset,topic}'
+        AND quarantine.partition::text=task.response_data#>>'{source,offset,partition}'
+        AND quarantine.source_offset=task.response_data#>>'{source,offset,offset}'
+    )`;
   const leaseMs = options.leaseMs ?? 60000;
   const key = (task: AsyncTaskEnvelope<T>) =>
     JSON.stringify([task.source.offset?.consumerGroup, task.idempotencyKey]);
@@ -488,6 +504,59 @@ export function createPostgresAsyncTaskStore<T = unknown>(
     );
     await writeTask(client, task);
   }
+  async function isRecoveryIsolated(client: PoolClient, rowKey: string) {
+    const result = await client.query(
+      `SELECT 1 FROM ${recoveryQuarantine} WHERE idempotency_key=$1`,
+      [rowKey],
+    );
+    return result.rows.length !== 0;
+  }
+  function reconstructRecovery(value: unknown, rowKey: string, group: string) {
+    const task = storedTask<T>(value, true);
+    const offset = kafkaConsumerOffsetSchema.parse(task.source.offset);
+    if (offset.consumerGroup !== group || JSON.stringify([group, task.idempotencyKey]) !== rowKey)
+      throw new PayloadUnverifiableError("Stored task belongs to another recovery identity");
+    return {
+      nextRetryAt: task.nextRetryAt,
+      message: {
+        topic: offset.topic,
+        partition: offset.partition,
+        offset: offset.offset,
+        value: JSON.stringify({
+          eventId: task.sourceEventId,
+          eventType: task.taskType,
+          traceId: task.traceId,
+          taskId: task.taskId,
+          idempotencyKey: task.idempotencyKey,
+          payload: task.payload,
+        }),
+      },
+    };
+  }
+  async function isolateInvalidRecovery(rowKey: string, group: string) {
+    return transaction(async (client) => {
+      const locked = await client.query<{ response_data: unknown }>(
+        `SELECT response_data FROM ${keys} WHERE key=$1 FOR UPDATE`, [rowKey],
+      );
+      if (locked.rows.length === 0) return;
+      const eligible = await client.query(
+        `SELECT 1 FROM ${keys} AS task WHERE task.key=$1 AND task.scope=$2 AND ${recoveryEligible}`,
+        [rowKey, group],
+      );
+      if (eligible.rows.length === 0) return;
+      try {
+        return reconstructRecovery(locked.rows[0].response_data, rowKey, group);
+      } catch (error) {
+        if (!(error instanceof PayloadUnverifiableError)) throw error;
+        await client.query(
+          `INSERT INTO ${recoveryQuarantine}(idempotency_key,consumer_group,original_record,error_code,error_message)
+          SELECT task.key,task.scope,to_jsonb(task),'INVALID_RECOVERY_RECORD',$2 FROM ${keys} AS task WHERE task.key=$1
+          ON CONFLICT(idempotency_key) DO NOTHING`,
+          [rowKey, error.message],
+        );
+      }
+    });
+  }
   const store: AsyncConsumerStore<T> & {
     close(): Promise<void>;
     replay(group: string, idempotencyKey: string): Promise<boolean>;
@@ -513,6 +582,8 @@ export function createPostgresAsyncTaskStore<T = unknown>(
           [key(incoming)],
         );
         if (!row) throw new Error("Claimed idempotency row is missing");
+        if (await isRecoveryIsolated(client, row.key))
+          throw new PayloadUnverifiableError("Stored task is isolated from recovery");
         const terminal = ["succeeded", "dead_letter", "canceled"].includes(row.status);
         const persistedHash: unknown = row.request_hash;
         if (typeof persistedHash !== "string")
@@ -611,34 +682,48 @@ export function createPostgresAsyncTaskStore<T = unknown>(
       );
     },
     async dueMessages(group, limit = 10) {
-      const result = await pool.query(
-        `SELECT response_data FROM ${keys} AS task
-        WHERE scope=$1 AND ((status IN ('pending','failed') AND COALESCE((response_data->>'nextRetryAt')::timestamptz,'-infinity'::timestamptz)<=now()) OR (status='processing' AND lease_until<=now()))
-        AND NOT EXISTS (
-          SELECT 1 FROM ${table("app_message_quarantine")} AS quarantine
-          WHERE quarantine.consumer_group=task.scope AND quarantine.error_code IN ('INVALID_MESSAGE','IDEMPOTENCY_UNVERIFIABLE')
-            AND quarantine.topic=task.response_data#>>'{source,offset,topic}'
-            AND quarantine.partition::text=task.response_data#>>'{source,offset,partition}'
-            AND quarantine.source_offset=task.response_data#>>'{source,offset,offset}'
-        ) ORDER BY created_at LIMIT $2`,
-        [group, limit],
+      if (!Number.isSafeInteger(limit) || limit < 1)
+        throw new Error("Recovery message limit must be a positive safe integer");
+      let scan = recoveryScans.get(group);
+      if (!scan) {
+        const upper = await pool.query<RecoveryPosition>(
+          `SELECT created_at::text,key FROM ${keys} WHERE scope=$1 ORDER BY created_at DESC,key DESC LIMIT 1`,
+          [group],
+        );
+        if (!upper.rows[0]) return [];
+        scan = { through: upper.rows[0] };
+      }
+      const budget = Math.max(100, limit);
+      const result = await pool.query<RecoveryRow>(
+        `SELECT task.created_at::text,task.key,task.response_data FROM ${keys} AS task
+        WHERE task.scope=$1 AND ${recoveryEligible}
+          AND ($2::timestamptz IS NULL OR (task.created_at,task.key)>($2::timestamptz,$3::text))
+          AND (task.created_at,task.key)<=($4::timestamptz,$5::text)
+        ORDER BY task.created_at,task.key LIMIT $6`,
+        [group, scan.after?.created_at, scan.after?.key, scan.through.created_at, scan.through.key, budget],
       );
-      return result.rows.map((row) => {
-        const task = row.response_data as AsyncTaskEnvelope<T>;
-        if (!task.source.offset)
-          throw new Error("Stored async task has no source offset");
-        return {
-          ...task.source.offset,
-          value: JSON.stringify({
-            eventId: task.sourceEventId,
-            eventType: task.taskType,
-            traceId: task.traceId,
-            taskId: task.taskId,
-            idempotencyKey: task.idempotencyKey,
-            payload: task.payload,
-          }),
-        };
-      });
+      let after = scan.after;
+      let beforeFirstReturnedMessage: RecoveryPosition | undefined;
+      const messages: ConsumerMessage[] = [];
+      for (const row of result.rows) {
+        let recovered;
+        try {
+          recovered = reconstructRecovery(row.response_data, row.key, group);
+        } catch (error) {
+          if (!(error instanceof PayloadUnverifiableError)) throw error;
+          recovered = await isolateInvalidRecovery(row.key, group);
+        }
+        if (recovered && (!recovered.nextRetryAt || Date.parse(recovered.nextRetryAt) <= Date.now())) {
+          if (messages.length === 0) beforeFirstReturnedMessage = after;
+          messages.push(recovered.message);
+        }
+        after = { created_at: row.created_at, key: row.key };
+        if (messages.length === limit) break;
+      }
+      if (messages.length > 0) recoveryScans.set(group, { ...scan, after: beforeFirstReturnedMessage });
+      else if (result.rows.length < budget) recoveryScans.delete(group);
+      else recoveryScans.set(group, { ...scan, after });
+      return messages;
     },
     async replay(group, idempotencyKey) {
       return transaction(async (client) => {
@@ -648,7 +733,7 @@ export function createPostgresAsyncTaskStore<T = unknown>(
           `SELECT * FROM ${keys} WHERE key=$1 AND status IN ('failed','dead_letter') FOR UPDATE`,
           [JSON.stringify([group, idempotencyKey])],
         );
-        if (!row) return false;
+        if (!row || await isRecoveryIsolated(client, row.key)) return false;
         const task = {
           ...row.response_data,
           status: "pending",
