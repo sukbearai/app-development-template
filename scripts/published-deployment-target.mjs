@@ -238,7 +238,7 @@ export async function createRehearsalTarget(
   );
   const app = {
     image: "${PSTACK_WEB_IMAGE}",
-    env_file: [target.envFile],
+    environment: Object.fromEntries(Object.keys(environment).map((key) => [key, `\${${key}}`])),
     init: true,
     volumes: ["uploads:/app/uploads", `${at("ca.crt")}:/security/ca.crt:ro`],
     stop_grace_period: "40s",

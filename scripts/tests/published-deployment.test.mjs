@@ -210,3 +210,134 @@ test("HTTPS transport accepts the explicit CA and rejects an unrelated CA", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("failed CLI diagnostics retain only deployment operation fields", async () => {
+  const operation = {
+    phase: "failed",
+    resumePhase: "checking",
+    errorCode: "DEPLOYMENT_FAILED",
+    restored: false,
+  };
+  const envelope = {
+    errorCode: "DEPLOYMENT_FAILED",
+    data: {
+      state: {
+        operation: { ...operation, desired: { root: "private-path" }, password: "secret-value" },
+      },
+      Config: { Env: ["SECRET=secret-value"] },
+    },
+  };
+  const command = rehearsalCommand(new AbortController().signal);
+  await assert.rejects(
+    command(process.execPath, [
+      "-e",
+      `process.stdout.write(${JSON.stringify(JSON.stringify(envelope))});process.exit(1)`,
+    ]),
+    (error) => {
+      assert.deepEqual(error.operation, operation);
+      assert.ok(!JSON.stringify(error).includes("secret-value"));
+      assert.ok(!JSON.stringify(error).includes("private-path"));
+      return true;
+    },
+  );
+});
+
+test("failure snapshots report configuration drift without container environment or health output", async () => {
+  const { rehearsalFailureSnapshot } = await import("../published-deployment-checks.mjs");
+  const directory = await mkdtemp(path.join(os.tmpdir(), "pstack-failure-snapshot-"));
+  try {
+    const snapshot = await rehearsalFailureSnapshot(
+      { stateDirectory: directory },
+      {
+        inspectContainers: async () => [
+          {
+            Id: "a".repeat(64),
+            Image: "image-id",
+            Config: {
+              Image: "image-ref",
+              Env: ["SECRET=secret-value"],
+              Labels: {
+                "com.docker.compose.service": "web",
+                "com.docker.compose.config-hash": "b".repeat(64),
+              },
+            },
+            State: {
+              Status: "running",
+              Running: true,
+              ExitCode: 0,
+              Health: { Status: "unhealthy", Log: [{ Output: "secret-value" }] },
+            },
+          },
+        ],
+        command: async () => `web ${"c".repeat(64)}`,
+      },
+      [{ images: { web: { id: "image-id", reference: "image-ref" } } }],
+    );
+    assert.equal(snapshot.containers[0].health, "unhealthy");
+    assert.equal(snapshot.containers[0].expectedConfigHash, "c".repeat(64));
+    assert.ok(snapshot.observationErrors.includes("COMPOSE_CONFIGURATION_DRIFT:web"));
+    assert.ok(!JSON.stringify(snapshot).includes("secret-value"));
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test(
+  "generated rehearsal target matches live Compose hashes and still rejects changed environment",
+  { skip: process.env.PSTACK_REHEARSAL_COMPOSE_TEST !== "1", timeout: 180000 },
+  async () => {
+    const { realpath, writeFile } = await import("node:fs/promises");
+    const { randomBytes } = await import("node:crypto");
+    const { createRehearsalTarget } = await import("../published-deployment-target.mjs");
+    const { composeTarget } = await import("../deployment-compose.mjs");
+    const { toolchain } = await import("../toolchain.mjs");
+    const directory = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), "pstack-rehearsal-compose-")),
+    );
+    const project = `pstack-published-${randomBytes(8).toString("hex")}`;
+    const secrets = [];
+    const command = rehearsalCommand(new AbortController().signal, secrets);
+    const docker = (args, options) => command("docker", ["--context", "default", ...args], options);
+    try {
+      const reference = toolchain.images.node;
+      await docker(["pull", reference]);
+      const [image] = JSON.parse(await docker(["image", "inspect", reference]));
+      const setup = await createRehearsalTarget(
+        directory,
+        project,
+        "owner/project",
+        `${image.Os}/${image.Architecture}`,
+        docker,
+        command,
+        secrets,
+      );
+      const release = {
+        images: Object.fromEntries(
+          ["web", "worker"].map((role) => [role, { id: image.Id, reference }]),
+        ),
+      };
+      const runtime = composeTarget(setup.target, (args, env) => command("docker", args, { env }));
+      const original = await readFile(setup.target.composeFiles[0], "utf8");
+      const broken = JSON.parse(original);
+      for (const role of ["web", "worker"]) {
+        delete broken.services[role].environment;
+        broken.services[role].env_file = [setup.target.envFile];
+      }
+      await writeFile(setup.target.composeFiles[0], JSON.stringify(broken));
+      await runtime.apply(release);
+      await assert.rejects(runtime.observe([release]), /COMPOSE_CONFIGURATION_DRIFT/);
+      await writeFile(setup.target.composeFiles[0], original);
+      await runtime.apply(release);
+      assert.equal((await runtime.observe([release])).length, 2);
+      const environment = await readFile(setup.target.envFile, "utf8");
+      await writeFile(
+        setup.target.envFile,
+        environment.replace("APP_NAME=Published release rehearsal", "APP_NAME=Changed rehearsal"),
+      );
+      await assert.rejects(runtime.observe([release]), /COMPOSE_CONFIGURATION_DRIFT/);
+    } finally {
+      assert.deepEqual(await cleanupRehearsal(project, docker), []);
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
