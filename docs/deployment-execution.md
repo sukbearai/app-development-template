@@ -62,3 +62,19 @@ pnpm test:deployment:slots
 ```
 
 The second command creates a disposable Compose project with a pinned Node fixture image. It checks real container creation, retained migration evidence, persistent volume contents, idempotent application and convergence after stopping a service. It uses a programmatic trust fixture and does not authorize rollback versions. The application drill above is the producer of pairwise compatibility evidence. GitHub publication/signing and execution on the actual deployment host remain separate acceptance steps.
+
+## Rehearse two published releases
+
+Run the **Verify published deployment** workflow on `main`, supplying two already public release tags. The successor must carry a verified rollback proof for that exact predecessor. This bounded rehearsal requires equal migration ledgers and an amd64 Docker daemon. It uses a version 1 maintenance-window target. The first and second releases are application versions, independent of the target schema version.
+
+The same command runs from a clean checkout on a Linux amd64 Docker host with GitHub CLI access to the repository and its GHCR images. Install the normal repository dependencies, Docker Compose, OpenSSL and Python 3 first. The output directory must not exist.
+
+```sh
+node scripts/test-published-deployment.mjs --repo YOUR_ORGANIZATION/YOUR_REPOSITORY --previous v0.1.1 --candidate v0.1.2 --output artifacts/published-deployment
+```
+
+The command downloads the two original bundles separately and invokes the real deployment CLI for predecessor installation, successor upgrade and predecessor rollback. Every transition verifies public assets and signatures. It checks exact running image IDs, authenticated roles, upload metadata and bytes, and Kafka task receipts. PostgreSQL migration rows, infrastructure container identities and durable volume identities must remain unchanged across the transitions.
+
+The disposable target has loopback HTTPS ingress and authenticated TLS Kafka. A generated private CA is explicitly trusted by the HTTP client, deployment CLI and application Kafka clients. Credentials, private keys, downloaded bundles and retained deployment state remain in a private temporary directory outside the report directory. On Linux, a child subreaper owns each command and terminates and reaps detached descendants before resource cleanup. Normal failure and handled interruption remove only the uniquely labelled rehearsal resources. Cleanup failure fails the report. A forcibly killed host or runner cannot complete that cleanup.
+
+Only the JSON receipts and summary are uploaded by the workflow. A passing result proves this pair on the disposable host. It does not establish zero downtime, production capacity, HA, or acceptance of another deployment target. Version 1 `release:status` does not reverify trust; this rehearsal obtains its trust evidence from successful real `apply` and `rollback` commands.
