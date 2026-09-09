@@ -19,6 +19,43 @@ import { outboxKafkaMessageKey, processOutboxOnce } from "../src/outbox.ts";
 
 process.env.APP_TEMPLATE_WORKER_SKIP_ENV_FILES = "1";
 
+test("replicas with the same container PID have distinct stable lease owners", () => {
+  const script = `
+    import { createAsyncConsumerOptions } from './services/worker/src/index.ts';
+    Object.defineProperty(process, 'pid', { value: 1 });
+    const first = createAsyncConsumerOptions({ handler: async () => ({}) });
+    const second = createAsyncConsumerOptions({ handler: async () => ({}) });
+    const explicit = createAsyncConsumerOptions({ handler: async () => ({}), workerId: 'operator-id' });
+    console.log(JSON.stringify([first.workerId, second.workerId, explicit.workerId]));
+    await Promise.all([first.close(), second.close(), explicit.close()]);
+  `;
+  const env = {
+    ...process.env,
+    DATABASE_URL: "postgres://app:fixture@127.0.0.1:1/unused",
+    NODE_ENV: "test",
+    OUTBOX_PUBLISHER: "dry-run",
+    APP_TEMPLATE_WORKER_SKIP_ENV_FILES: "1",
+  };
+  delete env.WORKER_ID;
+  const identities = Array.from({ length: 2 }, () => {
+    const child = spawnSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script],
+      {
+        cwd: new URL("../../../", import.meta.url),
+        env,
+        encoding: "utf8",
+      },
+    );
+    assert.equal(child.status, 0, child.stderr);
+    const [first, second, explicit] = JSON.parse(child.stdout);
+    assert.equal(first, second);
+    assert.equal(explicit, "operator-id");
+    return first;
+  });
+  assert.notEqual(identities[0], identities[1]);
+});
+
 test("production worker requires an explicit publisher while diagnostics remain available", async () => {
   const { loadWorkerEnv } = await import("../src/env.ts");
   const previous = {

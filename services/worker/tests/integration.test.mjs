@@ -1467,6 +1467,7 @@ test(
           env: {
             ...process.env,
             DATABASE_URL: databaseUrl.toString(),
+            WORKER_ID: applicationName,
             KAFKA_BROKERS: process.env.WORKER_TEST_KAFKA_BROKERS,
             OUTBOX_PUBLISHER: "kafka",
             OUTBOX_DRY_RUN: "0",
@@ -1559,7 +1560,7 @@ test(
       ).rows[0];
       assert.deepEqual(claimed, {
         status: "processing",
-        locked_by: `worker-${first.processHandle.pid}`,
+        locked_by: first.applicationName,
       });
       assert.ok(BigInt(await offset()) <= 0n, "in-flight event must not have a committed offset");
       assert.equal(first.processHandle.kill("SIGTERM"), true);

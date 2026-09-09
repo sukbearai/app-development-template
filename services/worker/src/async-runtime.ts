@@ -15,6 +15,7 @@ import { asyncRuntimeTopics, loadWorkerEnv } from "./env";
 import { loadKafkaRecovery, type RecoveryGuard } from "./kafka-recovery";
 import { recoveryAdmin } from "@pstack/kafka/recovery";
 import { readKafkaConfig } from "@pstack/kafka";
+import { workerIdentity } from "./worker-identity";
 
 function positiveIntegerEnv(name: string, fallback: number, env: NodeJS.ProcessEnv = process.env) {
   const value = Number(env[name]);
@@ -166,7 +167,7 @@ async function runRuntime(args: string[], consume: boolean) {
     });
     const consumerOptions = {
       consumerGroup: env.kafkaConsumerGroupId,
-      workerId: process.env.WORKER_ID ?? `worker-${process.pid}`,
+      workerId: workerIdentity(),
       store,
       handler: handleDomainEvent,
       defaultMaxAttempts: env.asyncTaskDefaultMaxAttempts,

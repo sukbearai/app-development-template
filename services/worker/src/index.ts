@@ -9,6 +9,7 @@ import {
 } from "./async-consumer";
 import { flagEnabled, flagValue, printJson } from "./cli-utils";
 import { loadWorkerEnv } from "./env";
+import { workerIdentity } from "./worker-identity";
 import { logger } from "./logger";
 import { runAsyncRuntime, runOutboxLoop } from "./async-runtime";
 import { inspectOutboxReadiness } from "./outbox-readiness";
@@ -88,7 +89,7 @@ export function createAsyncConsumerOptions(input: {
   });
   return {
     consumerGroup: input.consumerGroup || env.kafkaConsumerGroupId,
-    workerId: input.workerId || process.env.WORKER_ID || `worker-${process.pid}`,
+    workerId: workerIdentity(input.workerId),
     defaultMaxAttempts: env.asyncTaskDefaultMaxAttempts,
     retryBaseMs: env.asyncTaskRetryBaseMs,
     retryMaxMs: env.asyncTaskRetryMaxMs,
