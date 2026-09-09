@@ -22,6 +22,7 @@ import { verifyPublishedRelease } from "./release-plan.mjs";
 import { verifyRollbackProof } from "./rollback-proof.mjs";
 import { selectPredecessor } from "./release-predecessor.mjs";
 import { readReleaseVersion } from "./release-version-check.mjs";
+import { PublicationError, publicationFailure } from "./release-diagnostics.mjs";
 
 export function publishOptions(args) {
   const { values } = parseArgs({
@@ -125,6 +126,16 @@ export async function publishRelease(
   options,
   security = { scan: scanCandidate, sign: signRelease },
 ) {
+  let stage = "candidate_verification";
+  try {
+    return await publishVerifiedRelease(options, security, (next) => {
+      stage = next;
+    });
+  } catch (error) {
+    throw new PublicationError(stage, error);
+  }
+}
+async function publishVerifiedRelease(options, security, setStage) {
   const root = process.cwd();
   const candidateFile = path.resolve(options.candidate);
   const evidenceFile = path.resolve(options.evidence);
@@ -133,6 +144,7 @@ export async function publishRelease(
   const tag = `v${version}`;
   const previousRoot = path.resolve(options["previous-root"] ?? root);
   let previous;
+  setStage("predecessor_verification");
   if (options.previous) {
     previous = await verifyRelease(securityPath(previousRoot, options.previous), previousRoot);
     await verifyPublishedRelease(
@@ -151,6 +163,7 @@ export async function publishRelease(
   }
   if (!options.apply)
     return { status: "passed", data: { version, tag, source: candidate.source, apply: false } };
+  setStage("draft_verification");
   const releases = JSON.parse(
     exec("gh", [
       "api",
@@ -173,9 +186,11 @@ export async function publishRelease(
   verifyDraft(release, candidate.source.gitSha, tag);
   const output = path.resolve(options.output);
   await mkdir(output, { recursive: true });
+  setStage("security_scan");
   const securityRef = await security.scan(root, candidate, output);
   const receipt = { schemaVersion: 1, source: candidate.source, images: {} };
   for (const role of ["web", "worker"]) {
+    setStage(`registry_${role}`);
     const image = candidate.images[role];
     const repository = `ghcr.io/${options.repo.toLowerCase()}-${role}`;
     const reference = `${repository}:${version}`;
@@ -188,12 +203,18 @@ export async function publishRelease(
       raw = Buffer.from(existing.stdout);
       inspectRegistryManifest(raw, image.id);
     } else {
-      assert.ok(
-        !existing.error &&
-          /manifest unknown|not found|NAME_UNKNOWN|MANIFEST_UNKNOWN/i.test(existing.stderr) &&
-          !/unauthorized|denied|forbidden/i.test(existing.stderr),
-        "Cannot establish registry tag absence",
-      );
+      if (
+        existing.error ||
+        !/manifest unknown|not found|NAME_UNKNOWN|MANIFEST_UNKNOWN/i.test(existing.stderr) ||
+        /unauthorized|denied|forbidden/i.test(existing.stderr)
+      ) {
+        const error = new Error("Cannot establish registry tag absence");
+        error.code = "REGISTRY_ABSENCE_UNPROVEN";
+        error.status = existing.status;
+        error.signal = existing.signal;
+        error.stderr = existing.stderr;
+        throw error;
+      }
       exec("docker", ["image", "load", "--input", path.resolve(root, image.archive.path)]);
       const actual = exec("docker", ["image", "inspect", "--format", "{{.Id}}", image.id])
         .toString()
@@ -221,6 +242,7 @@ export async function publishRelease(
       manifest: await evidenceReference(root, manifestFile),
     };
   }
+  setStage("release_manifest");
   const receiptFile = path.join(output, "registry.json");
   await writeFile(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
   const manifestFile = path.join(output, "release.json");
@@ -237,7 +259,9 @@ export async function publishRelease(
       : undefined,
     outputFile: manifestFile,
   });
+  setStage("release_signing");
   await security.sign(root, publishedRelease, options.repo);
+  setStage("evidence_archive");
   const scan = JSON.parse(await readFile(securityPath(root, securityRef.path), "utf8"));
   const files = new Set([
     securityRef.path,
@@ -270,8 +294,10 @@ export async function publishRelease(
   await writeFile(fileList, [...files].sort().join("\n") + "\n");
   const archive = path.join(output, "delivery-evidence.tar.gz");
   exec("tar", archiveArguments(archive, fileList));
+  setStage("asset_upload");
   await uploadAsset(options.repo, release, manifestFile, "release.json");
   await uploadAsset(options.repo, release, archive, "delivery-evidence.tar.gz");
+  setStage("draft_promotion");
   const current = ghJson(`repos/${options.repo}/releases/${release.id}`);
   verifyDraft(current, candidate.source.gitSha, tag);
   assert.equal(
@@ -317,12 +343,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
         commandResult({ command: "release:publish", ...(await publishRelease(options)) }),
         options.json,
       );
-    } catch {
+    } catch (error) {
+      const diagnostic = publicationFailure(error);
+      if (!options.json) process.stderr.write(`${JSON.stringify(diagnostic)}\n`);
       printCommandResult(
         commandResult({
           command: "release:publish",
           status: "failed",
           errorCode: "publication_failed",
+          data: diagnostic,
         }),
         options.json,
       );

@@ -9,6 +9,7 @@ import {
   checkDatabase,
   checkReport,
   scanCandidate,
+  scannerUser,
   provenance,
   trustArguments,
   verifyReleaseSecurity,
@@ -203,4 +204,35 @@ test("historical scan remains readable and an expired signed release requests a 
     /fresh archive scanner requested/,
   );
   assert.equal(calls.filter((call) => call.program === "fixture-cosign").length, 7);
+});
+
+test("scanner refuses hosts without Unix identity APIs", () => {
+  assert.throws(() => scannerUser({ platform: "win32" }), /Linux or macOS/);
+  assert.throws(() => scannerUser({ platform: "linux" }), /numeric UID and GID/);
+});
+
+test("provenance matches recorded Cosign v3.1.3 SLSA serialization and binds all inputs", async () => {
+  const fixture = JSON.parse(
+    await readFile(new URL("./fixtures/cosign-v3.1.3-slsa.json", import.meta.url), "utf8"),
+  );
+  const envelope = Buffer.from(JSON.stringify(fixture.envelope));
+  const statement = JSON.parse(Buffer.from(fixture.envelope.payload, "base64").toString());
+  const { source, archive, security, role } =
+    statement.predicate.buildDefinition.externalParameters;
+  const expected = provenance({ source, images: { [role]: { archive } } }, security, role);
+  const verify = (predicate, image = fixture.recording.image) =>
+    checkAttestation(envelope, predicate, image, statement.predicateType);
+  verify(expected);
+  for (const field of ["source", "archive", "security", "role"]) {
+    const changed = structuredClone(expected);
+    changed.buildDefinition.externalParameters[field] = "tampered";
+    assert.throws(() => verify(changed), /does not bind/);
+  }
+  assert.throws(
+    () => verify(expected, `ghcr.io/example/web@sha256:${"b".repeat(64)}`),
+    /does not bind/,
+  );
+  const old = structuredClone(expected);
+  old.buildDefinition.resolvedDependencies = [];
+  assert.throws(() => verify(old), /does not bind/);
 });
