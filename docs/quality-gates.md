@@ -4,11 +4,11 @@
 
 安装依赖后，在仓库中执行一次 `pnpm hooks:install`。安装器仅设置仓库级 `core.hooksPath=.githooks`，可以重复执行。已有其他 hooksPath 或默认 hooks 目录中存在自定义文件时，安装器会停止，保留原配置和文件；先检查并整合已有钩子。安装不会修改全局 Git 配置。
 
-原生 `.githooks/pre-commit` 将整个暂存区导出到独立临时目录，然后依次执行 `pnpm lint`、`pnpm duplication:check` 和 `pnpm dependency:check`。检查采用已暂存的源码、配置、基线和 vendor，复用本地安装的第三方依赖；workspace 包链接重新指向暂存快照，避免读取未暂存源码。部分暂存、删除文件和文件名空格均按将提交的内容检查，钩子不执行 stash、add 或自动修复。首次提交这些工具时，必须一并暂存配置、脚本、vendor 和 package.json；缺少必要文件或依赖时提交失败。
+原生 `.githooks/pre-commit` 将整个暂存区导出到独立临时目录，然后用 shell 依次执行暂存 `package.json` 中的 `lint`、`duplication:check` 和 `dependency:check` 脚本。快照的 `node_modules/.bin` 加入 PATH，直接使用已安装工具，避免 pnpm 在快照中自动安装依赖。检查采用已暂存的源码、配置、基线和 vendor，复用本地安装的第三方依赖；workspace 包链接重新指向暂存快照，避免读取未暂存源码。部分暂存、删除文件和文件名空格均按将提交的内容检查，钩子不执行 stash、add 或自动修复。首次提交这些工具时，必须一并暂存配置、脚本、vendor 和 package.json；缺少必要文件、门禁脚本或依赖时提交失败。
 
 临时目录在完成或失败后清理。重复检查的 JSON 报告保存在被忽略的 `artifacts/quality/pre-commit/<本次运行目录>/`，文件路径映射回仓库，片段和行号对应暂存内容；工作区另有修改时，行号可能不同。同一目录的 `dependency-report.json` 保留 dpdm 的入口、循环和缺失导入结果，其源码路径相对于暂存快照。每次报告独立保存，需要时可删除旧报告。
 
-运行 `pnpm test:hooks` 验证真实提交、部分暂存、替代索引、检查失败和安装冲突。Git 使用当前进程 PATH 中的 Node 与 pnpm，GUI 客户端也需要可找到它们。仓库要求 Node 22.13 或更新版本。此处不配置 prepare/postinstall，容器或非 Git 安装不会自动安装钩子。Git 原生 `--no-verify` 可以跳过本地钩子，CI 继续运行这三项门禁。
+运行 `pnpm test:hooks` 验证真实提交、部分暂存、替代索引、检查失败和安装冲突。Git 使用当前进程 PATH 中的 Node，GUI 客户端也需要可找到它。仓库要求 Node 22.13 或更新版本。此处不配置 prepare/postinstall，容器或非 Git 安装不会自动安装钩子。Git 原生 `--no-verify` 可以跳过本地钩子，CI 继续运行这三项门禁。
 
 提交评审前运行 `pnpm lint` 和 `pnpm duplication:check`。两项检查都已进入 `pnpm verify` 和 `pnpm pr:verify`，现有 GitHub Actions 的 `pnpm pr:verify --full` 会执行它们。直接运行这两个命令时检查当前工作树，报告写入被 Git 忽略的 `artifacts/quality/duplication/`。
 

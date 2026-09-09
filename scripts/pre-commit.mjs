@@ -66,14 +66,15 @@ async function linkDependencies(directory, installed, workspaces) {
   }
 }
 
-async function run(command) {
+async function run(command, script) {
+  if (!script?.trim()) throw new Error(`Required staged script missing: ${command}`);
   if (interrupted) throw new Error(`Interrupted by ${interrupted}`);
   await new Promise((resolve, reject) => {
-    child = spawn("pnpm", [command], {
+    child = spawn(script, {
       cwd: snapshot,
       env,
       stdio: "inherit",
-      shell: process.platform === "win32",
+      shell: true,
       detached: process.platform !== "win32",
     });
     child.once("error", reject);
@@ -186,10 +187,18 @@ try {
       path.join(root, directory, "node_modules"),
       workspaces,
     );
+  const pathKey = Object.keys(env).find((key) => key.toUpperCase() === "PATH") ?? "PATH";
+  env[pathKey] = [
+    path.join(snapshot, "node_modules/.bin"),
+    path.dirname(process.execPath),
+    env[pathKey],
+  ]
+    .filter(Boolean)
+    .join(path.delimiter);
+  const { scripts } = JSON.parse(await readFile(path.join(snapshot, "package.json"), "utf8"));
   console.log(`pre-commit: checking the staged snapshot at ${snapshot}`);
-  await run("lint");
-  await run("duplication:check");
-  await run("dependency:check");
+  for (const command of ["lint", "duplication:check", "dependency:check"])
+    await run(command, scripts?.[command]);
 } catch (error) {
   console.error(`pre-commit: ${error.message}`);
   process.exitCode = 1;

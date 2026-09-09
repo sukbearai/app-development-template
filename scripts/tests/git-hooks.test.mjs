@@ -203,6 +203,37 @@ test("real duplicate blocks commit and preserves report paths after cleanup", as
   }
 });
 
+test("gate commands come from the index and run installed tools without dependency installation", async (t) => {
+  const cwd = await fixture(t);
+  const file = path.join(cwd, "package.json");
+  const manifest = JSON.parse(await readFile(file, "utf8"));
+  manifest.scripts.lint = `node -e "console.log('STAGED_GATE')" && ${manifest.scripts.lint}`;
+  await writeFile(file, JSON.stringify(manifest));
+  git(cwd, "add", "package.json");
+  manifest.scripts.lint = 'node -e "process.exit(77)"';
+  const unstaged = JSON.stringify(manifest);
+  await writeFile(file, unstaged);
+  const index = await readFile(path.join(cwd, ".git/index"));
+  const result = execute(cwd, process.execPath, ["scripts/pre-commit.mjs"]);
+  assert.equal(result.status, 0, result.output);
+  assert.match(result.output, /STAGED_GATE/);
+  assert.match(result.output, /Dependencies verified/);
+  assert.doesNotMatch(result.output, /pnpm install|Verifying lockfile|Ignored build scripts/);
+  assert.deepEqual(await readFile(path.join(cwd, ".git/index")), index);
+  assert.equal(await readFile(file, "utf8"), unstaged);
+});
+
+test("missing staged gate scripts fail instead of skipping checks", async (t) => {
+  const cwd = await fixture(t);
+  assert.equal(install(cwd).status, 0);
+  const file = path.join(cwd, "package.json");
+  const manifest = JSON.parse(await readFile(file, "utf8"));
+  delete manifest.scripts.lint;
+  await writeFile(file, JSON.stringify(manifest));
+  git(cwd, "add", "package.json");
+  await unchangedAfterFailure(cwd, /Required staged script missing: lint/);
+});
+
 test("report preservation handles missing, malformed and unwritable reports independently", async (t) => {
   const dependencyBytes = '{\r\n  "circulars": [], "label": "依赖"\r\n}\r\n';
   for (const scenario of [
