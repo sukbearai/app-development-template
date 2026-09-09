@@ -196,6 +196,38 @@ test("capacity runs alone even beside gates with no Web or database resource", a
   }
 });
 
+for (const browserGate of ["test:ui", "test:ui:production", "storybook:test", "storybook:smoke"]) {
+  test(`${browserGate} runs without peer runtime gates changing the host network`, async () => {
+    for (const peer of phases[3].filter((gate) => gate !== browserGate)) {
+      for (const plan of [
+        [browserGate, peer],
+        [peer, browserGate],
+      ]) {
+        for (const concurrency of [1, 2, 4]) {
+          const active = new Set();
+          const overlaps = [];
+          const result = await scheduleVerification(
+            plan,
+            async (gate) => {
+              for (const running of active) overlaps.push(`${gate} overlaps ${running}`);
+              active.add(gate);
+              await setImmediate();
+              active.delete(gate);
+              return passed;
+            },
+            { concurrency },
+          );
+          assert.deepEqual(
+            result.map((item) => item.status),
+            ["passed", "passed"],
+          );
+          assert.deepEqual(overlaps, [], `${plan.join(", ")} at concurrency ${concurrency}`);
+        }
+      }
+    }
+  });
+}
+
 test("runtime priority starts recovery and integration before other available work", async () => {
   const calls = [];
   const plan = ["build", "test:backup", "test:integration", "test:async-recovery"];

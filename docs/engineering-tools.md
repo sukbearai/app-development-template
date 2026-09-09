@@ -73,7 +73,7 @@ node --input-type=module -e 'import {verifyEvidence} from "./scripts/verificatio
 
 ## 验证调度
 
-`pnpm verify` 与 `pnpm pr:verify` 共用执行器，分别保留模板、PR 和发行检查集合。默认最多两个任务并行，`pnpm verify --concurrency 1` 可串行运行。源码只读检查先完成，工具测试与单元测试分别独占执行，随后进入运行态检查。运行态并发上限为两个；共享 Web 构建、开发锁或 Storybook 目录的任务互斥，容量测试全局独占。
+`pnpm verify` 与 `pnpm pr:verify` 共用执行器，分别保留模板、PR 和发行检查集合。默认最多两个任务并行，`pnpm verify --concurrency 1` 可串行运行。源码只读检查先完成，工具测试与单元测试分别独占执行，随后进入运行态检查。运行态并发上限为两个；共享 Web 构建、开发锁或 Storybook 目录的任务互斥，容量测试全局独占。`test:ui`、`test:ui:production`、`storybook:test` 和 `storybook:smoke` 也在本次调度中独占执行，避免其他检查创建或删除 Docker 网络时打断 Chromium 请求。这不隔离调度器之外的 Docker 操作。
 
 SDK 的独立检查命令仍先验证契约。执行器将契约检查列为 SDK 类型检查的前置步骤，只执行一次。CI 不再在完整 PR 检查之前重复运行版本和文档检查。
 
