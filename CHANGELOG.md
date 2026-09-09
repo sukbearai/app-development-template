@@ -2,10 +2,9 @@
 
 ## [0.2.2](https://github.com/sukbearai/app-development-template/compare/v0.2.1...v0.2.2) (2026-09-09)
 
-
 ### Bug Fixes
 
-* **release:** 修复签名格式核验与扫描证据归档 ([fefffd8](https://github.com/sukbearai/app-development-template/commit/fefffd81dba890da932b97b3b89afcce6163dbd8))
+- **release:** 修复签名格式核验与扫描证据归档 ([fefffd8](https://github.com/sukbearai/app-development-template/commit/fefffd81dba890da932b97b3b89afcce6163dbd8))
 
 ## [0.2.1](https://github.com/sukbearai/app-development-template/compare/v0.2.0...v0.2.1) (2026-09-09)
 
