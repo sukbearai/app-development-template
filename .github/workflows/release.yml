@@ -92,6 +92,19 @@ jobs:
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        if: steps.release.outputs.prs_created == 'true'
+      - name: Install release formatter
+        if: steps.release.outputs.prs_created == 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm hooks:install
+      - name: Format generated release changelog
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          RELEASE_PRS: ${{ steps.release.outputs.prs }}
+        run: node scripts/format-release-pr.mjs
       - name: Resolve original draft identity
         id: identity
         env:
