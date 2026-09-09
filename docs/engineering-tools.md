@@ -1,11 +1,12 @@
 # 工程命令与验证证据
 
-以下命令使用项目已有 Node 22.12+ 和 pnpm 10.33.4。安装依赖使用冻结锁文件，随后执行 `pnpm hooks:install`。版本工具固定 release-please 17.3.0。
+以下命令使用根 `package.json` 的 `engines.node` 和 `packageManager` 指定的工具链。CI 与 Docker 从 `packageManager` 读取 pnpm 版本；升级时只修改该字段并验证冻结安装。安装依赖后执行 `pnpm hooks:install`。版本工具由根开发依赖固定。
 
 | 命令                       | 用途                                           | 写入范围                          |
 | -------------------------- | ---------------------------------------------- | --------------------------------- |
 | `pnpm version:check`       | 核验工具配置、manifest、根版本和 CHANGELOG     | 只读                              |
 | `pnpm docs:check`          | 检查文档链接、启动命令顺序和功能验证地图       | 只读                              |
+| `pnpm dependency:check`    | 检查运行时循环依赖、未解析导入和源码扫描覆盖   | 本地依赖检查报告                  |
 | `pnpm pr:verify`           | 源码门禁和按范围选择的验证                     | 本地报告及测试自有资源            |
 | `pnpm pr:verify --release` | 完整发行验证，包括生产浏览器、容量、恢复和容器 | 本地报告及测试自有资源            |
 | `pnpm test:cold-start`     | 全新隔离安装、启动和浏览器业务流程             | 临时检出、临时 Compose 资源及证据 |
@@ -15,6 +16,10 @@
 | `pnpm release:publish`     | 验证候选，显式 apply 后发布                    | 默认只读；apply 写 GHCR 与 GitHub |
 
 各命令的参数和使用限制分别见[版本](versioning.md)、[发布](releasing.md)、[冷启动](cold-start.md)和[容量比较](capacity-comparison.md)。发布并不自动部署到服务器。
+
+依赖检查使用固定版本 dpdm，保留独立的 `boundary:check` 分层检查。扫描范围、vinext 例外和报告位置见[源码质量门禁](quality-gates.md)。[Codex 界面设计审查](codex-design.md)提供按需 Hallmark skill，不作为 CI 自动评分。
+
+`pnpm tooling:upstream:check` 离线核验 anti-slop 和 Hallmark 的来源清单。加 `--remote` 才查询上游提交，结果只报告版本关系，不修改文件；它不属于提交钩子或必需的联网 CI 步骤。具体状态及更新流程见[上游工具来源与更新检查](tooling-updates.md)。
 
 ## 机器调用
 
@@ -62,6 +67,8 @@ node --input-type=module -e 'import {verifyEvidence} from "./scripts/verificatio
 `pnpm verify` 与 `pnpm pr:verify` 共用执行器，分别保留模板、PR 和发行检查集合。默认最多两个任务并行，`pnpm verify --concurrency 1` 可串行运行。源码只读检查先完成，工具测试与单元测试分别独占执行，随后进入运行态检查。运行态并发上限为两个；共享 Web 构建、开发锁或 Storybook 目录的任务互斥，容量测试全局独占。
 
 SDK 的独立检查命令仍先验证契约。执行器将契约检查列为 SDK 类型检查的前置步骤，只执行一次。CI 不再在完整 PR 检查之前重复运行版本和文档检查。
+
+`scripts/verification-plan.mjs` 显式声明每项检查的阶段、资源、前置检查、独占要求和取消收尾策略。流程清单的排列不再决定执行阶段。未知检查、重复条目或缺失前置检查会在启动任务前失败。新增检查时保留模板、PR 和发行流程各自的覆盖范围，并补充独立的顺序与资源隔离断言。
 
 每次执行创建 `.verification/verify-<runId>/<gate>/`，通过 `PSTACK_VERIFICATION_ROOT` 将该目录交给子命令。子命令只能在当前检出的 `.verification` 下输出，报告与附件不能借用其他任务的目录。索引仍位于 `artifacts/verification/run-*/index.json`，记录每个检查的开始、结束、耗时、源码身份和证据内容哈希。
 

@@ -7,7 +7,7 @@
 - [后台任务与恢复](../services/worker/README.md)
 - [生产评估修复结果](production-repair-results.md)
 - [实施记录](implementation-plan.md)
-- [源码质量门禁](quality-gates.md)：anti-slop 全量规则、生产重复代码基线与更新流程。
+- [源码质量门禁](quality-gates.md)：anti-slop 规则、生产重复代码基线和运行时依赖检查。
 - [工程能力建设方案](engineering-adoption-plan.md)：六项能力的设计、实施范围与验收边界。
 - [工程命令与验证证据](engineering-tools.md)
 - [版本管理](versioning.md)
@@ -20,6 +20,8 @@
 
 - [开发请求与交互页面](client-development.md)
 - [组件开发](component-development.md)
+- [Codex 界面设计审查](codex-design.md)
 - [SDK](sdk.md)
 - [OpenTelemetry](tracing.md)
 - [依赖维护](dependency-updates.md)
+- [上游工具来源与更新检查](tooling-updates.md)

@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "id": "anti-slop",
+      "repository": "dmmulroy/anti-slop",
+      "trackedRef": "default-branch",
+      "mode": "verbatim",
+      "upstreamRoot": "",
+      "localRoot": "tools/anti-slop",
+      "validationCommands": [
+        "pnpm test:anti-slop",
+        "pnpm lint",
+        "pnpm duplication:check",
+        "pnpm dependency:check"
+      ],
+      "sources": [
+        {
+          "id": "source-and-license",
+          "revision": "e8c4880471b23ab7f216fba7b27d173a6ef07d4c",
+          "upstreamPaths": ["src", "LICENSE"],
+          "localPaths": ["src", "LICENSE"],
+          "attributionFile": "README.md",
+          "adaptation": "Source and MIT license are copied verbatim. Root configuration enables generic rules and leaves the optional Effect plugin disabled."
+        }
+      ]
+    },
+    {
+      "id": "hallmark",
+      "repository": "Nutlope/hallmark",
+      "trackedRef": "default-branch",
+      "mode": "adapted",
+      "upstreamRoot": "",
+      "localRoot": ".agents/skills/pstack-x-hallmark",
+      "validationCommands": [
+        "node scripts/check-tooling-upstream.mjs",
+        "pnpm test:tools",
+        "pnpm lint"
+      ],
+      "sources": [
+        {
+          "id": "skill",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/SKILL.md", "LICENSE"],
+          "localPaths": ["SKILL.md", "LICENSE", "agents/openai.yaml"],
+          "attributionFile": "SKILL.md",
+          "adaptation": "Project workflow and Codex tool instructions replace upstream execution assumptions."
+        },
+        {
+          "id": "reference-study",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/references/study.md"],
+          "localPaths": ["references/reference-study.md"],
+          "attributionFile": "references/reference-study.md",
+          "adaptation": "Uses available Codex evidence and reports missing measurements."
+        },
+        {
+          "id": "design-and-components",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": [
+            "skills/hallmark/references/layout-and-space.md",
+            "skills/hallmark/references/typography.md",
+            "skills/hallmark/references/color.md",
+            "skills/hallmark/references/interaction-and-states.md",
+            "skills/hallmark/references/responsive.md",
+            "skills/hallmark/references/motion.md",
+            "skills/hallmark/references/components/f3-tabular-spec-sheet.md",
+            "skills/hallmark/references/components/f4-step-sequence.md"
+          ],
+          "localPaths": ["references/design-and-components.md"],
+          "attributionFile": "references/design-and-components.md",
+          "adaptation": "Uses project tokens and existing Storybook; limits changes to the requested scope."
+        },
+        {
+          "id": "visual-audit",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": [
+            "skills/hallmark/references/verbs/audit.md",
+            "skills/hallmark/references/anti-patterns.md",
+            "skills/hallmark/references/layout-and-space.md",
+            "skills/hallmark/references/typography.md",
+            "skills/hallmark/references/interaction-and-states.md",
+            "skills/hallmark/references/responsive.md"
+          ],
+          "localPaths": ["references/visual-audit.md"],
+          "attributionFile": "references/visual-audit.md",
+          "adaptation": "Rates user impact and distinguishes screenshot evidence from source inspection."
+        },
+        {
+          "id": "design-selection",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/SKILL.md"],
+          "localPaths": ["references/design-selection.md"],
+          "attributionFile": "references/design-selection.md",
+          "adaptation": "Selects a small reference set by page task; preserves the administration shell."
+        },
+        {
+          "id": "cobalt",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/references/themes/cobalt.md"],
+          "localPaths": ["references/cobalt.md"],
+          "attributionFile": "references/cobalt.md",
+          "adaptation": "Keeps technical hierarchy; removes mandatory palettes and marketing dependencies."
+        },
+        {
+          "id": "grid",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/references/themes/grid.md"],
+          "localPaths": ["references/grid.md"],
+          "attributionFile": "references/grid.md",
+          "adaptation": "Keeps data alignment guidance without the exhibition-poster theme."
+        },
+        {
+          "id": "workbench",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/references/macrostructures/05-workbench.md"],
+          "localPaths": ["references/workbench.md"],
+          "attributionFile": "references/workbench.md",
+          "adaptation": "Uses real captures; removes mandatory decorative frames and animation."
+        },
+        {
+          "id": "narrative-workflow",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": ["skills/hallmark/references/macrostructures/14-narrative-workflow.md"],
+          "localPaths": ["references/narrative-workflow.md"],
+          "attributionFile": "references/narrative-workflow.md",
+          "adaptation": "Keeps ordered process guidance; decorative numbers and transitions are optional."
+        },
+        {
+          "id": "component-playground",
+          "revision": "13ac0ec7e148655948100b6396439e481361d690",
+          "upstreamPaths": [
+            "skills/hallmark/references/macrostructures/21-component-playground.md"
+          ],
+          "localPaths": ["references/component-playground.md"],
+          "attributionFile": "references/component-playground.md",
+          "adaptation": "Uses existing Storybook instead of a standalone preview implementation."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Hallmark for pstack-x"
+  short_description: "Explicit visual audits and scoped pstack-x UI design"
+  default_prompt: "Use $pstack-x-hallmark to audit the relevant pstack-x UI without editing it."
+policy:
+  allow_implicit_invocation: false

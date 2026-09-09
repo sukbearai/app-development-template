@@ -79,7 +79,8 @@
     "storybook:build": "pnpm --filter @pstack/web storybook:build",
     "storybook:test": "pnpm --filter @pstack/web storybook:test",
     "storybook:smoke": "pnpm storybook:build && pnpm --filter @pstack/web storybook:smoke",
-    "test:tracing-collector": "pnpm --filter @pstack/server test:tracing-collector"
+    "test:tracing-collector": "pnpm --filter @pstack/server test:tracing-collector",
+    "tooling:upstream:check": "node scripts/check-tooling-upstream.mjs"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
