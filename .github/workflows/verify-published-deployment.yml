@@ -1,0 +1,45 @@
+name: Verify published deployment
+on:
+  workflow_dispatch:
+    inputs:
+      previous_tag:
+        description: Published predecessor tag, for example v0.1.1
+        type: string
+        required: true
+      candidate_tag:
+        description: Published successor whose rollback proof binds the predecessor
+        type: string
+        required: true
+permissions:
+  contents: read
+  packages: read
+jobs:
+  rehearse:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm hooks:install
+      - name: Install, upgrade and roll back the published releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_TAG: ${{ inputs.previous_tag }}
+          CANDIDATE_TAG: ${{ inputs.candidate_tag }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          node scripts/test-published-deployment.mjs --repo "$GITHUB_REPOSITORY" --previous "$PREVIOUS_TAG" --candidate "$CANDIDATE_TAG" --output artifacts/published-deployment
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: published-deployment-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/published-deployment/*.json
+          if-no-files-found: error

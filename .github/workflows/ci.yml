@@ -5,6 +5,8 @@ on:
     branches: [main]
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -34,23 +36,68 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+      - name: Select checks and record prior verification
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci-plan.mjs
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        if: steps.plan.outputs.scope != 'reuse'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        if: steps.plan.outputs.scope != 'reuse'
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: steps.plan.outputs.scope != 'reuse'
       - run: pnpm hooks:install
+        if: steps.plan.outputs.scope != 'reuse'
+      - name: Check release metadata
+        if: steps.plan.outputs.scope == 'version'
+        run: |
+          pnpm format:check
+          pnpm version:check
+          pnpm docs:check
+      - name: Check engineering changes
+        if: steps.plan.outputs.scope == 'engineering'
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm duplication:check
+          pnpm dependency:check
+          pnpm boundary:check
+          pnpm supply-chain:check
+          pnpm contract:check
+          pnpm typecheck
+          pnpm migration:check
+          pnpm version:check
+          pnpm docs:check
+          pnpm test:tools
       - run: pnpm exec playwright install --with-deps chromium
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm db:migrate
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm admin:bootstrap
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm pr:verify --full
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm test:capacity
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm test:backup
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm test:app-backup
+        if: steps.plan.outputs.scope == 'full'
       - run: docker compose --env-file .env.example -f deploy/compose/docker-compose.yml --profile '*' config --quiet
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm test:containers
+        if: steps.plan.outputs.scope == 'full'
       - run: pnpm test:cold-start
+        if: steps.plan.outputs.scope == 'full'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
