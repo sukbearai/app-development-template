@@ -16,7 +16,11 @@ import {
   verifyRehearsalPair,
 } from "./published-deployment-support.mjs";
 import { createRehearsalTarget } from "./published-deployment-target.mjs";
-import { rehearsalChecks, untilReady } from "./published-deployment-checks.mjs";
+import {
+  rehearsalChecks,
+  rehearsalFailureSnapshot,
+  untilReady,
+} from "./published-deployment-checks.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const options = rehearsalOptions(process.argv.slice(2));
@@ -45,6 +49,7 @@ const summary = {
   transitions: [],
   cleanupErrors: [],
 };
+let failureSnapshot;
 try {
   assert.equal(process.platform, "linux", "Published rehearsal requires a Linux host");
   summary.source = await sourceIdentity(root);
@@ -92,6 +97,14 @@ try {
     secrets,
   );
   const runtime = composeTarget(setup.target, (args, env) => command("docker", args, { env }));
+  failureSnapshot = () =>
+    rehearsalFailureSnapshot(
+      setup.target,
+      composeTarget(setup.target, (args, env) =>
+        command("docker", args, { env, cleanup: true, timeout: 15000 }),
+      ),
+      [previous.release, candidate.release],
+    );
   const checks = rehearsalChecks(setup, runtime, abort.signal);
   await runtime.command(previous.release, ["up", "--detach", "postgres", "kafka", "ingress"]);
   await untilReady(
@@ -196,6 +209,8 @@ try {
     ? "REHEARSAL_INTERRUPTED"
     : "PUBLISHED_DEPLOYMENT_FAILED";
   summary.diagnostic = rehearsalDiagnostic(error.message, secrets);
+  if (error.operation) summary.operation = error.operation;
+  if (failureSnapshot && !abort.signal.aborted) summary.failureSnapshot = await failureSnapshot();
 } finally {
   summary.cleanupErrors = await cleanupRehearsal(project, docker);
   try {

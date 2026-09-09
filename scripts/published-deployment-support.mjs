@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { z } from "zod";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
@@ -51,6 +52,25 @@ export function rehearsalDiagnostic(message, secrets = []) {
     .slice(-4096);
 }
 
+const rehearsalPhase = z
+  .enum(["prepared", "migrating", "applying", "checking", "committed", "rolling_back", "failed"])
+  .nullable()
+  .catch(null);
+const rehearsalOperationSchema = z.object({
+  phase: rehearsalPhase,
+  resumePhase: rehearsalPhase,
+  errorCode: z
+    .string()
+    .regex(/^[A-Z][A-Z0-9_]{0,79}$/)
+    .nullable()
+    .catch(null),
+  restored: z.literal(true).catch(false),
+});
+export function rehearsalOperation(operation) {
+  const parsed = rehearsalOperationSchema.safeParse(operation);
+  return parsed.success ? parsed.data : null;
+}
+
 export function rehearsalCommand(signal, secrets = []) {
   return async (program, args, { env = process.env, cleanup = false, timeout = 900_000 } = {}) => {
     if (!cleanup) signal.throwIfAborted();
@@ -99,18 +119,20 @@ export function rehearsalCommand(signal, secrets = []) {
         if (code === 0 && !stopped) resolve(Buffer.concat(chunks).toString("utf8").trim());
         else {
           let code = "";
+          let operation = null;
           try {
             const envelope = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            if (/^[A-Z][A-Z0-9_]+$/.test(envelope.errorCode)) code = ` ${envelope.errorCode}`;
+            if (/^[A-Z][A-Z0-9_]{0,79}$/.test(envelope.errorCode)) code = ` ${envelope.errorCode}`;
+            operation = rehearsalOperation(envelope.data?.state?.operation);
           } catch {
             /* Only structured CLI error codes are included from stdout. */
           }
           const diagnostic = rehearsalDiagnostic(Buffer.concat(errors).toString("utf8"), secrets);
-          reject(
-            new Error(
-              `REHEARSAL_COMMAND_FAILED: ${path.basename(program)}${code}${diagnostic ? `\n${diagnostic}` : ""}`,
-            ),
+          const error = new Error(
+            `REHEARSAL_COMMAND_FAILED: ${path.basename(program)}${code}${diagnostic ? `\n${diagnostic}` : ""}`,
           );
+          error.operation = operation;
+          reject(error);
         }
       });
     });

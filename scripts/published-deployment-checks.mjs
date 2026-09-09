@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
+import { rehearsalOperation } from "./published-deployment-support.mjs";
 import { setTimeout } from "node:timers/promises";
 import { createTestTrpcClient } from "./trpc-client.mjs";
 import { trustedFetch } from "./published-deployment-target.mjs";
@@ -175,4 +177,68 @@ export function rehearsalChecks(setup, runtime, signal) {
     };
   }
   return { sql, ledger, infrastructure, business };
+}
+
+export async function rehearsalFailureSnapshot(target, runtime, releases) {
+  const snapshot = { operation: null, containers: [], observationErrors: [] };
+  try {
+    const state = JSON.parse(
+      await readFile(path.join(target.stateDirectory, "state.json"), "utf8"),
+    );
+    snapshot.operation = rehearsalOperation(state.operation);
+  } catch {
+    snapshot.observationErrors.push("DEPLOYMENT_STATE_UNAVAILABLE");
+  }
+  try {
+    for (const container of await runtime.inspectContainers()) {
+      const labels = container.Config.Labels;
+      const service = labels["com.docker.compose.service"];
+      if (!["web", "worker", "migrate", "postgres", "kafka", "ingress"].includes(service)) continue;
+      const hash = (value) => (/^[a-f0-9]{64}$/.test(value ?? "") ? value : null);
+      const observed = {
+        id: hash(container.Id),
+        service,
+        status: [
+          "created",
+          "running",
+          "paused",
+          "restarting",
+          "removing",
+          "exited",
+          "dead",
+        ].includes(container.State.Status)
+          ? container.State.Status
+          : null,
+        running: container.State.Running === true,
+        exitCode: Number.isInteger(container.State.ExitCode) ? container.State.ExitCode : null,
+        health: ["starting", "healthy", "unhealthy"].includes(container.State.Health?.Status)
+          ? container.State.Health.Status
+          : null,
+        configHash: hash(labels["com.docker.compose.config-hash"]),
+        expectedConfigHash: null,
+      };
+      if (["web", "worker"].includes(service)) {
+        const release = releases.find(
+          (entry) =>
+            entry.images[service].id === container.Image &&
+            entry.images[service].reference === container.Config.Image,
+        );
+        if (release) {
+          try {
+            observed.expectedConfigHash = hash(
+              (await runtime.command(release, ["config", "--hash", service])).split(/\s+/).at(-1),
+            );
+            if (observed.expectedConfigHash && observed.configHash !== observed.expectedConfigHash)
+              snapshot.observationErrors.push(`COMPOSE_CONFIGURATION_DRIFT:${service}`);
+          } catch {
+            snapshot.observationErrors.push(`COMPOSE_HASH_UNAVAILABLE:${service}`);
+          }
+        }
+      }
+      snapshot.containers.push(observed);
+    }
+  } catch {
+    snapshot.observationErrors.push("CONTAINER_SNAPSHOT_UNAVAILABLE");
+  }
+  return snapshot;
 }
