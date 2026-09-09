@@ -25,6 +25,16 @@ test("mutable actions, frontend, middleware and build overrides are rejected", (
   ])
     assert.throws(() => checkExecutableReferences(source, file));
 });
+test("slot images come from verified release variables without mutable defaults", () => {
+  const file = "deploy/compose/slots.yml";
+  for (const role of ["WEB", "WORKER"])
+    checkExecutableReferences(
+      `image: \u0024{PSTACK_${role}_IMAGE:?Use release:plan to obtain a verified digest reference}`,
+      file,
+    );
+  assert.throws(() => checkExecutableReferences("image: ${PSTACK_WEB_IMAGE:-web:latest}", file));
+  assert.throws(() => checkExecutableReferences("image: nginx:latest", file));
+});
 test("audit and scanner malformed output and HIGH findings cannot pass", () => {
   assert.throws(() => checkAudit({ metadata: { vulnerabilities: {} } }));
   assert.throws(() => checkAudit({ metadata: { vulnerabilities: { high: 1, critical: 0 } } }));

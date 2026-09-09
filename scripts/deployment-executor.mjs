@@ -49,14 +49,20 @@ export async function executeDeployment({
   manifestFile,
   action = "apply",
   verify = verifiedDeploymentBundle,
-  runtime = composeTarget(target),
-  proof = verifyReleaseRollback,
+  runtime,
+  proof,
 }) {
   targetSchema.parse(target);
   assert.ok(
     ["apply", "resume", "rollback", "status"].includes(action),
     "INVALID_DEPLOYMENT_ACTION",
   );
+  if (target.schemaVersion === 2) {
+    const { executeSlotDeployment } = await import("./deployment-slot-executor.mjs");
+    return executeSlotDeployment({ target, root, manifestFile, action, verify, runtime, proof });
+  }
+  runtime ??= composeTarget(target);
+  proof ??= verifyReleaseRollback;
   const unlock = await deploymentLock(target.stateDirectory);
   try {
     const identity = sha256(`${await targetIdentity(target)}:${await runtime.host()}`);

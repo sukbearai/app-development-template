@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 2,
+  "strategy": "compose-slots",
+  "id": "pstack-production",
+  "project": "pstack-production",
+  "context": "default",
+  "endpoint": "unix:///var/run/docker.sock",
+  "repository": "your-org/your-app",
+  "composeFiles": ["/opt/pstack/deploy/compose/slots.yml"],
+  "envFile": "/opt/pstack/production.env",
+  "stateDirectory": "/var/lib/pstack/deployment",
+  "services": ["web", "worker"],
+  "platform": "linux/amd64",
+  "readinessUrl": "https://app.example.com/api/system/health",
+  "timeoutSeconds": 180,
+  "network": "pstack-production-shared",
+  "replicas": { "web": 2, "worker": 2 },
+  "proxy": {
+    "image": "nginx:1.28.2-alpine@sha256:5b4900b042ccfa8b0a73df622c3a60f2322faeb2be800cbee5aa7b44d241649e",
+    "port": 3100,
+    "drainSeconds": 180
+  }
+}

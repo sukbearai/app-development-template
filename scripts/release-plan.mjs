@@ -5,6 +5,7 @@ import path from "node:path";
 import { z } from "zod";
 import { Version } from "release-please/build/src/version.js";
 import { evidenceReference } from "./verification-evidence.mjs";
+import { assertVerifiedTransitionProof, verifyDeploymentTransition } from "./rollback-proof.mjs";
 import { verifyRelease } from "./release-manifest.mjs";
 
 const repositorySchema = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/);
@@ -47,17 +48,19 @@ export async function verifyPublishedRelease(
   assert.equal(asset.size, manifestReference.bytes, "Published release manifest size mismatch");
   return remote.id;
 }
-export function verifyTransition(current, target, rollback) {
+export function verifyTransition(current, target, rollback, verifiedProof = null) {
   assert.equal(
     current.compatibility.recoveryProtocol,
     target.compatibility.recoveryProtocol,
     "Unsupported recovered-worker protocol",
   );
-  assert.equal(
-    current.compatibility.migrationLedgerSha256,
-    target.compatibility.migrationLedgerSha256,
-    "Migration ledger differs; explicit migration compatibility validation is required",
-  );
+  if (current.compatibility.migrationLedgerSha256 !== target.compatibility.migrationLedgerSha256) {
+    assert.ok(
+      verifiedProof?.schemaVersion === 2,
+      "Migration ledger differs; explicit migration compatibility validation is required",
+    );
+    assertVerifiedTransitionProof(verifiedProof, current, target, rollback);
+  }
   if (rollback)
     assert.ok(
       current.compatibility.rollbackVersions.includes(target.version),
@@ -89,7 +92,18 @@ export async function deploymentPlan(
       await evidenceReference(root, currentFile),
       api,
     );
-    verifyTransition(current, release, rollback);
+    const proof =
+      JSON.stringify(current) === JSON.stringify(release)
+        ? null
+        : await verifyDeploymentTransition({
+            root,
+            release,
+            previous: current,
+            schemaRelease: current,
+            schemaRoot: root,
+            rollback,
+          });
+    verifyTransition(current, release, rollback, proof);
   }
   return {
     schemaVersion: 1,

@@ -25,3 +25,8 @@
 - [OpenTelemetry](tracing.md)
 - [依赖维护](dependency-updates.md)
 - [上游工具来源与更新检查](tooling-updates.md)
+
+- [执行部署与回滚](deployment-execution.md)
+- [多副本蓝绿部署](../deploy/compose/slots.md)
+- [数据库迁移兼容性](migration-compatibility.md)
+- [生成迁移验证镜像](migration-fixtures.md)

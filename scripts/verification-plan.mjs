@@ -23,6 +23,7 @@ export const FULL_GATES = Object.freeze([
   "test:tracing-collector",
   "test:monitor-collector",
   "test:deployment",
+  "test:deployment:slots",
   "db:integration",
   "test:e2e",
   "test:ui",
@@ -52,6 +53,7 @@ export const TEMPLATE_GATES = Object.freeze([
   "test:tracing-collector",
   "test:monitor-collector",
   "test:deployment",
+  "test:deployment:slots",
 ]);
 const GATE_SCHEDULING = {
   "format:check": { phase: 0 },
@@ -76,6 +78,7 @@ const GATE_SCHEDULING = {
   "test:tracing-collector": { phase: 3 },
   "test:monitor-collector": { phase: 3 },
   "test:deployment": { phase: 3 },
+  "test:deployment:slots": { phase: 3 },
   "db:integration": { phase: 3, resources: ["database"] },
   "test:e2e": { phase: 3, resources: ["web"] },
   "test:ui": { phase: 3, resources: ["web"] },

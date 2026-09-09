@@ -8,6 +8,7 @@ import { validateGateReports } from "../gate-reports.mjs";
 for (const [gate, category] of [
   ["test:monitor-collector", "monitor-collector"],
   ["test:deployment", "deployment"],
+  ["test:deployment:slots", "deployment-slots"],
 ]) {
   test(`${gate} requires source-bound successful runtime evidence and cleanup`, async (t) => {
     const root = await mkdtemp(path.join(tmpdir(), "operations-gate-"));

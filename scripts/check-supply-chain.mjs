@@ -27,7 +27,7 @@ export function checkExecutableReferences(text, file, lock = toolchain) {
     )
       continue;
     if (
-      file === "deploy/compose/release-images.yml" &&
+      ["deploy/compose/release-images.yml", "deploy/compose/slots.yml"].includes(file) &&
       /^\$\{PSTACK_(?:WEB|WORKER)_IMAGE:\?Use release:plan to obtain a verified digest reference\}$/.test(
         value,
       )

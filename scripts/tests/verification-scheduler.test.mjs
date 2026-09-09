@@ -45,6 +45,7 @@ test("template keeps historical coverage and PR profiles retain their build and 
     "test:tracing-collector",
     "test:monitor-collector",
     "test:deployment",
+    "test:deployment:slots",
   ]);
   assert.deepEqual(verificationPlan([], { full: true }), [...CORE_GATES, ...FULL_GATES]);
   assert.deepEqual(verificationPlan([], { release: true }), [...RELEASE_GATES]);
@@ -85,6 +86,7 @@ const phases = [
     "test:tracing-collector",
     "test:monitor-collector",
     "test:deployment",
+    "test:deployment:slots",
     "db:integration",
     "test:e2e",
     "test:ui",

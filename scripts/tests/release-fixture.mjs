@@ -21,7 +21,12 @@ export async function releaseFixture(t) {
   };
   const git = (...args) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
   await mkdir(path.dirname(path.join(root, migrationLedgerPath)), { recursive: true });
-  await put(migrationLedgerPath, { migrations: [] });
+  await put(migrationLedgerPath, {
+    "0000_initial.sql": "a".repeat(64),
+    $journal: [
+      { idx: 0, version: "7", when: 1700000000000, tag: "0000_initial", breakpoints: true },
+    ],
+  });
   await put("package.json", { version: "0.1.0", packageManager: "pnpm@10.33.4" });
   await writeFile(path.join(root, ".gitignore"), "artifacts/\n");
   git("init", "-q");

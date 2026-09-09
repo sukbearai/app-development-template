@@ -4,7 +4,15 @@ import path from "node:path";
 import { test } from "node:test";
 import { createRollbackProof } from "../release-rollback-proof.mjs";
 import { verifyRelease } from "../release-manifest.mjs";
-import { rollbackChecks, rollbackIdentity, verifyRollbackProof } from "../rollback-proof.mjs";
+import {
+  rollbackChecks,
+  migrationChecks,
+  rollbackIdentity,
+  verifyRollbackProof,
+} from "../rollback-proof.mjs";
+import { expectedApplied } from "../migration-compatibility.mjs";
+import { migrationLedgerPath } from "../release-manifest.mjs";
+import { sha256 } from "../verification-evidence.mjs";
 import { releaseFixture } from "./release-fixture.mjs";
 
 test("rollback producer verifies separate bundles with colliding relative paths without rewriting predecessor", async (t) => {
@@ -50,7 +58,30 @@ test("rollback producer verifies separate bundles with colliding relative paths 
     assert.equal(before.version, "0.0.9");
     assert.deepEqual(rollbackIdentity(after), rollbackIdentity(candidate.candidate));
     assert.equal(context, "disposable-fixture");
-    report.checks.push(...rollbackChecks);
+    const integrity = await readFile(path.join(candidate.root, migrationLedgerPath), "utf8");
+    const history = { ledgerSha256: sha256(integrity), integrity };
+    report.migration = {
+      availability: {
+        before: [0, 1].map((i) => ({
+          id: String(i).repeat(64),
+          startedAt: "started",
+          restarts: 0,
+        })),
+        after: [0, 1].map((i) => ({ id: String(i).repeat(64), startedAt: "started", restarts: 0 })),
+        successfulWrites: 1,
+        failedWrites: 0,
+        maxLatencyMs: 1,
+        requestTimeoutMs: 2000,
+      },
+      previous: history,
+      candidate: history,
+      before: expectedApplied(history),
+      after: expectedApplied(history),
+      imageId: candidate.candidate.images.web.id,
+      command: "pnpm --filter @pstack/database db:migrate",
+      exitCode: 0,
+    };
+    report.checks.push(...rollbackChecks, ...migrationChecks);
     report.status = "passed";
   };
   const proofFile = await createRollbackProof(

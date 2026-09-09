@@ -92,6 +92,7 @@
     "monitor:status": "node scripts/monitor-tick.mjs --status",
     "test:monitor-collector": "node scripts/test-monitor-collector.mjs",
     "test:deployment": "node scripts/test-deployment-compose.mjs",
+    "test:deployment:slots": "node scripts/test-deployment-slots.mjs",
     "release:prove-rollback": "node scripts/release-rollback-proof.mjs"
   },
   "packageManager": "pnpm@11.26.0",

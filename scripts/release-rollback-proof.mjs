@@ -27,11 +27,6 @@ export async function createRollbackProof(
   const { candidate } = await verifyCandidateInputs({ root, candidateFile, evidenceFile });
   const { release: previous } = await verifyPrevious(previousRoot, previousFile, repository);
   const ledger = sha256(await readFile(path.join(root, migrationLedgerPath)));
-  assert.equal(
-    previous.compatibility.migrationLedgerSha256,
-    ledger,
-    "Schema changes require a separate migration procedure",
-  );
   assert.equal(previous.compatibility.recoveryProtocol, "pstack-recovery-v2");
   const docker = (args) => run(["--context", context, ...args], process.env);
   const candidateRuntime = structuredClone(candidate);
@@ -61,7 +56,7 @@ export async function createRollbackProof(
     previous: { version: previous.version, ...rollbackIdentity(previous) },
     candidate: rollbackIdentity(candidate),
   };
-  const report = { schemaVersion: 1, ...pair, status: "failed", checks: [], cleanupErrors: [] };
+  const report = { schemaVersion: 2, ...pair, status: "failed", checks: [], cleanupErrors: [] };
   const reportFile = path.join(output, "rollback-drill.json");
   try {
     await drill(previous, candidateRuntime, context, report);
@@ -69,11 +64,17 @@ export async function createRollbackProof(
     await writeFile(reportFile, `${JSON.stringify(report, null, 2)}\n`, { flag: "wx" });
   }
   assert.equal(report.status, "passed", "Rollback drill failed");
+  assert.equal(report.migration.candidate.ledgerSha256, ledger, "Candidate image ledger mismatch");
+  assert.equal(
+    report.migration.previous.ledgerSha256,
+    previous.compatibility.migrationLedgerSha256,
+    "Predecessor image ledger mismatch",
+  );
   const proof = rollbackProofSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     createdAt: new Date().toISOString(),
     ...pair,
-    migrationLedgerSha256: ledger,
+    migration: report.migration,
     recoveryProtocol: "pstack-recovery-v2",
     checks: report.checks,
     evidence: await evidenceReference(root, reportFile),

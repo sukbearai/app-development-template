@@ -4,10 +4,17 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
-import { composeTarget, dockerCommand } from "./deployment-compose.mjs";
+import { dockerCommand } from "./deployment-compose.mjs";
 import { toolchain } from "./release-security.mjs";
 import { createTestTrpcClient } from "./trpc-client.mjs";
-import { rollbackChecks } from "./rollback-proof.mjs";
+import { rollbackChecks, migrationChecks } from "./rollback-proof.mjs";
+
+import {
+  imageMigrationHistoryCommand,
+  liveSchemaCommand,
+  verifyMigrationExecution,
+} from "./migration-compatibility.mjs";
+import { sha256 } from "./verification-evidence.mjs";
 
 async function waitFor(operation) {
   const deadline = Date.now() + 180000;
@@ -61,73 +68,90 @@ export async function runRollbackDrill(previous, candidate, context, report) {
     init: true,
     volumes: ["uploads:/app/uploads"],
   };
-  await writeFile(
-    composeFile,
-    JSON.stringify({
-      services: {
-        postgres: {
-          image: toolchain.images.postgres,
-          environment: { POSTGRES_USER: "app", POSTGRES_PASSWORD: password, POSTGRES_DB: "app" },
-          volumes: ["database:/var/lib/postgresql/data"],
-        },
-        kafka: {
-          image: toolchain.images.kafka,
-          environment: {
-            KAFKA_NODE_ID: "1",
-            KAFKA_PROCESS_ROLES: "broker,controller",
-            KAFKA_LISTENERS: "INTERNAL://:9092,CONTROLLER://:9093",
-            KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:9092",
-            KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT",
-            KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL",
-            KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER",
-            KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093",
-            KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1",
-            KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1",
-            KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1",
-            KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0",
-          },
-        },
-        migrate: { ...app, command: ["pnpm", "--filter", "@pstack/database", "db:migrate"] },
-        web: {
-          ...app,
-          ports: ["127.0.0.1::3000"],
-          healthcheck: {
-            test: [
-              "CMD",
-              "node",
-              "-e",
-              "fetch('http://127.0.0.1:3000/api/system/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-            ],
-            interval: "2s",
-            timeout: "5s",
-            retries: 60,
-          },
-        },
-        worker: {
-          ...app,
-          image: "${PSTACK_WORKER_IMAGE}",
-          healthcheck: {
-            test: [
-              "CMD",
-              "pnpm",
-              "--filter",
-              "@pstack/worker",
-              "exec",
-              "tsx",
-              "src/index.ts",
-              "health",
-              "--live",
-            ],
-            interval: "3s",
-            timeout: "10s",
-            retries: 40,
-          },
+  const definition = {
+    services: {
+      postgres: {
+        image: toolchain.images.postgres,
+        environment: { POSTGRES_USER: "app", POSTGRES_PASSWORD: password, POSTGRES_DB: "app" },
+        volumes: ["database:/var/lib/postgresql/data"],
+      },
+      kafka: {
+        image: toolchain.images.kafka,
+        environment: {
+          KAFKA_NODE_ID: "1",
+          KAFKA_PROCESS_ROLES: "broker,controller",
+          KAFKA_LISTENERS: "INTERNAL://:9092,CONTROLLER://:9093",
+          KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:9092",
+          KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT",
+          KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL",
+          KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER",
+          KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093",
+          KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1",
+          KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1",
+          KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1",
+          KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0",
         },
       },
-      volumes: { database: {}, uploads: {} },
-    }),
-    { mode: 0o600 },
-  );
+      migrate: {
+        ...app,
+        environment: {
+          ...environment,
+          PGOPTIONS: "-c lock_timeout=1000 -c statement_timeout=120000",
+        },
+        command: ["pnpm", "--filter", "@pstack/database", "db:migrate"],
+      },
+      web: {
+        ...app,
+        ports: ["127.0.0.1::3000"],
+        healthcheck: {
+          test: [
+            "CMD",
+            "node",
+            "-e",
+            "fetch('http://127.0.0.1:3000/api/system/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          ],
+          interval: "2s",
+          timeout: "5s",
+          retries: 60,
+        },
+      },
+      worker: {
+        ...app,
+        image: "${PSTACK_WORKER_IMAGE}",
+        healthcheck: {
+          test: [
+            "CMD",
+            "pnpm",
+            "--filter",
+            "@pstack/worker",
+            "exec",
+            "tsx",
+            "src/index.ts",
+            "health",
+            "--live",
+          ],
+          interval: "3s",
+          timeout: "10s",
+          retries: 40,
+        },
+      },
+    },
+    volumes: { database: {}, uploads: {} },
+  };
+  for (const [role, release] of [
+    ["web", previous],
+    ["worker", previous],
+    ["candidate-web", candidate],
+    ["candidate-worker", candidate],
+  ]) {
+    const baseRole = role.endsWith("worker") ? "worker" : "web";
+    definition.services[role] = {
+      ...definition.services[baseRole],
+      image: release.images[baseRole].reference,
+      environment: { ...environment, WORKER_ID: `${project}-${role}` },
+    };
+  }
+  await writeFile(composeFile, JSON.stringify(definition), { mode: 0o600 });
   const envFile = path.join(directory, ".env");
   await writeFile(envFile, "", { mode: 0o600 });
   const compose = (release, args) =>
@@ -139,21 +163,6 @@ export async function runRollbackDrill(previous, candidate, context, report) {
         PSTACK_WORKER_IMAGE: release.images.worker.reference,
       },
     );
-  const target = {
-    schemaVersion: 1,
-    id: project,
-    project,
-    context,
-    endpoint: contextInfo.Endpoints.docker.Host,
-    repository: "fixture/rollback",
-    composeFiles: [composeFile],
-    envFile,
-    stateDirectory: path.join(directory, "state"),
-    services: ["web", "worker"],
-    platform: previous.images.web.platform,
-    readinessUrl: "http://127.0.0.1",
-    timeoutSeconds: 180,
-  };
   const roles = [];
   const uploads = [];
   const sql = (query) =>
@@ -170,12 +179,23 @@ export async function runRollbackDrill(previous, candidate, context, report) {
       "-c",
       query,
     ]);
-  async function round(release, marker) {
-    await compose(release, ["up", "--detach", "--no-deps", "--no-build", "web", "worker"]);
-    const mapping = await compose(release, ["port", "web", "3000"]);
+  async function round(release, marker, candidateRound = false, start = false) {
+    const web = candidateRound ? "candidate-web" : "web";
+    const worker = candidateRound ? "candidate-worker" : "worker";
+    if (start) await compose(release, ["up", "--detach", "--no-deps", "--no-build", web, worker]);
+    await waitFor(async () => {
+      const ids = (await compose(release, ["ps", "--quiet", web, worker]))
+        .split(/\s+/)
+        .filter(Boolean);
+      if (ids.length !== 2) return false;
+      const containers = JSON.parse(await docker(["inspect", ...ids]));
+      return containers.every(
+        (container) => container.State.Running && container.State.Health?.Status === "healthy",
+      );
+    });
+    const mapping = await compose(release, ["port", web, "3000"]);
     const origin = `http://${mapping}`;
-    target.readinessUrl = `${origin}/api/system/health`;
-    await composeTarget(target).ready(release);
+
     const token = (
       await createTestTrpcClient({ baseUrl: origin }).auth.login.mutate({
         account: "admin",
@@ -185,6 +205,7 @@ export async function runRollbackDrill(previous, candidate, context, report) {
     const client = createTestTrpcClient({
       baseUrl: origin,
       headers: { authorization: `Bearer ${token}` },
+      timeoutMs: 2000,
     });
     const existing = await client.roles.list.query();
     for (const role of roles)
@@ -194,7 +215,7 @@ export async function runRollbackDrill(previous, candidate, context, report) {
       );
     for (const upload of uploads) {
       assert.equal(
-        await compose(release, ["exec", "-T", "web", "cat", `/app/uploads/${upload.storageKey}`]),
+        await compose(release, ["exec", "-T", web, "cat", `/app/uploads/${upload.storageKey}`]),
         upload.content,
       );
     }
@@ -217,8 +238,10 @@ export async function runRollbackDrill(previous, candidate, context, report) {
     });
     assert.equal(response.status, 200, "Rollback upload failed");
     uploads.push({ storageKey: (await response.json()).data.storageKey, content });
+    return client;
   }
   try {
+    report.stage = "infrastructure";
     await compose(previous, ["up", "--detach", "postgres", "kafka"]);
     await waitFor(async () => (await sql("SELECT 1")) === "1");
     await waitFor(async () => {
@@ -233,6 +256,34 @@ export async function runRollbackDrill(previous, candidate, context, report) {
       ]);
       return true;
     });
+    const history = async (release) => {
+      const integrity = JSON.parse(
+        await compose(release, [
+          "run",
+          "--rm",
+          "--no-deps",
+          "migrate",
+          ...imageMigrationHistoryCommand,
+        ]),
+      );
+      return { ledgerSha256: sha256(integrity), integrity };
+    };
+    report.stage = "image_history";
+    const previousHistory = await history(previous);
+    const candidateHistory = await history(candidate);
+    if (previous.compatibility)
+      assert.equal(
+        previousHistory.ledgerSha256,
+        previous.compatibility.migrationLedgerSha256,
+        "Predecessor image ledger mismatch",
+      );
+    const applied = async () =>
+      JSON.parse(
+        await sql(
+          "SELECT coalesce(json_agg(json_build_object('hash',hash,'createdAt',created_at) ORDER BY created_at),'[]'::json) FROM drizzle.drizzle_migrations",
+        ),
+      );
+    report.stage = "previous_migration";
     await compose(previous, ["run", "--rm", "--no-deps", "migrate"]);
     await compose(previous, [
       "run",
@@ -244,11 +295,106 @@ export async function runRollbackDrill(previous, candidate, context, report) {
       "@pstack/server",
       "admin:bootstrap",
     ]);
-    await round(previous, "previous");
+    report.stage = "previous_application";
+    const previousClient = await round(previous, "previous", false, true);
     report.checks.push(rollbackChecks[0]);
-    await compose(previous, ["stop", "web", "worker"]);
-    await round(candidate, "candidate");
+    const before = await applied();
+    report.stage = "candidate_migration";
+    const instances = async () => {
+      const ids = (await compose(previous, ["ps", "--quiet", "web", "worker"]))
+        .split(/\s+/)
+        .filter(Boolean);
+      assert.equal(ids.length, 2, "PREVIOUS_APPLICATION_UNAVAILABLE");
+      return JSON.parse(await docker(["inspect", ...ids]))
+        .map((container) => {
+          assert.ok(container.State.Running, "PREVIOUS_APPLICATION_UNAVAILABLE");
+          return {
+            id: container.Id,
+            startedAt: container.State.StartedAt,
+            restarts: container.RestartCount,
+          };
+        })
+        .sort((a, b) => a.id.localeCompare(b.id));
+    };
+    const availability = {
+      before: await instances(),
+      after: [],
+      successfulWrites: 0,
+      failedWrites: 0,
+      maxLatencyMs: 0,
+      requestTimeoutMs: 2000,
+    };
+    let migrating = true;
+    const migrationResult = compose(candidate, ["run", "--rm", "--no-deps", "migrate"])
+      .then(
+        () => null,
+        (error) => error,
+      )
+      .finally(() => {
+        migrating = false;
+      });
+    while (migrating) {
+      const started = performance.now();
+      const id = `rollback_live_${availability.successfulWrites + availability.failedWrites}`;
+      try {
+        await previousClient.roles.create.mutate({
+          id,
+          name: id,
+          permissionIds: ["admin.read"],
+          status: "active",
+        });
+        roles.push(id);
+        availability.successfulWrites++;
+      } catch {
+        availability.failedWrites++;
+      }
+      availability.maxLatencyMs = Math.max(availability.maxLatencyMs, performance.now() - started);
+      if (migrating) await setTimeout(100);
+    }
+    const migrationError = await migrationResult;
+    if (migrationError) throw migrationError;
+    availability.after = await instances();
+    report.migration = {
+      availability,
+      previous: previousHistory,
+      candidate: candidateHistory,
+      before,
+      after: await applied(),
+      imageId: candidate.images.web.id,
+      command: "pnpm --filter @pstack/database db:migrate",
+      exitCode: 0,
+    };
+    report.stage = "migration_availability";
+    verifyMigrationExecution(report.migration);
+    await compose(candidate, [
+      "run",
+      "--rm",
+      "--no-deps",
+      "migrate",
+      ...liveSchemaCommand(report.migration.candidate.ledgerSha256),
+    ]);
+    report.checks.push(migrationChecks[0], migrationChecks[3]);
+    report.stage = "previous_application_after_migration";
+    await round(previous, "previous_migrated");
+    report.checks.push(migrationChecks[1]);
+    report.stage = "mixed_applications";
+    await round(candidate, "candidate", true, true);
     report.checks.push(rollbackChecks[1]);
+    await round(previous, "previous_mixed");
+    await round(candidate, "candidate_mixed", true);
+    report.checks.push(migrationChecks[2]);
+    report.stage = "worker_recovery";
+    const mixedMarker = randomBytes(12).toString("hex");
+    await sql(
+      `INSERT INTO app_outbox_events(id,topic,event_type,trace_id,payload) VALUES('${mixedMarker}','app.tasks','demo.echo','${mixedMarker}','{"marker":"${mixedMarker}"}'::jsonb)`,
+    );
+    await waitFor(
+      async () =>
+        (await sql(
+          `SELECT count(*) FROM app_async_receipts WHERE event_type='demo.echo' AND result->'value'->>'marker'='${mixedMarker}'`,
+        )) === "1",
+    );
+    await compose(previous, ["stop", "web", "worker"]);
     const marker = randomBytes(12).toString("hex");
     await sql(
       `INSERT INTO app_outbox_events(id,topic,event_type,trace_id,payload) VALUES('${marker}','app.tasks','demo.echo','${marker}','{"marker":"${marker}"}'::jsonb)`,
@@ -258,14 +404,15 @@ export async function runRollbackDrill(previous, candidate, context, report) {
         `SELECT count(*) FROM app_async_receipts WHERE event_type='demo.echo' AND result->'value'->>'marker'='${marker}'`,
       );
     await waitFor(async () => (await count()) === "1");
+    report.checks.push(migrationChecks[4]);
     const generation = await sql(
       `SELECT lease_generation FROM app_outbox_events WHERE id='${marker}'`,
     );
-    await compose(candidate, ["stop", "web", "worker"]);
+    await compose(candidate, ["stop", "candidate-web", "candidate-worker"]);
     await sql(
       `UPDATE app_outbox_events SET status='pending',next_attempt_at=now() WHERE id='${marker}'`,
     );
-    await round(previous, "restored");
+    await round(previous, "restored", false, true);
     report.checks.push(rollbackChecks[2]);
     await waitFor(
       async () =>
@@ -298,6 +445,11 @@ export async function runRollbackDrill(previous, candidate, context, report) {
     });
     assert.equal(await count(), "1");
     report.checks.push(rollbackChecks[3]);
+    assert.deepEqual(
+      await applied(),
+      report.migration.after,
+      "Rollback changed database migration history",
+    );
     report.status = "passed";
   } finally {
     for (const [kind, list, remove] of [

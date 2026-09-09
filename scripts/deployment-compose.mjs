@@ -4,7 +4,7 @@ import path from "node:path";
 import { dockerCommand } from "./deployment-command.mjs";
 export { dockerCommand } from "./deployment-command.mjs";
 
-export function composeTarget(target, run = dockerCommand) {
+export function composeTarget(target, run = dockerCommand, direct = false) {
   const base = ["--context", target.context];
   const compose = [
     "compose",
@@ -28,6 +28,8 @@ export function composeTarget(target, run = dockerCommand) {
     COMPOSE_PROJECT_NAME: target.project,
     PSTACK_WEB_IMAGE: release.images.web.reference,
     PSTACK_WORKER_IMAGE: release.images.worker.reference,
+    WEB_REPLICAS: String((target.replicas?.web ?? 1) * (direct ? 2 : 1)),
+    PSTACK_SHARED_NETWORK: target.network ?? "",
   });
   const docker = (args) => run([...base, ...args], hostEnv);
   const command = (release, args) => run([...base, ...compose, ...args], env(release));
@@ -56,11 +58,52 @@ export function composeTarget(target, run = dockerCommand) {
         "COMPOSE_PLATFORM_MISMATCH",
       );
     }
+    validateSlotModel(value);
     assert.deepEqual(
       value.services.migrate.command,
       ["pnpm", "--filter", "@pstack/database", "db:migrate"],
       "MIGRATION_COMMAND_MISMATCH",
     );
+  }
+  function validateSlotModel(value) {
+    if (!direct) return;
+    assert.equal(
+      value.services.migrate.environment?.PGOPTIONS,
+      "-c lock_timeout=1000 -c statement_timeout=120000",
+      "MIGRATION_TIMEOUT_REQUIRED",
+    );
+    for (const [name, network] of Object.entries(value.networks ?? {})) {
+      assert.ok(
+        network.external && network.name === target.network,
+        `SLOT_NETWORK_NOT_EXTERNAL:${name}`,
+      );
+    }
+    for (const volume of Object.values(value.volumes ?? {}))
+      assert.ok(volume.external, "SLOT_VOLUME_NOT_EXTERNAL");
+    for (const role of [...target.services, "migrate"]) {
+      const service = value.services[role];
+      assert.ok(
+        !service.ports?.length && !service.container_name && !service.network_mode,
+        "SLOT_NETWORK_OWNERSHIP",
+      );
+      assert.ok(Object.keys(service.networks ?? {}).length > 0, "SLOT_NETWORK_MISSING");
+      assert.ok(!service.environment?.WORKER_ID, "FIXED_WORKER_ID_FORBIDDEN");
+      for (const volume of service.volumes ?? [])
+        assert.equal(volume.type, "volume", "SLOT_BIND_MOUNT_FORBIDDEN");
+      if (role === "web" && target.replicas.web > 0) {
+        assert.equal(
+          service.environment?.WEB_REPLICAS,
+          String(target.replicas.web * 2),
+          "REPLICA_CONFIG_MISMATCH",
+        );
+        assert.equal(service.environment?.RATE_LIMIT_DRIVER, "redis", "SHARED_RATE_LIMIT_REQUIRED");
+        assert.ok(
+          service.environment?.UPLOAD_STORAGE_DRIVER === "s3" ||
+            service.environment?.UPLOAD_STORAGE_SHARED === "true",
+          "SHARED_UPLOAD_STORAGE_REQUIRED",
+        );
+      }
+    }
   }
   async function host() {
     const contexts = JSON.parse(await docker(["context", "inspect", target.context]));
@@ -112,8 +155,18 @@ export function composeTarget(target, run = dockerCommand) {
       const matches = containers.filter(
         (container) => container.Config.Labels["com.docker.compose.service"] === role,
       );
+      const count = target.replicas?.[role] ?? 1;
+      const ordinals = matches.map((container) =>
+        Number(container.Config.Labels["com.docker.compose.container-number"]),
+      );
       assert.ok(
-        matches.length <= 1 && (!requireAll || matches.length === 1),
+        !direct ||
+          (new Set(ordinals).size === ordinals.length &&
+            ordinals.every((n) => Number.isInteger(n) && n >= 1 && n <= count)),
+        "LIVE_REPLICA_ORDINAL_DRIFT",
+      );
+      assert.ok(
+        matches.length <= count && (!requireAll || matches.length === count),
         "LIVE_SERVICE_COUNT_DRIFT",
       );
     }
@@ -124,8 +177,14 @@ export function composeTarget(target, run = dockerCommand) {
     for (const role of target.services) {
       const image = release.images[role];
       assert.equal(image.platform, target.platform, "RELEASE_PLATFORM_MISMATCH");
-      await docker(["pull", "--platform", target.platform, image.reference]);
-      const [actual] = JSON.parse(await docker(["image", "inspect", image.reference]));
+      let inspected;
+      try {
+        inspected = await docker(["image", "inspect", image.reference]);
+      } catch {
+        await docker(["pull", "--platform", target.platform, image.reference]);
+        inspected = await docker(["image", "inspect", image.reference]);
+      }
+      const [actual] = JSON.parse(inspected);
       assert.equal(actual.Id, image.id, "PULLED_IMAGE_MISMATCH");
       assert.equal(
         `${actual.Os}/${actual.Architecture}`,
@@ -189,6 +248,32 @@ export function composeTarget(target, run = dockerCommand) {
         )
       ) {
         try {
+          if (direct) {
+            for (const container of containers) {
+              const worker = container.Config.Labels["com.docker.compose.service"] === "worker";
+              await docker([
+                "exec",
+                container.Id,
+                ...(worker
+                  ? [
+                      "pnpm",
+                      "--filter",
+                      "@pstack/worker",
+                      "exec",
+                      "tsx",
+                      "src/index.ts",
+                      "health",
+                      "--live",
+                    ]
+                  : [
+                      "node",
+                      "-e",
+                      "fetch('http://127.0.0.1:3000/api/system/health',{signal:AbortSignal.timeout(5000)}).then(async r=>{if(!r.ok||(await r.json()).data?.status!=='ok')process.exit(1)}).catch(()=>process.exit(1))",
+                    ]),
+              ]);
+            }
+            return;
+          }
           const response = await fetch(target.readinessUrl, {
             signal: AbortSignal.timeout(5000),
             redirect: "error",
@@ -228,6 +313,9 @@ export function composeTarget(target, run = dockerCommand) {
   }
   return {
     host,
+    command,
+    docker,
+    inspectContainers,
     observe,
     pull,
     migration,
@@ -247,6 +335,16 @@ export function composeTarget(target, run = dockerCommand) {
       ]),
     stop: (release) => command(release, ["stop", ...target.services]),
     apply: (release) =>
-      command(release, ["up", "--detach", "--no-build", "--no-deps", ...target.services]),
+      command(release, [
+        "up",
+        "--detach",
+        "--no-build",
+        "--no-deps",
+        ...target.services.flatMap((role) => [
+          "--scale",
+          `${role}=${target.replicas?.[role] ?? 1}`,
+        ]),
+        ...target.services,
+      ]),
   };
 }

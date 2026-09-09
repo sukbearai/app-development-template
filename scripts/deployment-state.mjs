@@ -8,7 +8,7 @@ import { evidenceReference, sha256 } from "./verification-evidence.mjs";
 
 const absolute = z.string().refine(path.isAbsolute, "An absolute path is required");
 const identifier = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,62}$/);
-export const targetSchema = z.strictObject({
+const legacyTarget = z.strictObject({
   schemaVersion: z.literal(1),
   id: identifier,
   project: identifier,
@@ -36,6 +36,27 @@ export const targetSchema = z.strictObject({
   }),
   timeoutSeconds: z.number().int().min(10).max(900),
 });
+export const slotTargetSchema = legacyTarget
+  .extend({
+    schemaVersion: z.literal(2),
+    strategy: z.literal("compose-slots"),
+    project: identifier.refine((value) => value.length <= 48),
+    network: identifier,
+    replicas: z.strictObject({
+      web: z.number().int().min(1).max(32),
+      worker: z.number().int().min(0).max(32),
+    }),
+    proxy: z.strictObject({
+      image: z.string().regex(/^nginx:[a-z0-9.-]+@sha256:[a-f0-9]{64}$/),
+      port: z.number().int().min(1024).max(65535),
+      drainSeconds: z.number().int().min(1).max(900),
+    }),
+  })
+  .refine(
+    (target) => target.services.includes("worker") === target.replicas.worker > 0,
+    "Worker replica count must match services",
+  );
+export const targetSchema = z.discriminatedUnion("schemaVersion", [legacyTarget, slotTargetSchema]);
 const ref = z.strictObject({
   path: z.string(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/),
@@ -65,13 +86,60 @@ const operation = z.strictObject({
   startedAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
 });
-export const stateSchema = z.strictObject({
+const legacyState = z.strictObject({
   schemaVersion: z.literal(1),
   targetHash: z.string(),
   revision: z.number().int().nonnegative(),
   current: bundle.nullable(),
   operation: operation.nullable(),
 });
+const slot = z.enum(["blue", "green"]);
+const active = z.strictObject({ slot, bundle, generation: z.string().uuid() });
+const schemaAnchor = z.strictObject({ bundle, ledgerSha256: z.string().regex(/^[a-f0-9]{64}$/) });
+export const slotStateSchema = z.strictObject({
+  schemaVersion: z.literal(2),
+  targetHash: z.string(),
+  revision: z.number().int().nonnegative(),
+  current: active.nullable(),
+  schema: schemaAnchor.nullable(),
+  operation: z
+    .strictObject({
+      id: z.string().uuid(),
+      phase: z.enum([
+        "prepared",
+        "migrating",
+        "starting",
+        "checking",
+        "switching",
+        "draining",
+        "committed",
+        "restoring",
+        "failed",
+      ]),
+      desired: active,
+      previous: active.nullable(),
+      rollback: z.boolean(),
+      migrationName: z.string(),
+      migrationId: z.string().nullable(),
+      errorCode: z.string().nullable(),
+      retryPhase: z
+        .enum([
+          "prepared",
+          "migrating",
+          "starting",
+          "checking",
+          "switching",
+          "draining",
+          "restoring",
+        ])
+        .nullable(),
+      restored: z.boolean(),
+      startedAt: z.iso.datetime(),
+      updatedAt: z.iso.datetime(),
+    })
+    .nullable(),
+});
+export const stateSchema = z.discriminatedUnion("schemaVersion", [legacyState, slotStateSchema]);
 export async function atomicJson(file, value) {
   const temporary = `${file}.${randomUUID()}.tmp`;
   const handle = await open(temporary, "wx", 0o600);
@@ -116,6 +184,15 @@ export async function readState(target, identity) {
       await lstat(path.join(target.stateDirectory, "initialized"));
     } catch (markerError) {
       if (markerError.code !== "ENOENT") throw markerError;
+      if (target.schemaVersion === 2)
+        return {
+          schemaVersion: 2,
+          targetHash: identity,
+          revision: 0,
+          current: null,
+          schema: null,
+          operation: null,
+        };
       return {
         schemaVersion: 1,
         targetHash: identity,
@@ -126,6 +203,7 @@ export async function readState(target, identity) {
     }
     throw new Error("DEPLOYMENT_STATE_MISSING");
   }
+  assert.equal(state.schemaVersion, target.schemaVersion, "STATE_VERSION_MISMATCH");
   assert.equal(state.targetHash, identity, "TARGET_DRIFT");
   return state;
 }
