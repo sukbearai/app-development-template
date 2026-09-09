@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chromium } from "@playwright/test";
+import { chromium, expect } from "@playwright/test";
 import path from "node:path";
 
 const browser = await chromium.launch();
@@ -11,6 +11,7 @@ try {
   await page.getByRole("button", { name: "登录管理端" }).click();
   await page.getByRole("heading", { name: "管理端概览" }).waitFor();
   await page.goto(new URL("/admin/roles", process.env.APP_ORIGIN).href);
+  await expect(page.getByRole("button", { name: "创建角色", exact: true })).toBeEnabled();
   const id = `cold_${Date.now()}`;
   await page.getByLabel("角色 ID").fill(id);
   await page.getByLabel("角色名称").fill("Cold start role");
