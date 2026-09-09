@@ -10,24 +10,33 @@ export function validateConcurrency(value) {
 
 export async function scheduleVerification(plan, execute, { concurrency = 2, signal } = {}) {
   validateConcurrency(concurrency);
+  if (!Array.isArray(plan)) throw new Error("Verification plan must be an array of gate names");
+  const gates = new Set();
+  for (const gate of plan) {
+    gateScheduling(gate);
+    if (gates.has(gate)) throw new Error(`Duplicate verification gate: ${gate}`);
+    gates.add(gate);
+  }
+  for (const gate of plan)
+    for (const dependency of gateScheduling(gate).dependencies)
+      if (!gates.has(dependency))
+        throw new Error(`Verification gate ${gate} requires ${dependency}`);
   const results = new Map(plan.map((gate) => [gate, { gate, status: "not-run" }]));
   let failed = false;
   for (const phase of [0, 1, 2, 3]) {
-    const pending = plan.filter((gate) => gateScheduling(gate).phase === phase);
-    if (phase === 3) {
-      const priority = (gate) =>
-        gate === "test:async-recovery" ? 0 : gate === "test:integration" ? 1 : 2;
-      pending.sort((a, b) => priority(a) - priority(b));
-    }
+    const pending = plan
+      .filter((gate) => gateScheduling(gate).phase === phase)
+      .sort((a, b) => gateScheduling(a).priority - gateScheduling(b).priority);
     const active = new Map();
     const resources = new Set();
     const limit =
       phase === 1 || phase === 2 ? 1 : phase === 3 ? Math.min(2, concurrency) : concurrency;
     while (pending.length || active.size) {
       while (!failed && !signal?.aborted && active.size < limit) {
+        const exclusiveActive = [...active.keys()].some((gate) => gateScheduling(gate).exclusive);
         const next = pending.findIndex((gate) => {
           const scheduling = gateScheduling(gate);
-          if (active.has("test:capacity") || (scheduling.exclusive && active.size)) return false;
+          if (exclusiveActive || (scheduling.exclusive && active.size)) return false;
           return (
             scheduling.resources.every((resource) => !resources.has(resource)) &&
             scheduling.dependencies.every(
@@ -37,12 +46,12 @@ export async function scheduleVerification(plan, execute, { concurrency = 2, sig
         });
         if (next === -1) break;
         const [gate] = pending.splice(next, 1);
-        const claimed = gateScheduling(gate).resources;
-        for (const resource of claimed) resources.add(resource);
+        const scheduling = gateScheduling(gate);
+        for (const resource of scheduling.resources) resources.add(resource);
         const task = Promise.resolve()
           .then(() => {
             signal?.throwIfAborted();
-            return execute(gate, gateScheduling(gate).drainOnCancel ? undefined : signal);
+            return execute(gate, scheduling.drainOnCancel ? undefined : signal);
           })
           .then((result) => ({
             ...result,
@@ -53,7 +62,7 @@ export async function scheduleVerification(plan, execute, { concurrency = 2, sig
           .then((result) => {
             results.set(gate, result);
             if (result.status !== "passed") failed = true;
-            for (const resource of claimed) resources.delete(resource);
+            for (const resource of scheduling.resources) resources.delete(resource);
             active.delete(gate);
           });
         active.set(gate, task);

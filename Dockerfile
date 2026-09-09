@@ -3,7 +3,15 @@ ARG NODE_IMAGE=node:22-bookworm-slim
 FROM ${NODE_IMAGE} AS base
 WORKDIR /app
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-RUN npm install --global pnpm@10.33.4
+COPY package.json ./
+RUN node <<'INSTALL_PNPM'
+const { execFileSync } = require("node:child_process");
+const { packageManager } = require("./package.json");
+if (!/^pnpm@\d+\.\d+\.\d+$/.test(packageManager)) {
+  throw new Error("packageManager must pin an exact pnpm version");
+}
+execFileSync("npm", ["install", "--global", packageManager], { stdio: "inherit" });
+INSTALL_PNPM
 
 FROM base AS dependencies
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./

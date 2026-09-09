@@ -3,7 +3,7 @@ import { passwordSchema } from "@pstack/contracts";
 import { withTransaction } from "@pstack/database/client";
 import * as repo from "@pstack/database/repository";
 import { hashPassword } from "./password";
-import { recordAudit } from "./product-service";
+import { recordAudit } from "./event-service";
 
 const recoveryInputSchema = z.object({
   account: z.string().trim().min(1).max(100),

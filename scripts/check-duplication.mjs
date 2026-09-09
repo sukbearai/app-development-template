@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { copyFile, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { sourceRoots } from "./source-scope.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const executable = path.join(root, "node_modules/jscpd/run-jscpd.js");
@@ -39,13 +41,13 @@ export async function checkDuplication({ cwd = root, update = false } = {}) {
   const config = JSON.parse(await readFile(path.join(cwd, ".jscpd.json"), "utf8"));
   assert.equal(config.output, output, "Keep duplication reports in artifacts/quality/duplication");
   assert.deepEqual(config.reporters, ["json"], "The duplication gate requires the JSON reporter");
-  assert.ok(Array.isArray(config.path) && config.path.length > 0, "No production roots configured");
-  for (const directory of config.path) {
-    assert.ok(
-      (await stat(path.join(cwd, directory))).isDirectory(),
-      `Missing production root: ${directory}`,
-    );
-  }
+  const roots = await sourceRoots(cwd, "duplication");
+  assert.ok(Array.isArray(config.path), "No production roots configured");
+  assert.deepEqual(
+    [...config.path].sort(),
+    [...roots].sort(),
+    "Duplication paths differ from scripts/source-scope.json",
+  );
   const baseline = path.join(cwd, ".jscpd-baseline.json");
   const directory = path.join(cwd, output);
   const reportFile = path.join(directory, "jscpd-report.json");

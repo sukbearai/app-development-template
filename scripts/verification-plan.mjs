@@ -4,6 +4,7 @@ export const CORE_GATES = Object.freeze([
   "lint",
   "duplication:check",
   "boundary:check",
+  "dependency:check",
   "typecheck",
   "contract:check",
   "migration:check",
@@ -46,34 +47,52 @@ export const TEMPLATE_GATES = Object.freeze([
   "storybook:smoke",
   "test:tracing-collector",
 ]);
-const staticGates = new Set(CORE_GATES.slice(0, CORE_GATES.indexOf("test:tools")));
-const webGates = new Set([
-  "build",
-  "test:e2e",
-  "test:ui",
-  "test:ui:production",
-  "test:capacity",
-  "storybook:test",
-  "storybook:smoke",
-]);
+const GATE_SCHEDULING = {
+  "format:check": { phase: 0 },
+  "sdk:check": { phase: 0, dependencies: ["contract:check"] },
+  lint: { phase: 0 },
+  "duplication:check": { phase: 0 },
+  "boundary:check": { phase: 0 },
+  "dependency:check": { phase: 0 },
+  typecheck: { phase: 0 },
+  "contract:check": { phase: 0 },
+  "migration:check": { phase: 0 },
+  "version:check": { phase: 0 },
+  "docs:check": { phase: 0 },
+  "test:tools": { phase: 1 },
+  "test:unit": { phase: 2 },
+  "test:integration": { phase: 3, resources: ["database"], priority: 1 },
+  build: { phase: 3, resources: ["web"] },
+  "storybook:test": { phase: 3, resources: ["web"] },
+  "storybook:smoke": { phase: 3, resources: ["web"] },
+  "test:tracing-collector": { phase: 3 },
+  "db:integration": { phase: 3, resources: ["database"] },
+  "test:e2e": { phase: 3, resources: ["web"] },
+  "test:ui": { phase: 3, resources: ["web"] },
+  "test:ui:production": { phase: 3, resources: ["web"] },
+  "test:async-recovery": { phase: 3, priority: 0 },
+  "test:kafka-security": { phase: 3 },
+  "test:capacity": { phase: 3, resources: ["web"], exclusive: true },
+  "test:backup": { phase: 3, drainOnCancel: true },
+  "test:app-backup": { phase: 3, drainOnCancel: true },
+  "test:containers": { phase: 3 },
+};
+for (const [gate, scheduling] of Object.entries(GATE_SCHEDULING)) {
+  GATE_SCHEDULING[gate] = Object.freeze({
+    exclusive: false,
+    drainOnCancel: false,
+    priority: 2,
+    ...scheduling,
+    resources: Object.freeze(scheduling.resources ?? []),
+    dependencies: Object.freeze(scheduling.dependencies ?? []),
+  });
+}
+Object.freeze(GATE_SCHEDULING);
+
 export function gateScheduling(gate) {
-  const phase = staticGates.has(gate)
-    ? 0
-    : gate === "test:tools"
-      ? 1
-      : gate === "test:unit"
-        ? 2
-        : 3;
-  const resources = [];
-  if (webGates.has(gate)) resources.push("web");
-  if (["test:integration", "db:integration"].includes(gate)) resources.push("database");
-  return {
-    phase,
-    resources,
-    exclusive: gate === "test:capacity",
-    drainOnCancel: ["test:backup", "test:app-backup"].includes(gate),
-    dependencies: gate === "sdk:check" ? ["contract:check"] : [],
-  };
+  if (!Object.keys(GATE_SCHEDULING).includes(gate))
+    throw new Error(`Unknown verification gate: ${String(gate)}`);
+  return GATE_SCHEDULING[gate];
 }
 export function gateCommand(gate, releaseOutput) {
   if (gate === "sdk:check")

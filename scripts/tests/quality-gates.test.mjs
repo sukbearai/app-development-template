@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
@@ -137,16 +146,30 @@ test("native baseline accepts existing clones, rejects new copies, and fails on 
   const cwd = await mkdtemp(path.join(tmpdir(), "pstack-quality-"));
   try {
     const config = await readJson(".jscpd.json");
-    config.path = ["src"];
+    config.path = ["packages/sample/src"];
+    await mkdir(path.join(cwd, "scripts"));
+    await copyFile(
+      path.join(root, "scripts/source-scope.mjs"),
+      path.join(cwd, "scripts/source-scope.mjs"),
+    );
+    await writeFile(
+      path.join(cwd, "scripts/source-scope.json"),
+      JSON.stringify([
+        {
+          path: "packages/sample/src",
+          tools: { boundary: true, dependency: true, duplication: true },
+        },
+      ]),
+    );
     await writeFile(path.join(cwd, ".jscpd.json"), JSON.stringify(config));
-    await mkdir(path.join(cwd, "src"));
-    await writeFile(path.join(cwd, "src/a.ts"), sample);
+    await mkdir(path.join(cwd, "packages/sample/src"), { recursive: true });
+    await writeFile(path.join(cwd, "packages/sample/src/a.ts"), sample);
     const baselineFile = path.join(cwd, ".jscpd-baseline.json");
     await assert.rejects(checkDuplication({ cwd }), /ENOENT/);
     await writeFile(baselineFile, '{"version":1,"fingerprints":{}}\n');
     assert.equal((await checkDuplication({ cwd })).newClones, 0);
     const baseline = await readFile(baselineFile, "utf8");
-    await writeFile(path.join(cwd, "src/b.ts"), sample);
+    await writeFile(path.join(cwd, "packages/sample/src/b.ts"), sample);
     await assert.rejects(checkDuplication({ cwd }), /new clones/);
     assert.equal(await readFile(baselineFile, "utf8"), baseline);
     const accepted = spawnSync(
@@ -163,17 +186,17 @@ test("native baseline accepts existing clones, rejects new copies, and fails on 
     );
     assert.equal(accepted.status, 0, accepted.stderr);
     assert.equal((await checkDuplication({ cwd })).newClones, 0);
-    await writeFile(path.join(cwd, "src/c.ts"), sample);
+    await writeFile(path.join(cwd, "packages/sample/src/c.ts"), sample);
     await assert.rejects(checkDuplication({ cwd }), /new clones/);
-    await rm(path.join(cwd, "src/c.ts"));
+    await rm(path.join(cwd, "packages/sample/src/c.ts"));
     await writeFile(baselineFile, "not json");
     await assert.rejects(checkDuplication({ cwd }));
     await writeFile(baselineFile, baseline);
-    await rm(path.join(cwd, "src/a.ts"));
-    await rm(path.join(cwd, "src/b.ts"));
+    await rm(path.join(cwd, "packages/sample/src/a.ts"));
+    await rm(path.join(cwd, "packages/sample/src/b.ts"));
     await assert.rejects(checkDuplication({ cwd }), /no source|ENOENT/);
-    await rm(path.join(cwd, "src"), { recursive: true });
-    await assert.rejects(checkDuplication({ cwd }), /ENOENT/);
+    await rm(path.join(cwd, "packages/sample/src"), { recursive: true });
+    await assert.rejects(checkDuplication({ cwd }), /Missing production root:/);
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -199,4 +222,60 @@ test("CI refuses the explicit baseline update command", () => {
   );
   assert.equal(result.status, 1);
   assert.match(result.stderr, /disabled in CI/);
+});
+
+test("duplication rejects scope drift and scans newly classified workspace roots", async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), "pstack-quality-scope-"));
+  try {
+    await mkdir(path.join(cwd, "scripts"));
+    const manifest = [
+      {
+        path: "packages/sample/src",
+        tools: { boundary: true, dependency: true, duplication: true },
+      },
+    ];
+    const config = await readJson(".jscpd.json");
+    config.path = ["packages/sample/src"];
+    const save = async () => {
+      await writeFile(path.join(cwd, "scripts/source-scope.json"), JSON.stringify(manifest));
+      await writeFile(path.join(cwd, ".jscpd.json"), JSON.stringify(config));
+    };
+    await save();
+    await mkdir(path.join(cwd, "packages/sample/src"), { recursive: true });
+    await writeFile(path.join(cwd, "packages/sample/src/original.ts"), sample);
+    await writeFile(path.join(cwd, ".jscpd-baseline.json"), '{"version":1,"fingerprints":{}}');
+    for (const directory of ["packages/added/src", "services/added/src", "apps/added/app"]) {
+      await mkdir(path.join(cwd, directory), { recursive: true });
+      const duplicate = path.join(await realpath(cwd), directory, "copy.ts");
+      await writeFile(duplicate, sample);
+      await assert.rejects(checkDuplication({ cwd }), /Unclassified production root:/);
+      manifest.push({
+        path: directory,
+        tools: { boundary: true, dependency: true, duplication: true },
+      });
+      await save();
+      await assert.rejects(checkDuplication({ cwd }), /Duplication paths differ/);
+      config.path.push(directory);
+      await save();
+      await assert.rejects(checkDuplication({ cwd }), /new clones/);
+      const report = JSON.parse(
+        await readFile(path.join(cwd, "artifacts/quality/duplication/jscpd-report.json"), "utf8"),
+      );
+      assert.ok(
+        report.duplicates.some((clone) =>
+          [clone.firstFile.name, clone.secondFile.name].includes(duplicate),
+        ),
+      );
+      await rm(duplicate);
+    }
+    config.path = config.path.filter((directory) => directory !== "packages/sample/src");
+    await save();
+    await rm(path.join(cwd, "packages/sample/src"), { recursive: true });
+    await assert.rejects(
+      checkDuplication({ cwd }),
+      /Missing production root: packages\/sample\/src/,
+    );
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });

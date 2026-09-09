@@ -4,7 +4,7 @@ import { withTransaction } from "@pstack/database/client";
 import * as repo from "@pstack/database/repository";
 import { appPermissions } from "@pstack/database/schema";
 import { hashPassword, verifyPassword } from "./password";
-import { recordAudit } from "./product-service";
+import { recordAudit } from "./event-service";
 import { z } from "zod";
 const inputSchema = z.object({
   account: z.string().trim().min(3).max(100),

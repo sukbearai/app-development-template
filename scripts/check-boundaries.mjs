@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import { isBuiltin } from "node:module";
 
+import { sourceRoots } from "./source-scope.mjs";
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 async function sourceFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -22,15 +24,9 @@ async function sourceFiles(directory) {
 }
 const files = (
   await Promise.all(
-    [
-      "apps/web/app",
-      "apps/web/components",
-      "apps/web/lib",
-      "packages/contracts/src",
-      "packages/database/src",
-      "packages/server/src",
-      "packages/kafka/src",
-    ].map((directory) => sourceFiles(path.join(root, directory))),
+    (await sourceRoots(root, "boundary")).map((directory) =>
+      sourceFiles(path.join(root, directory)),
+    ),
   )
 ).flat();
 const modules = new Map();

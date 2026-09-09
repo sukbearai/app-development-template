@@ -24,6 +24,7 @@ test("template keeps historical coverage and PR profiles retain their build and 
     "lint",
     "duplication:check",
     "boundary:check",
+    "dependency:check",
     "typecheck",
     "contract:check",
     "migration:check",
@@ -54,57 +55,197 @@ test("template keeps historical coverage and PR profiles retain their build and 
   assert.throws(() => parseArguments(["--template", "--full"]));
 });
 
-test("scheduler barriers isolate tools and unit tests, enforce Web/database locks and cap runtime work", async () => {
+const phases = [
+  [
+    "format:check",
+    "sdk:check",
+    "lint",
+    "duplication:check",
+    "boundary:check",
+    "dependency:check",
+    "typecheck",
+    "contract:check",
+    "migration:check",
+    "version:check",
+    "docs:check",
+  ],
+  ["test:tools"],
+  ["test:unit"],
+  [
+    "test:integration",
+    "build",
+    "storybook:test",
+    "storybook:smoke",
+    "test:tracing-collector",
+    "db:integration",
+    "test:e2e",
+    "test:ui",
+    "test:ui:production",
+    "test:async-recovery",
+    "test:kafka-security",
+    "test:capacity",
+    "test:backup",
+    "test:app-backup",
+    "test:containers",
+  ],
+];
+const webGates = new Set([
+  "build",
+  "test:e2e",
+  "test:ui",
+  "test:ui:production",
+  "test:capacity",
+  "storybook:test",
+  "storybook:smoke",
+]);
+const databaseGates = new Set(["test:integration", "db:integration"]);
+
+test("scheduler barriers and resource locks hold even when plan order changes", async () => {
   for (const concurrency of [1, 2, 4]) {
-    const active = new Set();
-    const completed = new Set();
-    const maxima = [0, 0, 0, 0];
-    const result = await scheduleVerification(
-      RELEASE_GATES,
-      async (gate) => {
-        const scheduling = gateScheduling(gate);
-        for (const earlier of RELEASE_GATES.filter(
-          (item) => gateScheduling(item).phase < scheduling.phase,
-        ))
-          assert.ok(completed.has(earlier), `${gate} started before ${earlier} completed`);
-        for (const dependency of scheduling.dependencies) assert.ok(completed.has(dependency));
-        for (const running of active) {
-          assert.ok(!scheduling.exclusive && !gateScheduling(running).exclusive);
-          for (const resource of scheduling.resources)
-            assert.ok(!gateScheduling(running).resources.includes(resource));
-        }
-        active.add(gate);
-        maxima[scheduling.phase] = Math.max(maxima[scheduling.phase], active.size);
+    for (const plan of [RELEASE_GATES, [...RELEASE_GATES].reverse()]) {
+      const active = new Set();
+      const completed = new Set();
+      const maxima = [0, 0, 0, 0];
+      const result = await scheduleVerification(
+        plan,
+        async (gate) => {
+          const phase = phases.findIndex((gates) => gates.includes(gate));
+          assert.notEqual(phase, -1, `Missing test expectations for ${gate}`);
+          for (const earlier of phases.slice(0, phase).flat())
+            assert.ok(completed.has(earlier), `${gate} started before ${earlier} completed`);
+          if (gate === "sdk:check") assert.ok(completed.has("contract:check"));
+          for (const running of active) {
+            assert.notEqual(gate, "test:capacity");
+            assert.notEqual(running, "test:capacity");
+            for (const group of [webGates, databaseGates])
+              assert.ok(!group.has(gate) || !group.has(running), `${gate} overlaps ${running}`);
+          }
+          active.add(gate);
+          maxima[phase] = Math.max(maxima[phase], active.size);
+          await setImmediate();
+          active.delete(gate);
+          completed.add(gate);
+          return passed;
+        },
+        { concurrency },
+      );
+      assert.ok(
+        result.every((item) => item.status === "passed"),
+        JSON.stringify(result),
+      );
+      assert.deepEqual(
+        result.map((item) => item.gate),
+        plan,
+      );
+      assert.deepEqual(maxima, [concurrency, 1, 1, Math.min(concurrency, 2)]);
+    }
+  }
+});
+
+test("each Web and database gate waits for the resource held by its peer", async () => {
+  for (const group of [webGates, databaseGates]) {
+    for (const gate of group) {
+      const peer = [...group].find((other) => other !== gate);
+      const active = new Set();
+      const result = await scheduleVerification([gate, peer], async (name) => {
+        assert.equal(active.size, 0, `${name} overlaps ${[...active]}`);
+        active.add(name);
         await setImmediate();
-        active.delete(gate);
-        completed.add(gate);
+        active.delete(name);
+        return passed;
+      });
+      assert.deepEqual(
+        result.map((item) => item.status),
+        ["passed", "passed"],
+      );
+    }
+  }
+});
+
+test("capacity runs alone even beside gates with no Web or database resource", async () => {
+  for (const plan of [
+    ["test:capacity", "test:backup"],
+    ["test:backup", "test:capacity"],
+  ]) {
+    let active = 0;
+    const result = await scheduleVerification(
+      plan,
+      async () => {
+        assert.equal(active, 0);
+        active++;
+        await setImmediate();
+        active--;
         return passed;
       },
-      { concurrency },
-    );
-    assert.ok(
-      result.every((item) => item.status === "passed"),
-      JSON.stringify(result),
+      { concurrency: 4 },
     );
     assert.deepEqual(
-      result.map((item) => item.gate),
-      RELEASE_GATES,
+      result.map((item) => item.status),
+      ["passed", "passed"],
     );
-    assert.deepEqual(maxima, [concurrency, 1, 1, Math.min(concurrency, 2)]);
   }
+});
+
+test("runtime priority starts recovery and integration before other available work", async () => {
+  const calls = [];
+  const plan = ["build", "test:backup", "test:integration", "test:async-recovery"];
+  await scheduleVerification(plan, async (gate) => {
+    calls.push(gate);
+    await setImmediate();
+    return passed;
+  });
+  assert.deepEqual(calls, ["test:async-recovery", "test:integration", "build", "test:backup"]);
+});
+
+test("every profile has immutable scheduling metadata and includes its dependencies", async () => {
+  for (const plan of [CORE_GATES, [...CORE_GATES, ...FULL_GATES], RELEASE_GATES, TEMPLATE_GATES]) {
+    for (const gate of plan) {
+      const scheduling = gateScheduling(gate);
+      assert.ok(Object.isFrozen(scheduling));
+      assert.ok(Object.isFrozen(scheduling.resources));
+      assert.ok(Object.isFrozen(scheduling.dependencies));
+      for (const dependency of scheduling.dependencies) assert.ok(plan.includes(dependency));
+    }
+    const result = await scheduleVerification(plan, async () => passed);
+    assert.ok(result.every((item) => item.status === "passed"));
+  }
+});
+
+test("invalid plans fail before dispatching any command", async () => {
+  for (const [plan, error] of [
+    [null, /array/],
+    ["lint", /array/],
+    [["lint", "unknown:gate"], /Unknown verification gate/],
+    [["lint", "toString"], /Unknown verification gate/],
+    [["lint", null], /Unknown verification gate/],
+    [["lint", "lint"], /Duplicate verification gate/],
+    [["lint", "sdk:check"], /sdk:check requires contract:check/],
+  ]) {
+    const calls = [];
+    await assert.rejects(
+      scheduleVerification(plan, async (gate) => {
+        calls.push(gate);
+        return passed;
+      }),
+      error,
+    );
+    assert.deepEqual(calls, []);
+  }
+  assert.throws(() => gateScheduling("unknown:gate"), /Unknown verification gate/);
 });
 
 test("failure stops dispatch and awaits in-flight cleanup, including thrown commands", async () => {
   const cleanup = Promise.withResolvers();
   const started = Promise.withResolvers();
   const calls = [];
+  const spawnError = new Error("spawn failed");
   const pending = scheduleVerification(
     ["build", "test:integration", "test:ui", "test:backup"],
     async (gate) => {
       calls.push(gate);
       if (gate === "build") {
         await started.promise;
-        throw new Error("spawn failed");
+        throw spawnError;
       }
       started.resolve();
       await cleanup.promise;
@@ -116,9 +257,28 @@ test("failure stops dispatch and awaits in-flight cleanup, including thrown comm
   assert.deepEqual(new Set(calls), new Set(["build", "test:integration"]));
   cleanup.resolve();
   const result = await pending;
+  assert.equal(result[0].error, spawnError);
   assert.deepEqual(
     result.map((item) => item.status),
     ["failed", "passed", "not-run", "not-run"],
+  );
+});
+
+test("source check failure preserves command evidence and blocks SDK and later phases", async () => {
+  const failure = { status: "failed", exitCode: 7, stderr: "contract source is stale" };
+  const calls = [];
+  const result = await scheduleVerification(
+    ["sdk:check", "contract:check", "test:tools", "test:unit", "build"],
+    async (gate) => {
+      calls.push(gate);
+      return failure;
+    },
+  );
+  assert.deepEqual(calls, ["contract:check"]);
+  assert.deepEqual(result[1], { ...failure, gate: "contract:check" });
+  assert.deepEqual(
+    result.map((item) => item.status),
+    ["not-run", "failed", "not-run", "not-run", "not-run"],
   );
 });
 

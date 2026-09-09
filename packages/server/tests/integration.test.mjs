@@ -33,7 +33,7 @@ test(
     process.env.UPLOAD_STORAGE_DIR = storage;
     process.env.NODE_ENV = "test";
     process.env.OUTBOX_MAX_ATTEMPTS = "2";
-    const { getPool, closeDatabase } = await import("@pstack/database/client");
+    const { getPool, closeDatabase, withTransaction } = await import("@pstack/database/client");
     try {
       for (let i = 0; i < 40; i++) {
         try {
@@ -65,6 +65,7 @@ test(
       const { bootstrapAdministrator } = await import("../src/bootstrap-admin.ts");
       const auth = await import("../src/auth-service.ts");
       const product = await import("../src/product-service.ts");
+      const events = await import("../src/event-service.ts");
       await t.test("persisted pending backlog and age degrade administrator health", async () => {
         const { readAdminAsyncRuntimeHealth } =
           await import("../src/async-runtime-health-service.ts");
@@ -257,7 +258,7 @@ test(
       await t.test(
         "new outbox events persist configured attempts while workers preserve existing policies",
         async () => {
-          const event = await product.createOutboxEvent({
+          const event = await events.createOutboxEvent({
             topic: "app.tasks",
             eventType: "demo.echo",
             payload: {},
@@ -508,6 +509,37 @@ test(
           );
         },
       );
+      await t.test("caller rollback removes both audit and outbox facts", async () => {
+        const traceId = `event-rollback-${randomUUID()}`;
+        await assert.rejects(
+          withTransaction(async (tx) => {
+            const audit = await events.recordAudit(
+              {
+                action: "integration.rollback",
+                targetType: "test",
+                targetId: traceId,
+                traceId,
+              },
+              tx,
+            );
+            const auditRows = await tx.query.appAuditLogs.findMany({
+              where: (table, { eq }) => eq(table.id, audit.id),
+            });
+            const outboxRows = await tx.query.appOutboxEvents.findMany({
+              where: (table, { eq }) => eq(table.traceId, traceId),
+            });
+            assert.equal(auditRows.length, 1);
+            assert.equal(outboxRows.length, 1);
+            throw new Error("caller rollback");
+          }),
+          /caller rollback/,
+        );
+        const remaining = await query(
+          "select (select count(*) from app_audit_logs where trace_id=$1) audit, (select count(*) from app_outbox_events where trace_id=$1) outbox",
+          [traceId],
+        );
+        assert.deepEqual(remaining.rows[0], { audit: "0", outbox: "0" });
+      });
       await t.test(
         "outbox insertion failure rolls back user, session, telemetry and audit writes",
         async () => {

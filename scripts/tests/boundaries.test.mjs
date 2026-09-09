@@ -19,12 +19,12 @@ test("package boundary gate rejects builtins and relative cross-layer imports", 
       "packages/database/src",
       "packages/server/src",
       "packages/kafka/src",
+      "packages/sdk/src",
+      "services/worker/src",
     ])
       await mkdir(path.join(fixture, directory), { recursive: true });
-    await copyFile(
-      path.join(root, "scripts/check-boundaries.mjs"),
-      path.join(fixture, "scripts/check-boundaries.mjs"),
-    );
+    for (const filename of ["check-boundaries.mjs", "source-scope.mjs", "source-scope.json"])
+      await copyFile(path.join(root, "scripts", filename), path.join(fixture, "scripts", filename));
     await symlink(path.join(root, "node_modules"), path.join(fixture, "node_modules"), "dir");
     await writeFile(
       path.join(fixture, "apps/web/app/page.tsx"),
@@ -35,6 +35,34 @@ test("package boundary gate rejects builtins and relative cross-layer imports", 
         encoding: "utf8",
         stdio: "pipe",
       });
+    assert.match(run(), /boundaries verified/);
+    for (const directory of [
+      "packages/new/src",
+      "services/new/src",
+      "apps/new/app",
+      "apps/web/src",
+    ]) {
+      await mkdir(path.join(fixture, directory), { recursive: true });
+      assert.throws(run, /Unclassified production root:/);
+      await rm(
+        path.join(
+          fixture,
+          directory
+            .split("/")
+            .slice(0, directory === "apps/web/src" ? 3 : 2)
+            .join("/"),
+        ),
+        { recursive: true },
+      );
+    }
+    await writeFile(
+      path.join(fixture, "packages/sdk/src/index.ts"),
+      '"use client"; import "node:fs";',
+    );
+    await writeFile(
+      path.join(fixture, "services/worker/src/index.ts"),
+      '"use client"; import "node:fs";',
+    );
     assert.match(run(), /boundaries verified/);
     for (const source of ['import "fs";', 'import "node:crypto";']) {
       await writeFile(path.join(fixture, "packages/contracts/src/index.ts"), source);

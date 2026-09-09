@@ -15,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CORE_GATES } from "../verification-plan.mjs";
 
 const project = fileURLToPath(new URL("../../", import.meta.url));
 async function interruptionFixture(t, duringRelease = false) {
@@ -118,7 +119,7 @@ await runVerification(parseArguments(["--json"]), {
   );
   assert.equal(summary.passed, false);
   assert.equal(stdout.trim().split("\n").length, 1);
-  assert.equal(index.checks.length, 14);
+  assert.deepEqual(index.checks.map((check) => check.name).sort(), [...CORE_GATES].sort());
   for (const check of index.checks.filter((item) => item.status === "passed")) {
     const log = await readFile(path.join(root, check.evidence[0].path), "utf8");
     assert.ok(

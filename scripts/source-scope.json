@@ -1,0 +1,78 @@
+[
+  {
+    "path": "apps/web/app",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "apps/web/components",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "apps/web/lib",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "packages/contracts/src",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "packages/database/src",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "packages/server/src",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "packages/kafka/src",
+    "tools": {
+      "boundary": true,
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "packages/sdk/src",
+    "tools": {
+      "boundary": {
+        "excluded": "The boundary checker has no implemented layer rules for this production root."
+      },
+      "dependency": true,
+      "duplication": true
+    }
+  },
+  {
+    "path": "services/worker/src",
+    "tools": {
+      "boundary": {
+        "excluded": "The boundary checker has no implemented layer rules for this production root."
+      },
+      "dependency": true,
+      "duplication": true
+    }
+  }
+]

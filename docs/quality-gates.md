@@ -4,11 +4,11 @@
 
 安装依赖后，在仓库中执行一次 `pnpm hooks:install`。安装器仅设置仓库级 `core.hooksPath=.githooks`，可以重复执行。已有其他 hooksPath 或默认 hooks 目录中存在自定义文件时，安装器会停止，保留原配置和文件；先检查并整合已有钩子。安装不会修改全局 Git 配置。
 
-原生 `.githooks/pre-commit` 将整个暂存区导出到独立临时目录，然后依次执行 `pnpm lint` 和 `pnpm duplication:check`。检查采用已暂存的源码、配置、基线和 vendor，复用本地 `node_modules`。部分暂存、删除文件和文件名空格均按将提交的内容检查，钩子不执行 stash、add 或自动修复。首次提交这些工具时，必须一并暂存配置、脚本、vendor 和 package.json；缺少必要文件或依赖时提交失败。
+原生 `.githooks/pre-commit` 将整个暂存区导出到独立临时目录，然后依次执行 `pnpm lint`、`pnpm duplication:check` 和 `pnpm dependency:check`。检查采用已暂存的源码、配置、基线和 vendor，复用本地安装的第三方依赖；workspace 包链接重新指向暂存快照，避免读取未暂存源码。部分暂存、删除文件和文件名空格均按将提交的内容检查，钩子不执行 stash、add 或自动修复。首次提交这些工具时，必须一并暂存配置、脚本、vendor 和 package.json；缺少必要文件或依赖时提交失败。
 
-临时目录在完成或失败后清理。重复检查的 JSON 报告保存在被忽略的 `artifacts/quality/pre-commit/<本次运行目录>/`，文件路径映射回仓库，片段和行号对应暂存内容；工作区另有修改时，行号可能不同。每次报告独立保存，需要时可删除旧报告。
+临时目录在完成或失败后清理。重复检查的 JSON 报告保存在被忽略的 `artifacts/quality/pre-commit/<本次运行目录>/`，文件路径映射回仓库，片段和行号对应暂存内容；工作区另有修改时，行号可能不同。同一目录的 `dependency-report.json` 保留 dpdm 的入口、循环和缺失导入结果，其源码路径相对于暂存快照。每次报告独立保存，需要时可删除旧报告。
 
-运行 `pnpm test:hooks` 验证真实提交、部分暂存、替代索引、检查失败和安装冲突。Git 使用当前进程 PATH 中的 Node 与 pnpm，GUI 客户端也需要可找到它们。仓库要求 Node 22.12 或更新版本。此处不配置 prepare/postinstall，容器或非 Git 安装不会自动安装钩子。Git 原生 `--no-verify` 可以跳过本地钩子，CI 继续运行这两项门禁。
+运行 `pnpm test:hooks` 验证真实提交、部分暂存、替代索引、检查失败和安装冲突。Git 使用当前进程 PATH 中的 Node 与 pnpm，GUI 客户端也需要可找到它们。仓库要求 Node 22.12 或更新版本。此处不配置 prepare/postinstall，容器或非 Git 安装不会自动安装钩子。Git 原生 `--no-verify` 可以跳过本地钩子，CI 继续运行这三项门禁。
 
 提交评审前运行 `pnpm lint` 和 `pnpm duplication:check`。两项检查都已进入 `pnpm verify` 和 `pnpm pr:verify`，现有 GitHub Actions 的 `pnpm pr:verify --full` 会执行它们。直接运行这两个命令时检查当前工作树，报告写入被 Git 忽略的 `artifacts/quality/duplication/`。
 
@@ -21,6 +21,14 @@ Oxlint 与 `@oxlint/plugins` 固定为 `1.78.0`。完整上游源码、16 个规
 本次引入范围是 anti-slop；Oxlint 内置 correctness 类别明确设为 off，现有类型、契约和边界检查继续执行。未使用的行内禁用指令也作为错误。确实需要保留的特殊行为只能使用有具体原因的窄范围行内例外，不能整文件关闭规则，也不能通过 `any` 或虚假泛型绕过检查。
 
 运行 `pnpm test:quality` 验证真实工具的失败路径和规则注册一致性；该测试也属于 `pnpm test:tools`。升级 vendor 或 Oxlint 时另运行 `pnpm test:anti-slop`，覆盖所有上游规则测试。检查依赖 Node 22.12 或更新版本以及平台对应的原生二进制，不需要网络、数据库或浏览器服务。
+
+## 生产源码范围
+
+`scripts/source-scope.json` 是生产根目录及各工具覆盖范围的共同清单。每个根目录必须明确列出 boundary、dependency 和 duplication，值为 `true` 或带非空理由的 `{"excluded":"理由"}`。当前共 9 个根目录；SDK 和 worker 仍属于生产代码，boundary 暂无针对这两个根目录的层级规则，因此明确排除。依赖和重复检查覆盖全部 9 个根目录。
+
+三个检查器都会独立读取文件系统，再与清单核对。包和服务使用 `packages/*/src`、`services/*/src`；应用支持 `apps/*/app`、`components`、`lib` 和 `src` 目录。新增应用、包、服务或这些应用源码目录必须先在清单中分类；已登记的目录消失也会失败。应用的 public、tests、依赖和构建目录不属于这些生产源码目录。采用其他源码布局时，应同时修改范围检查及其测试。
+
+`.jscpd.json` 保留原生 `path` 配置，重复检查在调用 jscpd 前验证它与清单的 duplication 范围完全一致。登记新的生产根目录时必须同步这份配置。共享清单只定义根目录；各检查器继续自行处理文件扩展名、类型导入、忽略规则及重复基线。
 
 ## 重复代码
 
@@ -38,3 +46,15 @@ jscpd 固定为 `5.1.2`。`.jscpd.json` 明确扫描 Web 的 app/components/lib�
 基线指纹使用源码片段，修改片段内的空白或注释也可能被标记为新增重复。遇到这种情况需对照旧片段审查，不能把检测结果直接认定为新增业务逻辑。
 
 报告可能包含源码片段和本机绝对路径。报告留在本地质量产物目录；既有 CI 产物归档按仓库权限保存，没有新增外部上传服务。
+
+## 运行时依赖
+
+`pnpm dependency:check` 使用固定版本 dpdm `4.3.0` 检查运行时循环依赖和无法解析的导入。它已进入 `CORE_GATES`，因此 `pnpm pr:verify`、完整与发布验证以及 `pnpm verify` 都会执行。原生提交钩子在 lint 和重复代码检查之后执行相同的依赖检查。边界检查继续负责浏览器与服务端的导入方向。
+
+入口覆盖 Web 的 app/components/lib、所有 `packages/*/src` 和 `services/*/src`，扫描 dpdm 默认支持的运行时 `.ts`、`.tsx`、`.js`、`.jsx`、`.mjs`，不包括 `.d.ts`、`.d.cts`、`.d.mts` 声明文件；包括没有其他模块引用的文件及带方括号的路由。当前生产根目录必须存在且非空；新增包与服务必须先在源码范围清单中分类。每个入口都必须出现在实际解析图中，未分析的本地模块会导致失败。扫描保留单个字符串参数的动态导入、require 和运行时再导出。生产根目录内或实际导入的本地 `.cjs`、`.cts`、`.mts` 文件会被明确拒绝，因为当前 dpdm 配置不能分析其运行时依赖。JSON、CSS 等资源文件可以作为已解析的资源边保留，但不计入已分析的源码文件。
+
+带第二个 options 参数的字面量动态导入，以及无插值模板字符串的动态导入，会被明确拒绝，避免 dpdm 静默遗漏。非字面量动态目标无法由此静态检查证明。
+
+dpdm 先将 TypeScript 转换为 JavaScript，因此仅有类型的导入和再导出不构成运行时循环；被擦除的类型引用由 `pnpm typecheck` 检查。每个模块使用最近的 tsconfig 解析别名。Node 内置模块和已解析的第三方依赖保留为外部边。只有 Web 内的 `next/headers`、`next/link`、`next/navigation` 可以使用 vinext 例外，且对应已安装的运行时 shim 文件必须存在。其他无法解析的内部或外部导入均失败。源码中的 `@dpdm-ignore` 注释也会失败，包括入口之外实际导入的本地源码。
+
+报告写入 `artifacts/quality/dependencies/report.json`，包含入口、扫描文件、循环、缺失导入、外部依赖和数量。检查前删除旧报告，解析异常不会留下上次通过的证据。命令不接受跳过选项。`pnpm test:tools` 中的真实临时项目覆盖循环、类型、动态导入、路由、别名、工作区包、缺失文件、空目录、vinext 例外和禁止忽略注释等路径。

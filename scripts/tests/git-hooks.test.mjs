@@ -63,6 +63,9 @@ async function fixture(t) {
     "scripts/pre-commit.mjs",
     "scripts/install-hooks.mjs",
     "scripts/check-duplication.mjs",
+    "scripts/check-dependencies.mjs",
+    "scripts/source-scope.mjs",
+    "scripts/source-scope.json",
   ]) {
     await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
     await cp(path.join(root, file), path.join(cwd, file), { recursive: true });
@@ -70,12 +73,38 @@ async function fixture(t) {
   const manifest = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   await writeFile(path.join(cwd, "package.json"), JSON.stringify(manifest));
   const config = JSON.parse(await readFile(path.join(root, ".jscpd.json"), "utf8"));
-  config.path = ["src"];
   await writeFile(path.join(cwd, ".jscpd.json"), JSON.stringify(config));
   await writeFile(path.join(cwd, ".jscpd-baseline.json"), '{"version":1,"fingerprints":{}}\n');
-  await mkdir(path.join(cwd, "src"));
-  await writeFile(path.join(cwd, "src/with spaces.ts"), good);
-  await writeFile(path.join(cwd, "src/summary.ts"), sample);
+  await mkdir(path.join(cwd, "packages/server/src"), { recursive: true });
+  await writeFile(path.join(cwd, "packages/server/src/with spaces.ts"), good);
+  await writeFile(path.join(cwd, "packages/server/src/summary.ts"), sample);
+  for (const directory of ["apps/web/app", "apps/web/components", "apps/web/lib"])
+    await mkdir(path.join(cwd, directory), { recursive: true });
+  for (const file of [
+    "apps/web/app/page.tsx",
+    "apps/web/components/button.tsx",
+    "apps/web/lib/client.ts",
+  ])
+    await writeFile(path.join(cwd, file), good);
+  for (const name of ["contracts", "database", "kafka", "server", "sdk", "worker"]) {
+    const directory = `${name === "worker" ? "services" : "packages"}/${name}`;
+    await mkdir(path.join(cwd, directory, "src"), { recursive: true });
+    await writeFile(path.join(cwd, directory, "src/index.ts"), good);
+    await writeFile(
+      path.join(cwd, directory, "package.json"),
+      JSON.stringify({
+        name: `@pstack/${name}`,
+        type: "module",
+        exports: "./src/index.ts",
+      }),
+    );
+    await writeFile(
+      path.join(cwd, directory, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: { module: "ESNext", moduleResolution: "Bundler" },
+      }),
+    );
+  }
   await symlink(path.join(root, "node_modules"), path.join(cwd, "node_modules"), "junction");
   git(cwd, "add", ".");
   return cwd;
@@ -96,6 +125,8 @@ async function unchangedAfterFailure(cwd, expected) {
     (await readFile(path.join(cwd, ".git/index"))).equals(index),
     "hook changed index bytes",
   );
+  const directSnapshot = direct.output.match(/checking the staged snapshot at (.+)/)?.[1];
+  if (directSnapshot) await assert.rejects(readdir(directSnapshot), { code: "ENOENT" });
   const result = execute(cwd, "git", ["commit", "-m", "must fail"]);
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, expected);
@@ -127,35 +158,38 @@ test("installer refuses foreign configuration and default hooks, and is idempote
 test("real first commit, partial staging and deletions validate the index and clean temporary files", async (t) => {
   const cwd = await fixture(t);
   assert.equal(install(cwd).status, 0);
-  const file = path.join(cwd, "src/with spaces.ts");
+  const file = path.join(cwd, "packages/server/src/with spaces.ts");
   await writeFile(file, bad);
-  git(cwd, "add", "src/with spaces.ts");
+  git(cwd, "add", "packages/server/src/with spaces.ts");
   await writeFile(file, good);
   await unchangedAfterFailure(cwd, /no-chained-type-assertions/);
-  git(cwd, "add", "src/with spaces.ts");
+  git(cwd, "add", "packages/server/src/with spaces.ts");
   await writeFile(file, bad);
   const success = execute(cwd, "git", ["commit", "-m", "first staged commit"]);
   assert.equal(success.status, 0, success.output);
-  assert.equal(git(cwd, "show", "HEAD:src/with spaces.ts"), good.trim());
+  assert.equal(git(cwd, "show", "HEAD:packages/server/src/with spaces.ts"), good.trim());
   assert.equal(await readFile(file, "utf8"), bad);
   await assert.rejects(readdir(success.output.match(/checking the staged snapshot at (.+)/)[1]), {
     code: "ENOENT",
   });
   await writeFile(file, good);
-  await writeFile(path.join(cwd, "src/remove me.ts"), good.replace("label", "other"));
-  git(cwd, "add", "src/remove me.ts");
+  await writeFile(
+    path.join(cwd, "packages/server/src/remove me.ts"),
+    good.replace("label", "other"),
+  );
+  git(cwd, "add", "packages/server/src/remove me.ts");
   git(cwd, "commit", "-m", "add deletion target");
-  git(cwd, "rm", "src/remove me.ts");
-  await writeFile(path.join(cwd, "src/remove me.ts"), bad);
+  git(cwd, "rm", "packages/server/src/remove me.ts");
+  await writeFile(path.join(cwd, "packages/server/src/remove me.ts"), bad);
   git(cwd, "commit", "-m", "delete staged file");
-  assert.equal(git(cwd, "ls-files", "src/remove me.ts"), "");
+  assert.equal(git(cwd, "ls-files", "packages/server/src/remove me.ts"), "");
 });
 
 test("real duplicate blocks commit and preserves report paths after cleanup", async (t) => {
   const cwd = await fixture(t);
   assert.equal(install(cwd).status, 0);
-  await writeFile(path.join(cwd, "src/duplicate.ts"), sample);
-  git(cwd, "add", "src");
+  await writeFile(path.join(cwd, "packages/server/src/duplicate.ts"), sample);
+  git(cwd, "add", "packages/server/src");
   const result = await unchangedAfterFailure(cwd, /new clones|new clones found/i);
   const reportFile = result.output.match(/staged report saved to (.+); line numbers/)[1];
   const report = JSON.parse(await readFile(reportFile, "utf8"));
@@ -169,14 +203,157 @@ test("real duplicate blocks commit and preserves report paths after cleanup", as
   }
 });
 
+test("report preservation handles missing, malformed and unwritable reports independently", async (t) => {
+  const dependencyBytes = '{\r\n  "circulars": [], "label": "依赖"\r\n}\r\n';
+  for (const scenario of [
+    { name: "missing reports after an early gate failure", missing: true },
+    { name: "malformed dependency report", malformed: "dependency-report.json" },
+    { name: "empty duplication report", malformed: "jscpd-report.json" },
+    { name: "unwritable dependency report", blocked: "dependency-report.json" },
+    { name: "unwritable duplication report", blocked: "jscpd-report.json" },
+  ]) {
+    await t.test(scenario.name, async (t) => {
+      const cwd = await fixture(t);
+      assert.equal(install(cwd).status, 0);
+      const manifest = JSON.parse(await readFile(path.join(cwd, "package.json"), "utf8"));
+      for (const command of ["lint", "duplication:check", "dependency:check"])
+        manifest.scripts[command] = `node scripts/report-fixture.mjs ${command}`;
+      await writeFile(path.join(cwd, "package.json"), JSON.stringify(manifest));
+      await writeFile(
+        path.join(cwd, "scripts/report-fixture.mjs"),
+        `import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+const scenario = ${JSON.stringify(scenario)};
+console.log("GATE " + process.argv[2]);
+if (scenario.missing) process.exit(1);
+if (process.argv[2] !== "lint") process.exit(0);
+for (const [filename, source, contents] of [
+  ["dependency-report.json", "dependencies/report.json", ${JSON.stringify(dependencyBytes)}],
+  ["jscpd-report.json", "duplication/jscpd-report.json", JSON.stringify({ duplicates: [{
+    firstFile: { name: path.join(process.cwd(), "packages/server/src/summary.ts"), start: 1 },
+    secondFile: { name: path.join(process.cwd(), "packages/server/src/with spaces.ts"), start: 2 }
+  }] })]
+]) {
+  const file = path.join("artifacts/quality", source);
+  await mkdir(path.dirname(file), { recursive: true });
+  await writeFile(file, scenario.malformed === filename
+    ? filename === "jscpd-report.json" ? "" : "{invalid json" : contents);
+}
+if (scenario.blocked) await mkdir(path.join(${JSON.stringify(cwd)},
+  "artifacts/quality/pre-commit", path.basename(process.cwd()), scenario.blocked),
+  { recursive: true });
+`,
+      );
+      git(cwd, "add", "package.json", "scripts/report-fixture.mjs");
+      const result = await unchangedAfterFailure(
+        cwd,
+        scenario.missing ? /lint failed/ : /cannot preserve quality report/,
+      );
+      const commands = [...result.output.matchAll(/^GATE (.+)$/gm)].map((match) => match[1]);
+      assert.deepEqual(
+        commands,
+        scenario.missing ? ["lint"] : ["lint", "duplication:check", "dependency:check"],
+      );
+      if (scenario.missing) {
+        assert.doesNotMatch(result.output, /cannot preserve quality report|report saved/);
+        return;
+      }
+      const failed = scenario.malformed ?? scenario.blocked;
+      assert.doesNotMatch(
+        result.output,
+        new RegExp(`saved to .+/${failed.replaceAll(".", "\\.")}`),
+      );
+      if (failed === "jscpd-report.json") {
+        const saved = result.output.match(/staged dependency report saved to (.+)/)?.[1];
+        assert.ok(saved, result.output);
+        assert.deepEqual(await readFile(saved), Buffer.from(dependencyBytes));
+      } else {
+        const saved = result.output.match(/staged report saved to (.+); line numbers/)?.[1];
+        assert.ok(saved, result.output);
+        const report = JSON.parse(await readFile(saved, "utf8"));
+        assert.deepEqual(report.duplicates, [
+          {
+            firstFile: {
+              name: path.join(
+                git(cwd, "rev-parse", "--show-toplevel"),
+                "packages/server/src/summary.ts",
+              ),
+              start: 1,
+            },
+            secondFile: {
+              name: path.join(
+                git(cwd, "rev-parse", "--show-toplevel"),
+                "packages/server/src/with spaces.ts",
+              ),
+              start: 2,
+            },
+          },
+        ]);
+      }
+    });
+  }
+});
+
+test("dependency cycles use staged workspace packages and block the real commit", async (t) => {
+  const cwd = await fixture(t);
+  assert.equal(install(cwd).status, 0);
+  for (const [issuer, target] of [
+    ["server", "contracts"],
+    ["contracts", "server"],
+  ]) {
+    const modules = path.join(cwd, `packages/${issuer}/node_modules/@pstack`);
+    await mkdir(modules, { recursive: true });
+    await symlink(path.join(cwd, `packages/${target}`), path.join(modules, target), "junction");
+  }
+  const server = "packages/server/src/index.ts";
+  const contracts = "packages/contracts/src/index.ts";
+  await writeFile(path.join(cwd, server), 'import "@pstack/contracts";\n');
+  await writeFile(path.join(cwd, contracts), 'import "@pstack/server";\n');
+  git(cwd, "add", "packages");
+  await writeFile(path.join(cwd, contracts), good);
+  const failure = await unchangedAfterFailure(cwd, /Runtime cycle:/);
+  const reportFile = failure.output.match(/staged dependency report saved to (.+)/)?.[1];
+  assert.ok(reportFile, failure.output);
+  const report = JSON.parse(await readFile(reportFile, "utf8"));
+  assert.equal(report.circulars.length, 1);
+  assert.ok(report.circulars[0].includes(server));
+  assert.ok(report.circulars[0].includes(contracts));
+  git(cwd, "add", contracts);
+  await writeFile(path.join(cwd, contracts), 'import "@pstack/server";\n');
+  const success = execute(cwd, "git", ["commit", "-m", "acyclic staged packages"]);
+  assert.equal(success.status, 0, success.output);
+  assert.match(success.output, /Dependencies verified/);
+  assert.equal(git(cwd, "show", `HEAD:${contracts}`), good.trim());
+  assert.equal(await readFile(path.join(cwd, contracts), "utf8"), 'import "@pstack/server";\n');
+  await writeFile(path.join(cwd, contracts), good);
+  await writeFile(path.join(cwd, server), 'import "@pstack/sdk";\n');
+  git(cwd, "add", "packages");
+  await unchangedAfterFailure(cwd, /Missing dependency:.*@pstack\/sdk/);
+  await writeFile(path.join(cwd, server), 'import "@pstack/contracts";\n');
+  await writeFile(
+    path.join(cwd, "packages/contracts/package.json"),
+    JSON.stringify({
+      name: "@pstack/renamed-contracts",
+      type: "module",
+      exports: "./src/index.ts",
+    }),
+  );
+  git(cwd, "add", "packages");
+  await unchangedAfterFailure(cwd, /Missing dependency:.*@pstack\/contracts/);
+});
+
 test("missing dependencies and unstaged gate configuration fail clearly", async (t) => {
   const cwd = await fixture(t);
   assert.equal(install(cwd).status, 0);
   await rm(path.join(cwd, "node_modules"));
   await unchangedAfterFailure(cwd, /Missing node_modules/);
   await symlink(path.join(root, "node_modules"), path.join(cwd, "node_modules"), "junction");
-  git(cwd, "rm", "--cached", ".oxlintrc.json");
-  await unchangedAfterFailure(cwd, /Required staged file missing: .oxlintrc.json/);
+  for (const file of [".oxlintrc.json", "scripts/source-scope.mjs", "scripts/source-scope.json"]) {
+    git(cwd, "rm", "--cached", file);
+    const result = await unchangedAfterFailure(cwd, /Required staged file missing:/);
+    assert.ok(result.output.includes(`Required staged file missing: ${file}.`));
+    git(cwd, "add", file);
+  }
 });
 
 test("alternate Git index is exported without changing the ordinary index", async (t) => {
@@ -185,21 +362,24 @@ test("alternate Git index is exported without changing the ordinary index", asyn
   const index = await readFile(path.join(cwd, ".git/index"));
   const alternate = path.join(cwd, ".git/alternate-index");
   await writeFile(alternate, index);
-  await writeFile(path.join(cwd, "src/with spaces.ts"), bad);
+  await writeFile(path.join(cwd, "packages/server/src/with spaces.ts"), bad);
   const selected = {
     GIT_INDEX_FILE: alternate,
     GIT_DIR: path.join(cwd, ".git"),
     GIT_WORK_TREE: cwd,
   };
-  assert.equal(execute(cwd, "git", ["add", "src/with spaces.ts"], selected).status, 0);
+  assert.equal(
+    execute(cwd, "git", ["add", "packages/server/src/with spaces.ts"], selected).status,
+    0,
+  );
   const staged = await readFile(alternate);
-  await writeFile(path.join(cwd, "src/with spaces.ts"), good);
+  await writeFile(path.join(cwd, "packages/server/src/with spaces.ts"), good);
   const result = execute(cwd, process.execPath, ["scripts/pre-commit.mjs"], selected);
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, /no-chained-type-assertions/);
   assert.deepEqual(await readFile(alternate), staged);
   assert.deepEqual(await readFile(path.join(cwd, ".git/index")), index);
-  assert.equal(await readFile(path.join(cwd, "src/with spaces.ts"), "utf8"), good);
+  assert.equal(await readFile(path.join(cwd, "packages/server/src/with spaces.ts"), "utf8"), good);
 });
 
 test(

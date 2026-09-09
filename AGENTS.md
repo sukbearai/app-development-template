@@ -2,7 +2,7 @@
 
 Use pstack for design, implementation and review. Project-specific instructions below define runtime and verification boundaries.
 
-After installing dependencies, run `pnpm hooks:install` once per repository to enable the native `.githooks/pre-commit` hook. It exports the Git index to a temporary staged snapshot, then runs `pnpm lint` and `pnpm duplication:check`; the working tree and index remain unchanged. Do not bypass the hook to avoid fixing violations; CI runs the same gates.
+After installing dependencies, run `pnpm hooks:install` once per repository to enable the native `.githooks/pre-commit` hook. It exports the Git index to a temporary staged snapshot, then runs `pnpm lint`, `pnpm duplication:check` and `pnpm dependency:check`; the working tree and index remain unchanged. Do not bypass the hook to avoid fixing violations; CI runs the same gates.
 
 ## Structure
 
@@ -17,7 +17,7 @@ Browser modules cannot import server/database runtime code or credentials. The b
 
 ## Verification
 
-Start with git status and preserve unrelated work. Run `pnpm lint` and `pnpm duplication:check` before declaring work ready. Fix new violations; do not disable rules, add broad ignores, or refresh the duplication baseline just to pass. Baseline changes require explicit review of accepted clones. See `docs/quality-gates.md`. Use `pnpm typecheck`, `pnpm contract:check`, `pnpm migration:check` and affected package tests. `pnpm verify` runs the complete template checks. See `.agents/skills/verify-pstack-x/SKILL.md` for browser evidence and isolated databases.
+Start with git status and preserve unrelated work. Run `pnpm lint`, `pnpm duplication:check` and `pnpm dependency:check` before declaring work ready. Fix new violations; do not disable rules, add broad ignores, or refresh the duplication baseline just to pass. Baseline changes require explicit review of accepted clones. See `docs/quality-gates.md`. Use `pnpm typecheck`, `pnpm contract:check`, `pnpm migration:check` and affected package tests. `pnpm verify` runs the complete template checks. See `.agents/skills/verify-pstack-x/SKILL.md` for browser evidence and isolated databases.
 
 `pnpm test:e2e`, `pnpm test:ui` and `pnpm test:production` own disposable PostgreSQL containers. Never substitute a shared database to make tests pass. Distinguish source checks, PostgreSQL/Kafka/Redis/S3 integration, browser behavior and deployment evidence.
 

@@ -22,7 +22,7 @@ import { ApiError } from "./api-response";
 import { env } from "./env";
 import { hashPassword, verifyPassword } from "./password";
 import { withTransaction, type TransactionContext } from "@pstack/database/client";
-import { recordAudit } from "./product-service";
+import { recordAudit } from "./event-service";
 import * as repo from "@pstack/database/repository";
 
 const tokenPartBytes = 24;
