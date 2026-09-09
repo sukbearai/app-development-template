@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/sukbearai/app-development-template/compare/v0.2.0...v0.2.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **release:** 允许准备阶段核验未公开发行草稿 ([f5730ee](https://github.com/sukbearai/app-development-template/commit/f5730ee63fc07a58ce97244d454ce0ead7b15eec))
+* **release:** 允许准备阶段核验未公开发行草稿 ([f5730ee](https://github.com/sukbearai/app-development-template/commit/f5730ee63fc07a58ce97244d454ce0ead7b15eec))
+
 ## [0.2.0](https://github.com/sukbearai/app-development-template/compare/v0.1.0...v0.2.0) (2026-09-09)
 
 ### ⚠ BREAKING CHANGES
