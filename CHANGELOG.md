@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.3](https://github.com/sukbearai/app-development-template/compare/v0.2.2...v0.2.3) (2026-09-09)
+
+### Features
+
+- **engineering:** 增加公开制品演练并按变更范围验证 ([0a2d27d](https://github.com/sukbearai/app-development-template/commit/0a2d27d8e2eb9086b04e375d87ecbaf1889bedbb))
+
 ## [0.2.2](https://github.com/sukbearai/app-development-template/compare/v0.2.1...v0.2.2) (2026-09-09)
 
 ### Bug Fixes
