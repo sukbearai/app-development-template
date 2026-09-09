@@ -50,6 +50,7 @@ RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x 
 FROM web-dependencies AS web
 COPY . .
 COPY --from=build /app/apps/web/dist ./apps/web/dist
+RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x --filter @pstack/web... install --prod --offline --frozen-lockfile --store-dir=/pnpm/store
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0 PORT=3000
 RUN mkdir -p /app/uploads && chown node:node /app/uploads
@@ -63,6 +64,7 @@ RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x 
 
 FROM worker-dependencies AS worker
 COPY . .
+RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x --filter @pstack/worker... --filter @pstack/server... install --prod --offline --frozen-lockfile --store-dir=/pnpm/store
 ENV NODE_ENV=production
 USER node
 WORKDIR /app/services/worker

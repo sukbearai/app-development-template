@@ -192,6 +192,25 @@ try {
     capture: true,
   });
   networkCreated = true;
+  for (const target of ["web", "worker"]) {
+    const role = `dependencies-${target}`;
+    await container(
+      role,
+      images[target],
+      {},
+      ["--read-only", "--entrypoint", "pnpm"],
+      [
+        "--filter",
+        target === "web" ? "@pstack/database" : "@pstack/worker",
+        "exec",
+        "node",
+        "-e",
+        "if(process.getuid()===0)throw Error('Expected non-root runtime'); require.resolve('tsx');",
+      ],
+    );
+    await finished(role);
+  }
+  summary.checks.push("final images run pnpm commands as non-root with a read-only filesystem");
   const postgres = await container(
     "postgres",
     postgresImage,
