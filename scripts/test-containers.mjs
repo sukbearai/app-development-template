@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { lockedImage } from "./toolchain.mjs";
 import { verificationDirectory } from "./verification-output.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -27,8 +28,8 @@ const { Client } = createRequire(path.join(root, "package.json"))("pg");
 const id = randomBytes(8).toString("hex");
 const prefix = `pstack-artifact-${id}`;
 const images = { web: `${prefix}-web:local`, worker: `${prefix}-worker:local` };
-const postgresImage = process.env.PSTACK_TEST_POSTGRES_IMAGE || "postgres:17-bullseye";
-const kafkaImage = process.env.PSTACK_TEST_KAFKA_IMAGE || "bitnamilegacy/kafka:3.8.0";
+const postgresImage = lockedImage("postgresTest", process.env.PSTACK_TEST_POSTGRES_IMAGE);
+const kafkaImage = lockedImage("kafkaTest", process.env.PSTACK_TEST_KAFKA_IMAGE);
 const password = randomBytes(24).toString("base64url");
 const adminPassword = randomBytes(24).toString("base64url");
 const secrets = [password, adminPassword];

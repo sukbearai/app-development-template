@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { lockedImage } from "./toolchain.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -119,7 +120,7 @@ async function postgresTool(command, args, database, directories = []) {
         ...groups,
         ...Object.keys(connection).flatMap((key) => ["-e", key]),
         ...mounts.flatMap((mount) => ["--mount", mount]),
-        process.env.POSTGRES_TOOL_IMAGE || "postgres:17-alpine",
+        lockedImage("postgres", process.env.POSTGRES_TOOL_IMAGE),
         command,
         ...args,
       ],

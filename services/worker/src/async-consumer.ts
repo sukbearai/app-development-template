@@ -851,13 +851,13 @@ export async function runKafkaConsumer(
   signal.addEventListener("abort", abort, { once: true });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let recoveryTimer: ReturnType<typeof setInterval> | undefined;
-  try {
-    if (signal.aborted) return { processed };
+  running: try {
+    if (signal.aborted) break running;
     await consumer.connect();
-    if (signal.aborted) return { processed };
+    if (signal.aborted) break running;
     if (options.recovery) {
       await options.recovery.check();
-      if (signal.aborted) return { processed };
+      if (signal.aborted) break running;
       let checking = false;
       recoveryTimer = setInterval(() => {
         if (checking || signal.aborted) return;
@@ -873,7 +873,7 @@ export async function runKafkaConsumer(
       topics: options.topics ?? [options.topic ?? "app.tasks"],
       fromBeginning: true,
     });
-    if (signal.aborted) return { processed };
+    if (signal.aborted) break running;
     if (options.maxWaitMs)
       timer = setTimeout(() => failed(new Error("Kafka consumer timed out")), options.maxWaitMs);
     await consumer.run({
@@ -973,7 +973,7 @@ export async function runKafkaConsumer(
         failed(cause);
       }
     }
-    if (failures.length) throw new AggregateError(failures, "Kafka consumer failed");
   }
+  if (failures.length) throw new AggregateError(failures, "Kafka consumer failed");
   return { processed };
 }

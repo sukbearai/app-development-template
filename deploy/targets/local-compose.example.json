@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "pstack-production",
+  "project": "pstack-production",
+  "context": "default",
+  "endpoint": "unix:///var/run/docker.sock",
+  "repository": "YOUR_ORGANIZATION/YOUR_REPOSITORY",
+  "composeFiles": [
+    "/opt/pstack/deploy/compose/docker-compose.yml",
+    "/opt/pstack/deploy/compose/release-images.yml"
+  ],
+  "envFile": "/etc/pstack/production.env",
+  "stateDirectory": "/var/lib/pstack/deployment",
+  "services": ["web", "worker"],
+  "platform": "linux/amd64",
+  "readinessUrl": "https://app.example.com/api/system/health",
+  "timeoutSeconds": 180
+}

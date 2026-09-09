@@ -3,9 +3,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 
 const name = `pstack-otel-${randomUUID()}`;
-const config = fileURLToPath(new URL("../../../deploy/otel-collector.yaml", import.meta.url));
+const config = fileURLToPath(new URL("../../../deploy/otel-collector.debug.yaml", import.meta.url));
+const toolchain = JSON.parse(
+  await readFile(new URL("../../../scripts/toolchain-lock.json", import.meta.url), "utf8"),
+);
 const docker = (...args) =>
   execFileSync("docker", args, { encoding: "utf8", timeout: 60000 }).trim();
 try {
@@ -19,7 +23,7 @@ try {
     "127.0.0.1::4318",
     "--volume",
     `${config}:/etc/otelcol/config.yaml:ro`,
-    "otel/opentelemetry-collector:0.148.0",
+    toolchain.images.otelCore,
   );
   const address = docker("port", name, "4318/tcp");
   const endpoint = `http://${address}/v1/traces`;

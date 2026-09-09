@@ -894,3 +894,53 @@ test("heartbeat stopping rejects late progress and failed is terminal", async ()
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("runtime cancellation reports cleanup failure after an early stop", async (t) => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const directory = await mkdtemp(join(tmpdir(), "worker-runtime-cleanup-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const heartbeat = join(directory, "heartbeat.json");
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      import.meta.resolve("tsx"),
+      "--input-type=module",
+      "-e",
+      `
+    import assert from "node:assert/strict";
+    import { getPool } from "@pstack/database/client";
+    import { runOutboxLoop } from "./src/async-runtime.ts";
+    const pool = getPool();
+    const cleanupError = new Error("pool cleanup failed");
+    pool.query = async () => { process.emit("SIGTERM"); return { rows: [] }; };
+    pool.end = async () => { throw cleanupError; };
+    await assert.rejects(runOutboxLoop(["--iterations", "1"]), (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.equal(error.message, "Worker runtime failed");
+      assert.deepEqual(error.errors, [cleanupError]);
+      return true;
+    });
+    assert.equal(process.exitCode, 1);
+    process.exitCode = 0;
+  `,
+    ],
+    {
+      cwd: new URL("../", import.meta.url),
+      env: {
+        ...process.env,
+        NODE_ENV: "test",
+        DATABASE_URL: "postgres://unused:unused@127.0.0.1:1/unused",
+        OUTBOX_PUBLISHER: "dry-run",
+        WORKER_HEARTBEAT_PATH: heartbeat,
+        APP_TEMPLATE_WORKER_SKIP_ENV_FILES: "1",
+      },
+      encoding: "utf8",
+      timeout: 10_000,
+    },
+  );
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(JSON.parse(await readFile(heartbeat, "utf8")).state, "failed");
+});

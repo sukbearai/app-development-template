@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { lockedImage } from "./toolchain.mjs";
 import { verificationDirectory } from "./verification-output.mjs";
 import { sourceIdentity } from "./verification-evidence.mjs";
 import assert from "node:assert/strict";
@@ -95,7 +96,7 @@ if (process.argv[2] === "--probe") {
 async function run() {
   const id = randomBytes(8).toString("hex");
   const name = `pstack-kafka-security-${id}`;
-  const image = process.env.PSTACK_TEST_KAFKA_SECURITY_IMAGE || "apache/kafka:3.9.1";
+  const image = lockedImage("kafka", process.env.PSTACK_TEST_KAFKA_SECURITY_IMAGE);
   const temp = await mkdtemp(path.join(os.tmpdir(), `${name}-`));
   const evidenceRoot = verificationDirectory(root, "kafka-security");
   await mkdir(evidenceRoot, { recursive: true });

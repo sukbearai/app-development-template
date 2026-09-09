@@ -52,7 +52,7 @@ export async function coldStart(args = process.argv.slice(2)) {
     const options = coldStartOptions(args);
     if (options.help) {
       process.stdout.write(
-        "Usage: node scripts/cold-start.mjs [--json]\nFresh frozen install, owned PostgreSQL and browser business smoke. Requires Node 22.12+, pnpm 10.33.4, Docker Compose and Chromium.\n",
+        "Usage: node scripts/cold-start.mjs [--json]\nFresh frozen install, owned PostgreSQL and browser business smoke. Requires Node 22.13+, pnpm 11.26.0, Docker Compose and Chromium.\n",
       );
       return;
     }
@@ -212,7 +212,10 @@ export async function coldStart(args = process.argv.slice(2)) {
             [...resource, "--filter", `label=com.docker.compose.project=${projectName(checkout)}`],
             true,
           );
-          if (remaining) throw new Error("Owned Compose resources remain after cleanup.");
+          if (remaining) {
+            cleanupErrors.push("compose_cleanup_failed");
+            break;
+          }
         }
       } catch {
         cleanupErrors.push("compose_cleanup_failed");

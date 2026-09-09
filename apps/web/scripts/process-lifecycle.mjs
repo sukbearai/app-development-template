@@ -6,7 +6,7 @@ export function createWebLifecycle() {
   const active = new Set();
   const cleanup = new Set();
   async function drainResources() {
-    while (active.size) await Promise.allSettled([...active]);
+    while (active.size) await Promise.allSettled(active);
     const results = await Promise.allSettled(
       [...cleanup].map((dispose) => Promise.resolve().then(dispose)),
     );

@@ -7,6 +7,8 @@ import { parseArgs } from "node:util";
 import { z } from "zod";
 import { commandResult, printCommandResult } from "./engineering-command.mjs";
 import { RELEASE_GATES } from "./verification-plan.mjs";
+import { verifyScanEvidence } from "./release-security.mjs";
+import { verifyCandidateRollback, verifyRollbackProof } from "./rollback-proof.mjs";
 import {
   evidenceReference,
   sha256,
@@ -61,10 +63,12 @@ export const releaseSchema = z
     evidence: reference,
     candidate: reference,
     receipt: reference,
+    security: reference,
     compatibility: z.strictObject({
       migrationLedgerSha256: hash,
       recoveryProtocol: z.literal("pstack-recovery-v2"),
       rollbackVersions: z.array(version),
+      rollbackProof: reference.nullable(),
     }),
   })
   .refine((value) => value.tag === `v${value.version}`, "Release tag/version mismatch");
@@ -180,7 +184,16 @@ async function validateInputs(root, candidateFile, evidenceFile, receiptFile) {
   }
   return { candidate, evidence, receipt };
 }
-export async function createRelease(root, candidateFile, evidenceFile, receiptFile) {
+export async function createRelease({
+  root,
+  candidateFile,
+  evidenceFile,
+  receiptFile,
+  securityFile,
+  rollbackProofFile,
+  previousFile,
+  previousRoot = root,
+}) {
   const inputs = await validateInputs(root, candidateFile, evidenceFile, receiptFile);
   assert.deepEqual(
     await sourceIdentity(root),
@@ -191,7 +204,28 @@ export async function createRelease(root, candidateFile, evidenceFile, receiptFi
     .object({ version, packageManager: z.string() })
     .parse(await readJson(path.join(root, "package.json")));
   const environment = inputs.evidence.environment;
-  return releaseSchema.parse({
+  assert.ok(securityFile, "Security evidence is required");
+  const security = await evidenceReference(root, securityFile);
+  await verifyScanEvidence(root, inputs.candidate, security);
+  assert.equal(
+    Boolean(rollbackProofFile),
+    Boolean(previousFile),
+    "Rollback proof requires a previous release",
+  );
+  let rollbackVersions = [];
+  let rollbackProof = null;
+  if (rollbackProofFile) {
+    const previous = await verifyRelease(previousFile, previousRoot);
+    await verifyRollbackProof({
+      root,
+      proofFile: rollbackProofFile,
+      candidate: inputs.candidate,
+      previous,
+    });
+    rollbackVersions = [previous.version];
+    rollbackProof = await evidenceReference(root, rollbackProofFile);
+  }
+  const release = releaseSchema.parse({
     schemaVersion: 1,
     version: pkg.version,
     tag: `v${pkg.version}`,
@@ -208,12 +242,16 @@ export async function createRelease(root, candidateFile, evidenceFile, receiptFi
     evidence: await evidenceReference(root, evidenceFile),
     candidate: await evidenceReference(root, candidateFile),
     receipt: await evidenceReference(root, receiptFile),
+    security,
     compatibility: {
       migrationLedgerSha256: sha256(await readFile(path.join(root, migrationLedgerPath))),
       recoveryProtocol: "pstack-recovery-v2",
-      rollbackVersions: [],
+      rollbackVersions,
+      rollbackProof,
     },
   });
+  await verifyCandidateRollback(root, release, inputs.candidate);
+  return release;
 }
 export async function createReleaseManifest({
   root,
@@ -221,8 +259,21 @@ export async function createReleaseManifest({
   evidenceFile,
   receiptFile,
   outputFile,
+  securityFile,
+  rollbackProofFile,
+  previousFile,
+  previousRoot = root,
 }) {
-  const release = await createRelease(root, candidateFile, evidenceFile, receiptFile);
+  const release = await createRelease({
+    root,
+    candidateFile,
+    evidenceFile,
+    receiptFile,
+    securityFile,
+    rollbackProofFile,
+    previousFile,
+    previousRoot,
+  });
   const content = `${JSON.stringify(release, null, 2)}\n`;
   try {
     await writeFile(outputFile, content, { flag: "wx" });
@@ -251,6 +302,8 @@ export async function verifyRelease(file, root) {
     "Release images differ from registry receipt",
   );
   assert.equal(release.ciRun, inputs.evidence.environment.ciRun, "Release CI run mismatch");
+  await verifyScanEvidence(root, inputs.candidate, release.security);
+  await verifyCandidateRollback(root, release, inputs.candidate);
   return release;
 }
 async function main() {
@@ -264,14 +317,25 @@ async function main() {
         evidence: { type: "string" },
         receipt: { type: "string" },
         output: { type: "string" },
+        security: { type: "string" },
+        "rollback-proof": { type: "string" },
+        previous: { type: "string" },
+        "previous-root": { type: "string" },
         json: { type: "boolean" },
       },
       strict: true,
     }).values;
-    for (const key of ["candidate", "evidence", "receipt", "output"])
+    for (const key of ["candidate", "evidence", "receipt", "output", "security"])
       assert.ok(options[key], `--${key} is required`);
-    for (const key of ["candidate", "evidence", "receipt", "output"])
+    for (const key of ["candidate", "evidence", "receipt", "output", "security"])
       inside(options.root, options[key]);
+    if (options["rollback-proof"]) inside(options.root, options["rollback-proof"]);
+    if (options.previous) inside(options["previous-root"] ?? options.root, options.previous);
+    assert.equal(
+      Boolean(options["rollback-proof"]),
+      Boolean(options.previous),
+      "--rollback-proof and --previous must be supplied together",
+    );
   } catch (error) {
     process.stderr.write(`${error.message}\n`);
     printCommandResult(
@@ -291,6 +355,14 @@ async function main() {
       evidenceFile: inside(options.root, options.evidence),
       receiptFile: inside(options.root, options.receipt),
       outputFile: inside(options.root, options.output),
+      securityFile: inside(options.root, options.security),
+      rollbackProofFile: options["rollback-proof"]
+        ? inside(options.root, options["rollback-proof"])
+        : undefined,
+      previousFile: options.previous
+        ? inside(options["previous-root"] ?? options.root, options.previous)
+        : undefined,
+      previousRoot: options["previous-root"] ?? options.root,
     });
     printCommandResult(
       commandResult({

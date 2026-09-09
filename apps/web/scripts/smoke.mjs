@@ -19,12 +19,9 @@ async function call(path, { method = "GET", body, token, cookie, origin, raw, tr
   if (cookie) headers.cookie = cookie;
   if (origin) headers.origin = origin;
   if (traceId) headers["x-trace-id"] = traceId;
-  const response = await fetch(new URL(path, base), {
-    method,
-    headers,
-    body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
-    signal: AbortSignal.timeout(15_000),
-  });
+  const options = { method, headers, signal: AbortSignal.timeout(15_000) };
+  if (raw !== undefined || body !== undefined) options.body = raw ?? JSON.stringify(body);
+  const response = await fetch(new URL(path, base), options);
   const text = await response.text();
   if (response.status === 201 && telemetryPaths.includes(path)) telemetryAdmissions++;
   let payload;
@@ -78,8 +75,6 @@ const forged = `${token.split(".")[0]}.forged-secret`;
 await client({ authorization: `Bearer ${forged}` }).auth.logout.mutate();
 assert.equal((await admin.auth.me.query()).user.account, account);
 checks.push("malformed input rejected; forged logout cannot revoke real session");
-await expectStatus(client({ cookie, origin: "https://evil.invalid" }).roles.create.mutate({}), 403);
-checks.push("cross-origin cookie write rejected");
 const suffix = String(Date.now());
 const role = {
   id: `role_smoke_${suffix}`,
@@ -87,6 +82,20 @@ const role = {
   permissionIds: ["admin.read"],
   status: "active",
 };
+const forgedRole = { ...role, id: `role_forged_${suffix}` };
+assert.equal(
+  (
+    await call("/api/trpc/roles.create", {
+      method: "POST",
+      cookie,
+      origin: "https://evil.invalid",
+      body: forgedRole,
+    })
+  ).status,
+  403,
+);
+assert.ok(!(await admin.roles.list.query()).some((entry) => entry.id === forgedRole.id));
+checks.push("cross-origin cookie write rejected without creating a role");
 await admin.roles.create.mutate(role);
 const user = {
   account: `smoke_${suffix}`,

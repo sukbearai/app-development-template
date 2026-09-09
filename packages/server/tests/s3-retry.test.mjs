@@ -13,7 +13,7 @@ test("a disconnected PUT remains uncertain without an acknowledged retry", async
     releaseFirst = resolve;
   });
   const server = http.createServer(async (request, response) => {
-    for await (const chunk of request) {
+    for await (const _chunk of request) {
       /* Receive the complete body before losing the response. */
     }
     if (request.method === "PUT") {

@@ -2,7 +2,7 @@
 
 `pnpm test:cold-start` 从当前源码导出新的临时 Git 仓库，按 [README](../README.md) 顺序执行冻结依赖安装、hook 安装、配置初始化、依赖启动、迁移、管理员初始化和开发服务启动。[启动步骤](startup-steps.json) 保存命令参数；`pnpm docs:check` 检查 README 顺序与它一致。
 
-需要 Node 22.12+、仓库固定版本的 pnpm、可用的 Docker Compose 和 Chromium。先执行 `pnpm exec playwright install chromium`；Linux CI 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器系统依赖。冷启动会单独安装应用依赖，允许复用 pnpm 下载缓存和浏览器安装，但不复用工作区 node_modules。
+需要 Node 22.13+、仓库固定版本的 pnpm、可用的 Docker Compose 和 Chromium。先执行 `pnpm exec playwright install chromium`；Linux CI 可用 `pnpm exec playwright install --with-deps chromium` 安装浏览器系统依赖。冷启动会单独安装应用依赖，允许复用 pnpm 下载缓存和浏览器安装，但不复用工作区 node_modules。
 
 ```bash
 pnpm docs:check

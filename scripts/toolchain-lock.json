@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "images": {
+    "frontend": "docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32",
+    "node": "node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32",
+    "postgres": "postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+    "redis": "redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf",
+    "kafka": "apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed",
+    "minio": "minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e",
+    "mc": "minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3",
+    "clickhouse": "clickhouse/clickhouse-server:25.6-alpine@sha256:aa13b8b9ac1aa22fbae3ee98a0c954bfc2037bb5b1ce3182390507cf72600009",
+    "trivy": "aquasec/trivy:0.69.3@sha256:bcc376de8d77cfe086a917230e818dc9f8528e3c852f7b1aff648949b6258d1c",
+    "postgresTest": "postgres:17-bullseye@sha256:724a6dfcc90fb6b2eb7caa062c7c852fe60fc30727896a044f4d478f423f183f",
+    "otelContrib": "otel/opentelemetry-collector-contrib:0.123.0@sha256:e39311df1f3d941923c00da79ac7ba6269124a870ee87e3c3ad24d60f8aee4d2",
+    "otelCore": "otel/opentelemetry-collector:0.148.0@sha256:1c7c8745b2f64fe1c4e4cd47afa77178e8efa22ecb756e788d7e0b74a316d88c",
+    "kafkaTest": "bitnamilegacy/kafka:3.8.0@sha256:6037ad00c9d7c786875d23008dde4f75bb1835b0c4eb3439358d7ea97ce85a6f"
+  },
+  "actions": {
+    "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+    "pnpm/action-setup": "b906affcce14559ad1aafd4ab0e942779e9f58b1",
+    "actions/setup-node": "49933ea5288caeca8642d1e84afbd3f7d6820020",
+    "actions/upload-artifact": "ea165f8d65b6e75b540449e92b4886f43607fa02",
+    "actions/download-artifact": "d3f86a106a0bac45b974a628896c90dbdf5c8093",
+    "actions/create-github-app-token": "fee1f7d63c2ff003460e3d139729b119787bc349",
+    "googleapis/release-please-action": "5c625bfb5d1ff62eadeeb3772007f7f66fdcf071"
+  },
+  "cosign": {
+    "version": "v3.1.3",
+    "sha256": {
+      "linux-amd64": "4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71",
+      "darwin-arm64": "5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76"
+    }
+  },
+  "policy": {
+    "severities": ["HIGH", "CRITICAL"],
+    "maxScanAgeHours": 168,
+    "maxDatabaseAgeHours": 48,
+    "exceptions": []
+  },
+  "pnpm": {
+    "version": "11.26.0",
+    "integrity": "sha512-/A4r+JC5+YNhHxq2jAY3vOkUOQZTaZ+DwaeLAF7SXyyB53kgyP2O7i7PC1iyjNywCoTZf2m898VrLzRHECOGZA=="
+  },
+  "alpinePackages": {
+    "libcrypto3": "3.5.8-r0",
+    "libssl3": "3.5.8-r0"
+  }
+}

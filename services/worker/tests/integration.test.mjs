@@ -414,7 +414,7 @@ test("stored envelope parsing rejects missing payload and distinguishes invalid 
   for (const [transform, diagnostic] of [
     [
       (task) => {
-        const { payload: omitted, ...rest } = task;
+        const { payload: _omitted, ...rest } = task;
         return rest;
       },
       "Stored task envelope is missing or invalid",

@@ -1,0 +1,11 @@
+[Unit]
+Description=Observe pstack every 30 seconds
+
+[Timer]
+OnCalendar=*-*-* *:*:00,30
+Persistent=true
+AccuracySec=1s
+Unit=pstack-monitor.service
+
+[Install]
+WantedBy=timers.target

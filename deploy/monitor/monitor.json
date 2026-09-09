@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "targetId": "pstack-production-web-1",
+  "metricsUrl": "https://app.example.com/api/system/metrics",
+  "webhookUrl": "https://alerts.example.com/pstack",
+  "stateDirectory": "/var/lib/pstack-monitor",
+  "sustainMs": 300000,
+  "recoveryMs": 60000,
+  "maxObservationGapMs": 90000,
+  "webhookTimeoutMs": 5000,
+  "retryBaseMs": 30000,
+  "retryMaxMs": 900000,
+  "maxAttempts": 100,
+  "maxDeliveriesPerTick": 4,
+  "maxQueue": 1000
+}

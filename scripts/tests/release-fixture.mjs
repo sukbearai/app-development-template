@@ -10,6 +10,7 @@ import {
   requiredContainerChecks,
 } from "../release-manifest.mjs";
 import { evidenceReference, sha256, sourceIdentity } from "../verification-evidence.mjs";
+import { toolchain } from "../release-security.mjs";
 
 export async function releaseFixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "pstack-release-"));
@@ -103,8 +104,52 @@ export async function releaseFixture(t) {
   const evidenceFile = await put("artifacts/index.json", evidence);
   const receipt = { schemaVersion: 1, source, images: published };
   const receiptFile = await put("artifacts/registry.json", receipt);
+  const securityFile = await securityFixture({ candidate, put, ref });
   const outputFile = path.join(root, "artifacts/release.json");
-  const options = { root, candidateFile, evidenceFile, receiptFile, outputFile };
+  const options = { root, candidateFile, evidenceFile, receiptFile, securityFile, outputFile };
   const release = await createReleaseManifest(options);
   return { ...options, release, candidate, evidence, receipt, put, ref, hash: sha256 };
+}
+
+export async function securityFixture({ candidate, put, ref }) {
+  const now = new Date();
+  await put("artifacts/database.json", {
+    UpdatedAt: now.toISOString(),
+    NextUpdate: new Date(now.getTime() + 86400000).toISOString(),
+  });
+  await put("artifacts/audit.json", {
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0 } },
+  });
+  const images = {};
+  for (const role of ["web", "worker"]) {
+    const image = candidate.images[role];
+    const report = `artifacts/${role}-vulnerabilities.json`;
+    const sbom = `artifacts/${role}-sbom.json`;
+    await put(report, {
+      SchemaVersion: 2,
+      ArtifactType: "container_image",
+      Metadata: { ImageID: image.id },
+      Results: [{ Class: "os-pkgs", Vulnerabilities: [] }],
+    });
+    await put(sbom, { bomFormat: "CycloneDX", components: [{ name: "fixture" }] });
+    images[role] = {
+      id: image.id,
+      archive: image.archive,
+      report: await ref(report),
+      sbom: await ref(sbom),
+    };
+  }
+  return put("artifacts/security.json", {
+    schemaVersion: 1,
+    source: candidate.source,
+    scannedAt: now.toISOString(),
+    scanner: toolchain.images.trivy,
+    policySha256: sha256(JSON.stringify(toolchain.policy)),
+    policy: toolchain.policy,
+    database: await ref("artifacts/database.json"),
+    databaseSha256: "f".repeat(64),
+    audit: await ref("artifacts/audit.json"),
+    images,
+    outcome: "passed",
+  });
 }

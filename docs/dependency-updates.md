@@ -6,6 +6,12 @@ Run `pnpm format` to apply Prettier and `pnpm format:check` to check formatting.
 SDK declarations are formatted during generation and remain part of the format
 check.
 
+pnpm 11 requires an explicit dependency build policy. `pnpm-workspace.yaml`
+allows esbuild to verify its native binary. It disables MSW's optional worker-file
+postinstall because `scripts/prepare-storybook.mjs` owns the Storybook worker.
+New dependency build scripts require a package-specific decision; installation
+fails until they are classified.
+
 `renovate.json` groups related React, Effect, Drizzle, AWS SDK, Playwright, Oxlint,
 and OpenAPI dependencies. Renovate proposes pinned versions, maintains the pnpm
 lockfile, and runs on Monday mornings in Australia/Perth. Major upgrades require

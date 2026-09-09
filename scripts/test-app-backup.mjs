@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { lockedImage } from "./toolchain.mjs";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdtemp, rm, readFile, writeFile, mkdir, unlink } from "node:fs/promises";
@@ -20,7 +21,7 @@ const {
 const suffix = randomUUID().replaceAll("-", ""),
   containers = [];
 const directory = await mkdtemp(path.join(tmpdir(), "pstack-app-backup-proof-"));
-const postgresImage = process.env.BACKUP_TEST_POSTGRES_IMAGE || "postgres:17-bullseye";
+const postgresImage = lockedImage("postgresTest", process.env.BACKUP_TEST_POSTGRES_IMAGE);
 const minioImage =
   process.env.BACKUP_TEST_MINIO_IMAGE || "minio/minio:RELEASE.2025-04-22T22-12-26Z";
 let control, s3;

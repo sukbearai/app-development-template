@@ -1,13 +1,26 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import { commandResult, printCommandResult } from "./engineering-command.mjs";
 import { evidenceReference, sha256 } from "./verification-evidence.mjs";
-import { createReleaseManifest, verifyCandidateInputs } from "./release-manifest.mjs";
+import {
+  createReleaseManifest,
+  verifyCandidateInputs,
+  verifyRelease,
+} from "./release-manifest.mjs";
+import {
+  scanCandidate,
+  signRelease,
+  securityPath,
+  verifyReleaseSecurity,
+} from "./release-security.mjs";
+import { verifyPublishedRelease } from "./release-plan.mjs";
+import { verifyRollbackProof } from "./rollback-proof.mjs";
+import { selectPredecessor } from "./release-predecessor.mjs";
 import { readReleaseVersion } from "./release-version-check.mjs";
 
 export function publishOptions(args) {
@@ -17,6 +30,9 @@ export function publishOptions(args) {
       candidate: { type: "string" },
       evidence: { type: "string" },
       output: { type: "string" },
+      previous: { type: "string" },
+      "previous-root": { type: "string" },
+      "rollback-proof": { type: "string" },
       repo: { type: "string" },
       apply: { type: "boolean" },
       json: { type: "boolean" },
@@ -29,6 +45,12 @@ export function publishOptions(args) {
       /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(values.repo),
     "candidate, evidence, output and repo required",
   );
+  assert.equal(
+    Boolean(values.previous),
+    Boolean(values["rollback-proof"]),
+    "--previous and --rollback-proof must be supplied together",
+  );
+  assert.ok(!values["previous-root"] || values.previous, "--previous-root requires --previous");
   const relative = path.relative(process.cwd(), path.resolve(values.output));
   assert.ok(
     relative.startsWith(`artifacts${path.sep}`),
@@ -99,13 +121,34 @@ async function uploadAsset(repo, release, file, name) {
   );
   assert.equal(uploaded.size, reference.bytes, "Uploaded asset size does not match");
 }
-export async function publishRelease(options) {
+export async function publishRelease(
+  options,
+  security = { scan: scanCandidate, sign: signRelease },
+) {
   const root = process.cwd();
   const candidateFile = path.resolve(options.candidate);
   const evidenceFile = path.resolve(options.evidence);
   const { candidate, index } = await verifyCandidateInputs({ root, candidateFile, evidenceFile });
   const { version, channel } = await readReleaseVersion(root, true);
   const tag = `v${version}`;
+  const previousRoot = path.resolve(options["previous-root"] ?? root);
+  let previous;
+  if (options.previous) {
+    previous = await verifyRelease(securityPath(previousRoot, options.previous), previousRoot);
+    await verifyPublishedRelease(
+      options.repo,
+      previous,
+      await evidenceReference(previousRoot, securityPath(previousRoot, options.previous)),
+      ghJson,
+    );
+    await verifyReleaseSecurity(previousRoot, previous, options.repo);
+    await verifyRollbackProof({
+      root,
+      proofFile: securityPath(root, options["rollback-proof"]),
+      candidate,
+      previous,
+    });
+  }
   if (!options.apply)
     return { status: "passed", data: { version, tag, source: candidate.source, apply: false } };
   const releases = JSON.parse(
@@ -116,6 +159,12 @@ export async function publishRelease(options) {
       `repos/${options.repo}/releases?per_page=100`,
     ]).toString("utf8"),
   ).flat();
+  const expectedPrevious = selectPredecessor(releases, tag);
+  assert.equal(
+    previous?.tag ?? null,
+    expectedPrevious?.tag_name ?? null,
+    "Publication requires the latest predecessor and its rollback proof",
+  );
   const matches = releases.filter((item) => item.tag_name === tag);
   assert.equal(matches.length, 1, "Expected exactly one reserved release");
   const release = matches[0];
@@ -124,6 +173,7 @@ export async function publishRelease(options) {
   verifyDraft(release, candidate.source.gitSha, tag);
   const output = path.resolve(options.output);
   await mkdir(output, { recursive: true });
+  const securityRef = await security.scan(root, candidate, output);
   const receipt = { schemaVersion: 1, source: candidate.source, images: {} };
   for (const role of ["web", "worker"]) {
     const image = candidate.images[role];
@@ -174,14 +224,30 @@ export async function publishRelease(options) {
   const receiptFile = path.join(output, "registry.json");
   await writeFile(receiptFile, `${JSON.stringify(receipt, null, 2)}\n`);
   const manifestFile = path.join(output, "release.json");
-  await createReleaseManifest({
+  const publishedRelease = await createReleaseManifest({
     root,
     candidateFile,
     evidenceFile,
     receiptFile,
+    securityFile: securityPath(root, securityRef.path),
+    previousFile: options.previous ? securityPath(previousRoot, options.previous) : undefined,
+    previousRoot,
+    rollbackProofFile: options["rollback-proof"]
+      ? path.resolve(options["rollback-proof"])
+      : undefined,
     outputFile: manifestFile,
   });
+  await security.sign(root, publishedRelease, options.repo);
+  const scan = JSON.parse(await readFile(securityPath(root, securityRef.path), "utf8"));
   const files = new Set([
+    securityRef.path,
+    scan.database.path,
+    scan.audit.path,
+    ...Object.values(scan.images).flatMap((image) => [image.report.path, image.sbom.path]),
+    path.relative(root, `${manifestFile}.sigstore.json`),
+    ...["web", "worker"].map((role) =>
+      path.relative(root, path.join(output, `${role}-provenance.json`)),
+    ),
     path.relative(root, manifestFile),
     path.relative(root, candidateFile),
     path.relative(root, evidenceFile),
@@ -191,6 +257,13 @@ export async function publishRelease(options) {
     ...Object.values(receipt.images).map((image) => image.manifest.path),
     ...index.checks.flatMap((check) => check.evidence.map((reference) => reference.path)),
   ]);
+  if (publishedRelease.compatibility.rollbackProof) {
+    const proof = JSON.parse(
+      await readFile(securityPath(root, publishedRelease.compatibility.rollbackProof.path), "utf8"),
+    );
+    files.add(publishedRelease.compatibility.rollbackProof.path);
+    files.add(proof.evidence.path);
+  }
   const fileList = path.join(output, "evidence-files.txt");
   for (const file of files)
     assert.ok(!file.includes("\n") && !file.startsWith("-"), "Unsafe archive entry");

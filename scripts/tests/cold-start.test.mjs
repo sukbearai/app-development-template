@@ -15,8 +15,8 @@ import {
 test("cold start rejects unknown arguments and old Node before resources", () => {
   assert.throws(() => coldStartOptions(["--production"]), { code: "INVALID_ARGUMENT" });
   assert.throws(() => coldStartOptions(["--json", "--json"]), { code: "INVALID_ARGUMENT" });
-  assert.throws(() => checkNode("22.11.0"), { code: "NODE_UNSUPPORTED" });
-  assert.doesNotThrow(() => checkNode("22.12.0"));
+  assert.throws(() => checkNode("22.12.0"), { code: "NODE_UNSUPPORTED" });
+  assert.doesNotThrow(() => checkNode("22.13.0"));
   const env = isolatedEnvironment({
     PATH: "/bin",
     DATABASE_URL: "shared",

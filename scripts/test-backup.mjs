@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { lockedImage } from "./toolchain.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import {
   chmod,
@@ -22,7 +23,7 @@ const { Client } = await import("pg");
 let server;
 let control;
 let containerId;
-const postgresImage = process.env.BACKUP_TEST_POSTGRES_IMAGE || "postgres:17-bullseye";
+const postgresImage = lockedImage("postgresTest", process.env.BACKUP_TEST_POSTGRES_IMAGE);
 process.env.POSTGRES_TOOLS = "docker";
 process.env.POSTGRES_TOOL_IMAGE = postgresImage;
 const suffix = randomUUID().replaceAll("-", "");

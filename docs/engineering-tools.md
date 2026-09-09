@@ -7,6 +7,8 @@
 | `pnpm version:check`       | 核验工具配置、manifest、根版本和 CHANGELOG     | 只读                              |
 | `pnpm docs:check`          | 检查文档链接、启动命令顺序和功能验证地图       | 只读                              |
 | `pnpm dependency:check`    | 检查运行时循环依赖、未解析导入和源码扫描覆盖   | 本地依赖检查报告                  |
+| `pnpm supply-chain:check`  | 核验工作流、镜像和工具的不可变引用             | 只读                              |
+| `pnpm security:audit`      | 查询生产依赖漏洞，拒绝 high 和 critical        | 查询包仓库                        |
 | `pnpm pr:verify`           | 源码门禁和按范围选择的验证                     | 本地报告及测试自有资源            |
 | `pnpm pr:verify --release` | 完整发行验证，包括生产浏览器、容量、恢复和容器 | 本地报告及测试自有资源            |
 | `pnpm test:cold-start`     | 全新隔离安装、启动和浏览器业务流程             | 临时检出、临时 Compose 资源及证据 |
@@ -14,8 +16,15 @@
 | `pnpm release:manifest`    | 验证镜像、回执与证据后生成发布清单             | 指定清单文件                      |
 | `pnpm release:plan`        | 验证公开 Release 后生成固定 digest 的部署计划  | 只读 GitHub 与本地证据            |
 | `pnpm release:publish`     | 验证候选，显式 apply 后发布                    | 默认只读；apply 写 GHCR 与 GitHub |
+| `pnpm release:apply`       | 执行已验证版本的 Compose 部署                  | 指定目标容器及部署记录            |
+| `pnpm release:rollback`    | 执行有兼容证据的应用回退                       | 指定目标容器及部署记录            |
+| `pnpm release:status`      | 查看部署记录                                   | 只读                              |
+| `pnpm monitor:tick`        | 采集指标并处理持久化告警                       | 本地状态及配置的接收端            |
+| `pnpm monitor:status`      | 查看告警与投递状态                             | 只读                              |
 
 各命令的参数和使用限制分别见[版本](versioning.md)、[发布](releasing.md)、[冷启动](cold-start.md)和[容量比较](capacity-comparison.md)。发布并不自动部署到服务器。
+
+供应链门禁见[供应链检查](supply-chain.md)。执行部署见[部署与回滚](deployment-execution.md)。持续告警与 systemd 定时任务见[监控](monitoring.md)。首次部署和通知投递均使用显式配置的目标；验证工具使用自己的临时资源。
 
 依赖检查使用固定版本 dpdm，保留独立的 `boundary:check` 分层检查。扫描范围、vinext 例外和报告位置见[源码质量门禁](quality-gates.md)。[Codex 界面设计审查](codex-design.md)提供按需 Hallmark skill，不作为 CI 自动评分。
 

@@ -10,6 +10,8 @@ const reports = {
   "test:containers": { directory: "containers", file: "summary.json" },
   "test:async-recovery": { directory: "async-recovery", file: "summary.json" },
   "test:kafka-security": { directory: "kafka-security", file: "summary.json" },
+  "test:monitor-collector": { directory: "monitor-collector", file: "summary.json" },
+  "test:deployment": { directory: "deployment", file: "summary.json" },
 };
 export async function validateGateReports(
   gate,

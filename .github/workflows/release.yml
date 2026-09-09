@@ -123,10 +123,11 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write
       actions: read
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
         env:
           POSTGRES_USER: app
           POSTGRES_PASSWORD: ci-only-password
@@ -144,7 +145,7 @@ jobs:
       E2E_USERNAME: admin
       E2E_PASSWORD: ci-only-password-8791
       POSTGRES_TOOLS: docker
-      POSTGRES_TOOL_IMAGE: postgres:17-alpine
+      POSTGRES_TOOL_IMAGE: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -192,6 +193,32 @@ jobs:
           node --input-type=module -e 'import fs from "node:fs"; import assert from "node:assert/strict"; const result = JSON.parse(fs.readFileSync("artifacts/release-result.json")); assert.equal(result.status, "passed"); assert.match(result.evidence, /^artifacts\/verification\/[A-Za-z0-9_-]+\/index\.json$/); fs.appendFileSync(process.env.GITHUB_OUTPUT, `evidence=${result.evidence}\n`);'
           EVIDENCE_INDEX=$(node -p 'JSON.parse(require("node:fs").readFileSync("artifacts/release-result.json")).evidence')
           node scripts/release-publish.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --output artifacts/release --repo "$GITHUB_REPOSITORY"
+      - name: Prepare or verify the original predecessor bundle
+        id: predecessor
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
+          RECOVERY_RUN: ${{ needs.prepare.outputs.recovery_run }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          args=()
+          if [ -n "$RECOVERY_RUN" ]; then args+=(--retry); fi
+          node scripts/release-predecessor.mjs --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" --output artifacts/predecessor "${args[@]}"
+      - name: Prove candidate startup and rollback against the predecessor
+        if: steps.predecessor.outputs.previous_manifest != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_ROOT: ${{ steps.predecessor.outputs.previous_root }}
+          PREVIOUS_MANIFEST: ${{ steps.predecessor.outputs.previous_manifest }}
+          EVIDENCE_INDEX: ${{ steps.verify.outputs.evidence }}
+          RECOVERY_RUN: ${{ needs.prepare.outputs.recovery_run }}
+        run: |
+          if [ -n "$RECOVERY_RUN" ]; then
+            test -f artifacts/rollback/rollback-proof.json || { echo 'Original rollback proof is missing; refusing to regenerate it during publication retry.' >&2; exit 1; }
+          else
+            node scripts/release-rollback-proof.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --previous-root "$PREVIOUS_ROOT" --previous "$PREVIOUS_MANIFEST" --repo "$GITHUB_REPOSITORY" --output artifacts/rollback --context default
+          fi
       - name: Publish the verified image batch and draft
         if: success() && steps.verify.outputs.evidence != ''
         env:
@@ -200,11 +227,15 @@ jobs:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_SHA: ${{ needs.prepare.outputs.sha }}
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          PREVIOUS_ROOT: ${{ steps.predecessor.outputs.previous_root }}
+          PREVIOUS_MANIFEST: ${{ steps.predecessor.outputs.previous_manifest }}
         run: |
           node scripts/release-status.mjs resolve --repo "$GITHUB_REPOSITORY" --tag "$RELEASE_TAG" --sha "$RELEASE_SHA" > "$RUNNER_TEMP/release-identity.json"
           node --input-type=module -e 'import fs from "node:fs"; import path from "node:path"; import assert from "node:assert/strict"; assert.equal(JSON.parse(fs.readFileSync(path.join(process.env.RUNNER_TEMP,"release-identity.json"))).releaseId, Number(process.env.RELEASE_ID));'
           printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          node scripts/release-publish.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --output artifacts/release --repo "$GITHUB_REPOSITORY" --apply
+          args=()
+          if [ -n "$PREVIOUS_MANIFEST" ]; then args+=(--previous-root "$PREVIOUS_ROOT" --previous "$PREVIOUS_MANIFEST" --rollback-proof artifacts/rollback/rollback-proof.json); fi
+          node scripts/release-publish.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --output artifacts/release --repo "$GITHUB_REPOSITORY" --apply "${args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

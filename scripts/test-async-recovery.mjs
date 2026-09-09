@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { lockedImage } from "./toolchain.mjs";
 import { verificationDirectory } from "./verification-output.mjs";
 import { sourceIdentity } from "./verification-evidence.mjs";
 import assert from "node:assert/strict";
@@ -146,8 +147,8 @@ async function proveRecovery() {
   const id = randomBytes(8).toString("hex"),
     prefix = `pstack-recovery-${id}`;
   const password = randomBytes(24).toString("base64url");
-  const postgresImage = process.env.PSTACK_TEST_POSTGRES_IMAGE || "postgres:17-bullseye";
-  const kafkaImage = process.env.PSTACK_TEST_KAFKA_IMAGE || "bitnamilegacy/kafka:3.8.0";
+  const postgresImage = lockedImage("postgresTest", process.env.PSTACK_TEST_POSTGRES_IMAGE);
+  const kafkaImage = lockedImage("kafkaTest", process.env.PSTACK_TEST_KAFKA_IMAGE);
   const evidenceRoot = verificationDirectory(root, "async-recovery");
   await mkdir(evidenceRoot, { recursive: true });
   const output = await mkdtemp(path.join(evidenceRoot, "run-"));

@@ -377,7 +377,7 @@ export async function restoreBundle(options) {
       "LOCK TABLE app_file_assets, app_upload_intents IN SHARE ROW EXCLUSIVE MODE",
     );
     const actual = await references(client);
-    const expected = manifest.objects.map(({ sha256: ignored, ...row }) => row);
+    const expected = manifest.objects.map(({ sha256: _ignored, ...row }) => row);
     if (JSON.stringify(actual) !== JSON.stringify(expected))
       throw new Error(
         "Restored database references differ from bundled objects; discard this isolated target",

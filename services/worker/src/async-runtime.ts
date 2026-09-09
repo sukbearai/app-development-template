@@ -156,9 +156,9 @@ async function runRuntime(args: string[], consume: boolean) {
   let recovery: RecoveryGuard | undefined;
   let admin: Admin | undefined;
   let topicAdmin: Admin | undefined;
-  try {
+  running: try {
     await heartbeatWriter.write("starting", progress);
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) break running;
     const pool = getPool();
     const store = createPostgresAsyncTaskStore({
       pool,
@@ -174,7 +174,7 @@ async function runRuntime(args: string[], consume: boolean) {
       retryMaxMs: env.asyncTaskRetryMaxMs,
     };
     await pool.query("SELECT 1");
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) break running;
     if (kafka) admin = recoveryAdmin();
     recovery = await loadKafkaRecovery(
       pool,
@@ -184,14 +184,14 @@ async function runRuntime(args: string[], consume: boolean) {
       admin,
       controller.signal,
     );
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) break running;
     if (kafka) {
       topicAdmin = createTopicAdmin();
       await ensureAsyncRuntimeTopics(plan.topics, topicAdmin, controller.signal);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) break running;
       producer = createProducer();
       await producer.connect();
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted) break running;
       if (consume) {
         kafkaConsumer = createKafkaConsumer({
           groupId: env.kafkaConsumerGroupId,
@@ -219,12 +219,12 @@ async function runRuntime(args: string[], consume: boolean) {
           },
         }).then(() => undefined, fail);
         await Promise.race([initialized, consumer]);
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) break running;
       }
     }
     progress = Date.now();
     await heartbeatWriter.write("running", progress);
-    if (controller.signal.aborted) return;
+    if (controller.signal.aborted) break running;
     heartbeat = setInterval(() => {
       void heartbeatWriter.write("running", progress).catch(fail);
     }, 3000);
@@ -290,16 +290,16 @@ async function runRuntime(args: string[], consume: boolean) {
     } catch (error) {
       fail(error);
     }
-    if (errors.length) {
-      process.exitCode = 1;
-      // Failed disposers can leave sockets alive; retain the original deadline without keeping a closed process alive.
-      deadline?.unref();
-      throw new AggregateError(errors, "Worker runtime failed");
-    }
-    clearTimeout(deadline);
-    process.removeListener("SIGTERM", stop);
-    process.removeListener("SIGINT", stop);
   }
+  if (errors.length) {
+    process.exitCode = 1;
+    // Failed disposers can leave sockets alive; retain the original deadline without keeping a closed process alive.
+    deadline?.unref();
+    throw new AggregateError(errors, "Worker runtime failed");
+  }
+  clearTimeout(deadline);
+  process.removeListener("SIGTERM", stop);
+  process.removeListener("SIGINT", stop);
 }
 
 export async function runOutboxLoop(args: string[]) {

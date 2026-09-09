@@ -9,7 +9,7 @@ Read [the feature map](features/README.md). The app lives in `apps/web`; shared 
 
 ## Isolated checks
 
-Run from the repository root with Node 22.12+, pnpm 10.33.4, Docker and Chromium installed.
+Run from the repository root with Node 22.13+, pnpm 11.26.0, Docker and Chromium installed.
 
 ```bash
 pnpm install --frozen-lockfile

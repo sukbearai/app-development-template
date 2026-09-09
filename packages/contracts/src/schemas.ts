@@ -138,6 +138,7 @@ export const filePageCursorSchema = z
       .string()
       .min(1)
       .max(256)
+      // oxlint-disable-next-line no-control-regex -- PostgreSQL text rejects NUL; lone surrogates also cannot round-trip.
       .regex(/^[^\u0000\uD800-\uDFFF]+$/u, "Invalid cursor identifier"),
   })
   .strict();
@@ -223,6 +224,7 @@ export const asyncConsumerGroupSchema = z
   .string()
   .min(1)
   .max(256)
+  // oxlint-disable-next-line no-control-regex -- PostgreSQL text rejects NUL; lone surrogates also cannot round-trip.
   .regex(/^[^\u0000\uD800-\uDFFF]+$/u, "Consumer group must contain valid PostgreSQL text")
   .refine((value) => value.trim().length > 0, "Consumer group is required")
   .refine(

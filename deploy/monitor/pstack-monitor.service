@@ -1,0 +1,24 @@
+[Unit]
+Description=pstack runtime observation and durable alert delivery
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=pstack-monitor
+Group=pstack-monitor
+WorkingDirectory=/opt/pstack-x
+EnvironmentFile=/etc/pstack/monitor.env
+StateDirectory=pstack-monitor
+StateDirectoryMode=0700
+ExecStart=/usr/bin/node /opt/pstack-x/scripts/monitor-tick.mjs --config /etc/pstack/monitor.json
+TimeoutStartSec=100
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pstack-monitor
+
+[Install]
+WantedBy=multi-user.target

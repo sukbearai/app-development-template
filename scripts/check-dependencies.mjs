@@ -95,7 +95,7 @@ export async function checkDependencies({ cwd = root } = {}) {
   }
   entries.sort();
   const tree = await parseDependencyTree(
-    entries.map((entry) => entry.replace(/[\[\]*?{}()+@]/g, "[$&]")),
+    entries.map((entry) => entry.replace(/[[\]*?{}()+@]/g, "[$&]")),
     {
       cwd,
       context: cwd,

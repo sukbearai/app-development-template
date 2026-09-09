@@ -8,7 +8,7 @@
 
 临时目录在完成或失败后清理。重复检查的 JSON 报告保存在被忽略的 `artifacts/quality/pre-commit/<本次运行目录>/`，文件路径映射回仓库，片段和行号对应暂存内容；工作区另有修改时，行号可能不同。同一目录的 `dependency-report.json` 保留 dpdm 的入口、循环和缺失导入结果，其源码路径相对于暂存快照。每次报告独立保存，需要时可删除旧报告。
 
-运行 `pnpm test:hooks` 验证真实提交、部分暂存、替代索引、检查失败和安装冲突。Git 使用当前进程 PATH 中的 Node 与 pnpm，GUI 客户端也需要可找到它们。仓库要求 Node 22.12 或更新版本。此处不配置 prepare/postinstall，容器或非 Git 安装不会自动安装钩子。Git 原生 `--no-verify` 可以跳过本地钩子，CI 继续运行这三项门禁。
+运行 `pnpm test:hooks` 验证真实提交、部分暂存、替代索引、检查失败和安装冲突。Git 使用当前进程 PATH 中的 Node 与 pnpm，GUI 客户端也需要可找到它们。仓库要求 Node 22.13 或更新版本。此处不配置 prepare/postinstall，容器或非 Git 安装不会自动安装钩子。Git 原生 `--no-verify` 可以跳过本地钩子，CI 继续运行这三项门禁。
 
 提交评审前运行 `pnpm lint` 和 `pnpm duplication:check`。两项检查都已进入 `pnpm verify` 和 `pnpm pr:verify`，现有 GitHub Actions 的 `pnpm pr:verify --full` 会执行它们。直接运行这两个命令时检查当前工作树，报告写入被 Git 忽略的 `artifacts/quality/duplication/`。
 
@@ -18,17 +18,25 @@ Oxlint 与 `@oxlint/plugins` 固定为 `1.78.0`。完整上游源码、16 个规
 
 `.oxlintrc.json` 将全部 15 条通用规则设为 error；没有 lint 基线。`pnpm lint` 扫描整个仓库的 JS/TS，包括测试、脚本、文档内的独立脚本和 `.agents` 自有脚本。排除依赖、构建结果、浏览器报告、验证产物、生成的 `next-env.d.ts` 和独立维护的 vendor 目录 `tools/anti-slop/`。OpenAPI JSON 不属于 JS/TS 扫描对象。Effect 插件随源代码保留，当前应用没有 Effect 依赖，因此不启用。
 
-本次引入范围是 anti-slop；Oxlint 内置 correctness 类别明确设为 off，现有类型、契约和边界检查继续执行。未使用的行内禁用指令也作为错误。确实需要保留的特殊行为只能使用有具体原因的窄范围行内例外，不能整文件关闭规则，也不能通过 `any` 或虚假泛型绕过检查。
+Oxlint 内置 correctness 类别与 15 条 anti-slop 规则均设为 error。检查包括未使用变量、不安全 finally 控制流等实际错误，现有类型、契约和边界检查继续执行。用于拒绝 PostgreSQL NUL 和孤立代理字符的两处正则保留逐行 `no-control-regex` 例外。未使用的行内禁用指令也作为错误。确实需要保留的特殊行为只能使用有具体原因的窄范围行内例外，不能整文件关闭规则，也不能通过 `any` 或虚假泛型绕过检查。
 
-运行 `pnpm test:quality` 验证真实工具的失败路径和规则注册一致性；该测试也属于 `pnpm test:tools`。升级 vendor 或 Oxlint 时另运行 `pnpm test:anti-slop`，覆盖所有上游规则测试。检查依赖 Node 22.12 或更新版本以及平台对应的原生二进制，不需要网络、数据库或浏览器服务。
+运行 `pnpm test:quality` 验证真实工具的失败路径和规则注册一致性；该测试也属于 `pnpm test:tools`。升级 vendor 或 Oxlint 时另运行 `pnpm test:anti-slop`，覆盖所有上游规则测试。检查依赖 Node 22.13 或更新版本以及平台对应的原生二进制，不需要网络、数据库或浏览器服务。
 
 ## 生产源码范围
 
-`scripts/source-scope.json` 是生产根目录及各工具覆盖范围的共同清单。每个根目录必须明确列出 boundary、dependency 和 duplication，值为 `true` 或带非空理由的 `{"excluded":"理由"}`。当前共 9 个根目录；SDK 和 worker 仍属于生产代码，boundary 暂无针对这两个根目录的层级规则，因此明确排除。依赖和重复检查覆盖全部 9 个根目录。
+`scripts/source-scope.json` 是生产根目录及各工具覆盖范围的共同清单。每个根目录必须明确列出 boundary、dependency 和 duplication，值为 `true` 或带非空理由的 `{"excluded":"理由"}`。当前共 9 个根目录，边界、依赖和重复检查均覆盖全部根目录，包括 SDK 和 worker。
 
 三个检查器都会独立读取文件系统，再与清单核对。包和服务使用 `packages/*/src`、`services/*/src`；应用支持 `apps/*/app`、`components`、`lib` 和 `src` 目录。新增应用、包、服务或这些应用源码目录必须先在清单中分类；已登记的目录消失也会失败。应用的 public、tests、依赖和构建目录不属于这些生产源码目录。采用其他源码布局时，应同时修改范围检查及其测试。
 
 `.jscpd.json` 保留原生 `path` 配置，重复检查在调用 jscpd 前验证它与清单的 duplication 范围完全一致。登记新的生产根目录时必须同步这份配置。共享清单只定义根目录；各检查器继续自行处理文件扩展名、类型导入、忽略规则及重复基线。
+
+## 模块边界
+
+`pnpm boundary:check` 使用统一的层级表检查生产模块的运行时导入。Web 服务端可以调用 contracts、SDK、server、database 和 kafka；contracts 仅依赖自身，SDK 和 kafka 可以依赖 contracts，database 可以依赖 contracts，server 可以依赖 contracts、database 和 kafka，worker 可以依赖 contracts、database、kafka 和 server。各层均允许内部导入。非 Web 层不得导入 React、Next 或 vinext。服务端不得反向导入 Web 或 worker。
+
+SDK 与 contracts 按浏览器安全模块检查。`use client` 模块及其传递依赖只能到达 Web、contracts 和 SDK，不能引入 Node 内置模块、数据库、Kafka、Redis 或 S3 客户端。worker 不得声明 `use client`。仅有类型的导入和再导出不产生运行时边，包括从 `@pstack/server/trpc-router` 导入 `AppRouter` 的两种 `import type` 写法；类型有效性由 `pnpm typecheck` 验证。
+
+检查器解析 JS、JSX、TS、TSX 及 ESM/CJS 扩展名，识别静态导入、再导出、`require`、TypeScript `import = require` 和字面量动态导入，包括无插值模板字符串及 options 参数。相对路径、发出代码使用的 `.js` 路径、Web `@/` 别名、workspace 包与 tsconfig 路径别名均参与层级判断。第三方别名按解析后的包名再次检查，不能把 `pg` 或 React 改名后绕过限制。无法解析的本地导入和未扫描的本地运行时模块会失败。非字面量动态目标无法由此静态检查证明，依赖检查另行执行其解析限制。
 
 ## 重复代码
 

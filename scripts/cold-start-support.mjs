@@ -36,8 +36,8 @@ export function coldStartOptions(args) {
 }
 export function checkNode(version = process.versions.node) {
   const [major, minor] = version.split(".").map(Number);
-  if (major < 22 || (major === 22 && minor < 12)) {
-    throw Object.assign(new Error("Install Node 22.12 or newer before running cold-start."), {
+  if (major < 22 || (major === 22 && minor < 13)) {
+    throw Object.assign(new Error("Install Node 22.13 or newer before running cold-start."), {
       code: "NODE_UNSUPPORTED",
     });
   }

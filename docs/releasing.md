@@ -1,4 +1,4 @@
-# 发行制品与部署计划
+# 发行制品与部署
 
 应用版本来自根 `package.json`。Web 与 Worker 使用同一版本，Git 标签为 `v<version>`。版本变化和草稿 Release 由 release-please 管理。草稿、标签或仓库中已有镜像都不能作为部署凭据。
 
@@ -59,13 +59,16 @@ node scripts/release-manifest.mjs \
 	--candidate artifacts/release/candidate.json \
 	--evidence artifacts/verification/run-example/index.json \
 	--receipt artifacts/release/registry.json \
+	--security artifacts/release/security.json \
 	--output artifacts/release/release.json \
 	--json
 ```
 
-命令生成 `release.json`，其中包含应用版本、源码身份、工具链、CI run、固定 digest 的镜像引用，以及候选、回执、验证索引的路径和校验和。相同输入可安全重试，已有不同内容的输出不会被覆盖。任何必需检查未通过、归档损坏、源码不符或回执无法关联测试镜像时，命令失败。
+命令生成 `release.json`，其中包含应用版本、源码身份、工具链、CI run、固定 digest 的镜像引用，以及候选、回执、验证索引和安全扫描证据的路径与校验和。相同输入可安全重试，已有不同内容的输出不会被覆盖。任何必需检查未通过、归档损坏、源码不符、扫描证据缺失或回执无法关联测试镜像时，命令失败。
 
-发布清单默认 `rollbackVersions: []`，不会推定某个旧版本可回退。迁移账本使用 `packages/database/migrations/template/integrity.json` 的 SHA-256，恢复协议要求为 `pstack-recovery-v2`。允许回退的版本需要专门验证并在发布流程中形成可审阅的兼容性证据，当前生成命令没有放宽该列表的选项。
+首次发布没有前任版本，清单记录 `rollbackVersions: []` 和 `rollbackProof: null`。提供 `--previous` 与 `--rollback-proof` 时，生成器核验前任清单和对应的双向演练证据，再派生允许回退的版本。两个参数必须同时提供，不能直接传入版本白名单。迁移账本使用 `packages/database/migrations/template/integrity.json` 的 SHA-256，恢复协议要求为 `pstack-recovery-v2`；账本相同也不能替代实际回滚演练。
+
+发布器在公开草稿前校验候选镜像扫描、SBOM、镜像签名和证明。签名绑定最终镜像摘要与指定 GitHub 工作流身份。工具安装、漏洞数据库读取、扫描或签名失败都阻止公开。完整要求见[供应链检查](supply-chain.md)。
 
 ## 只读部署计划
 
@@ -88,6 +91,8 @@ node scripts/release-deploy.mjs plan \
 升级规划通过 `--current <当前清单相对路径>` 检查当前版本与目标版本，两份清单及各自证据均需保留。迁移账本或恢复协议不同会拒绝自动规划。回退还必须提供 `--rollback`，且当前清单明确列出目标版本。较旧版本不能作为普通升级绕过回退检查。
 
 部署仍需完成[生产部署检查](production-deployment.md)、迁移任务、数据库及 Kafka recovery binding 检查和目标环境业务验收。计划成功只证明发布证据与引用一致，尚不证明目标环境能够启动、升级或回退。
+
+需要实际替换容器时，按[执行部署与回滚](deployment-execution.md)配置明确的 Compose 目标，使用 `release:apply`。执行器保存当前版本和未完成操作，校验容器身份、迁移结果及健康状态。`release:status` 查看记录，`release:resume` 恢复同一次操作，`release:rollback` 执行已验证的兼容回退。应用回退不会执行数据库降级或删除数据卷。
 
 ## 机器输出与验证
 

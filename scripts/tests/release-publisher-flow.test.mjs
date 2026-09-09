@@ -2,12 +2,10 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { sourceIdentity } from "../verification-evidence.mjs";
 import { releaseFixture } from "./release-fixture.mjs";
 
-const publisher = fileURLToPath(new URL("../release-publish.mjs", import.meta.url));
 const fakeProgram = String.raw`
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
@@ -42,7 +40,7 @@ if (tool === 'gh') {
     assert.ok(!endpoint.includes('/releases/tags/'), 'Draft must be found by listing releases');
     if (endpoint.endsWith('/releases?per_page=100')) {
       assert.deepEqual(args.slice(0, 3), ['api', '--paginate', '--slurp']);
-      result([[state.release]]);
+      result([[state.release,...(state.previousRelease?[state.previousRelease]:[])]]);
     } else if (endpoint.includes('/commits/')) result({ sha: state.tagSha });
     else if (endpoint.endsWith('/releases/42')) result(state.release);
     else throw new Error('Unexpected gh endpoint ' + endpoint);
@@ -139,11 +137,44 @@ async function publisherFixture(t) {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
+  const wrapper = path.join(f.root, "artifacts/publisher-test.mjs");
+  await writeFile(
+    wrapper,
+    `
+    import {publishRelease,publishOptions} from ${JSON.stringify(new URL("../release-publish.mjs", import.meta.url).href)};
+    import {readFile,writeFile,appendFile} from 'node:fs/promises';
+    import path from 'node:path';
+    import {evidenceReference} from ${JSON.stringify(new URL("../verification-evidence.mjs", import.meta.url).href)};
+    import {securityFixture} from ${JSON.stringify(new URL("./release-fixture.mjs", import.meta.url).href)};
+    try {
+      const result = await publishRelease(publishOptions(process.argv.slice(2)), {
+        scan: async (root,candidate,output) => {
+          const destination=path.join(output,'security.json');
+          try { await readFile(destination); return await evidenceReference(root,destination); } catch(error) { if(error.code !== 'ENOENT') throw error; }
+          const put = async (name,value) => { const file=path.join(root,name); await writeFile(file,JSON.stringify(value)); return file; };
+          const ref = (name) => evidenceReference(root,path.join(root,name));
+          const source=await securityFixture({candidate,put,ref});
+          await writeFile(destination,await readFile(source));
+          return evidenceReference(root,destination);
+        },
+        sign: async (root,release) => {
+          const state=JSON.parse(await readFile(process.env.PSTACK_PUBLISH_FIXTURE,'utf8'));
+          await appendFile(state.log, JSON.stringify({tool:'security',args:['sign-and-verify']})+'\\n');
+          if(state.failSecurity) throw new Error('signature verification rejected');
+          const output=path.join(root,'artifacts/published');
+          await writeFile(path.join(output,'release.json.sigstore.json'),'fixture bundle');
+          for(const role of ['web','worker']) await writeFile(path.join(output,role+'-provenance.json'),'fixture predicate');
+        }
+      });
+      process.stdout.write(JSON.stringify(result));
+    } catch(error) { process.stdout.write(JSON.stringify({status:'failed'})); process.stderr.write(error.message); process.exitCode=1; }
+  `,
+  );
   const run = (apply = true) =>
     spawnSync(
       process.execPath,
       [
-        publisher,
+        wrapper,
         "--candidate",
         "artifacts/candidate.json",
         "--evidence",
@@ -200,6 +231,19 @@ test("publisher finds draft by list and reads back both asset digests before pro
     });
   }
   assert.equal((await f.readState()).release.draft, false);
+});
+test("security rejection retains draft before any asset upload or promotion", async (t) => {
+  const f = await publisherFixture(t);
+  await f.save({ ...f.state, failSecurity: true });
+  assertResult(f.run(), "failed");
+  const calls = await f.calls();
+  assert.ok(calls.some((call) => call.tool === "security"));
+  assert.ok(
+    !calls.some(
+      (call) => call.tool === "gh" && (call.args[0] === "release" || call.args.includes("PATCH")),
+    ),
+  );
+  assert.equal((await f.readState()).release.draft, true);
 });
 test("publisher refuses wrong uploaded asset digest before PATCH", async (t) => {
   const f = await publisherFixture(t);
@@ -268,4 +312,11 @@ test("default preview invokes no external tools and creates no published release
   await assert.rejects(readFile(path.join(f.root, "artifacts/published/release.json")), {
     code: "ENOENT",
   });
+});
+
+test("published predecessor requires a proof before any publication writes", async (t) => {
+  const f = await publisherFixture(t);
+  await f.save({ ...f.state, previousRelease: { draft: false, tag_name: "v0.0.9" } });
+  assertResult(f.run(), "failed");
+  assert.ok(!(await f.calls()).some(isWrite));
 });

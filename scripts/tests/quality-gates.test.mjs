@@ -75,6 +75,7 @@ test("all generic vendor rules are errors and quality gates run in both aggregat
   assert.deepEqual(Object.keys(config.rules).sort(), names);
   for (const name of names) assert.equal(config.rules[name], "error");
   assert.equal(config.overrides, undefined);
+  assert.equal(config.categories.correctness, "error");
   const manifest = await readJson("package.json");
   assert.equal(manifest.devDependencies.oxlint, "1.78.0");
   assert.equal(manifest.devDependencies["@oxlint/plugins"], "1.78.0");
@@ -105,6 +106,16 @@ test("real lint scans owned scripts and rejects chained assertions and unused su
     const invalid = lint([file]);
     assert.equal(invalid.status, 1);
     assert.match(invalid.stdout, /no-chained-type-assertions/);
+    for (const [source, rule] of [
+      ["export function probe() { try { return 1; } finally { return 2; } }", /no-unsafe-finally/],
+      ["export function probe() { const unused = 1; }", /no-unused-vars/],
+      ["export const invalid = /[\\x00]/;", /no-control-regex/],
+    ]) {
+      await writeFile(file, source);
+      const incorrect = lint([file]);
+      assert.equal(incorrect.status, 1);
+      assert.match(incorrect.stdout, rule);
+    }
     await writeFile(
       file,
       "// oxlint-disable-next-line anti-slop/no-chained-type-assertions\nexport const label = 42;\n",

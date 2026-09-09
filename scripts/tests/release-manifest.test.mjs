@@ -62,7 +62,7 @@ for (const mutation of [
       f.evidence.checks[0].evidence[0].path = "artifacts/missing.log";
       await f.put("artifacts/index.json", f.evidence);
     }
-    await assert.rejects(createRelease(f.root, f.candidateFile, f.evidenceFile, f.receiptFile));
+    await assert.rejects(createRelease(f));
   });
 }
 test("release rejects changed manifest without overwriting it", async (t) => {
@@ -82,10 +82,7 @@ test("release refuses coherent failed or incomplete raw container evidence", asy
   ];
   await f.put("artifacts/candidate.json", f.candidate);
   await f.put("artifacts/index.json", f.evidence);
-  await assert.rejects(
-    createRelease(f.root, f.candidateFile, f.evidenceFile, f.receiptFile),
-    /Container verification failed/,
-  );
+  await assert.rejects(createRelease(f), /Container verification failed/);
   summary.status = "passed";
   summary.checks = ["one", "two", "three", "four", "five"];
   await f.put("artifacts/summary.json", summary);
@@ -95,13 +92,45 @@ test("release refuses coherent failed or incomplete raw container evidence", asy
   ];
   await f.put("artifacts/candidate.json", f.candidate);
   await f.put("artifacts/index.json", f.evidence);
-  await assert.rejects(
-    createRelease(f.root, f.candidateFile, f.evidenceFile, f.receiptFile),
-    /Missing container behavior check/,
-  );
+  await assert.rejects(createRelease(f), /Missing container behavior check/);
 });
 test("publisher preflight rejects changed checkout before publishing", async (t) => {
   const f = await releaseFixture(t);
   await f.put("untracked-source.json", { changed: true });
   await assert.rejects(verifyCandidateInputs(f), /checkout source mismatch/);
+});
+
+test("release requires security evidence and rejects vulnerable or tampered reports", async (t) => {
+  const f = await releaseFixture(t);
+  await assert.rejects(
+    createRelease({ ...f, securityFile: undefined }),
+    /Security evidence is required/,
+  );
+  await f.put("artifacts/web-vulnerabilities.json", {
+    SchemaVersion: 2,
+    ArtifactType: "container_image",
+    Metadata: { ImageID: f.candidate.images.web.id },
+    Results: [
+      {
+        Class: "os-pkgs",
+        Vulnerabilities: [{ Severity: "HIGH", VulnerabilityID: "CVE-fixture", PkgName: "fixture" }],
+      },
+    ],
+  });
+  await assert.rejects(verifyRelease(f.outputFile, f.root), /Security evidence content mismatch/);
+  const security = JSON.parse(await readFile(f.securityFile, "utf8"));
+  security.images.web.report = await f.ref("artifacts/web-vulnerabilities.json");
+  await f.put("artifacts/security.json", security);
+  await assert.rejects(createRelease(f), /Blocked vulnerability/);
+});
+
+test("a rollback allowlist cannot be added without a matching proof", async (t) => {
+  const f = await releaseFixture(t);
+  f.release.compatibility.rollbackVersions = ["0.0.9"];
+  await f.put("artifacts/release.json", f.release);
+  await assert.rejects(verifyRelease(f.outputFile, f.root));
+  await assert.rejects(
+    createRelease({ ...f, previousFile: f.outputFile }),
+    /Rollback proof requires a previous release/,
+  );
 });

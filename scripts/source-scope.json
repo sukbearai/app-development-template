@@ -58,9 +58,7 @@
   {
     "path": "packages/sdk/src",
     "tools": {
-      "boundary": {
-        "excluded": "The boundary checker has no implemented layer rules for this production root."
-      },
+      "boundary": true,
       "dependency": true,
       "duplication": true
     }
@@ -68,9 +66,7 @@
   {
     "path": "services/worker/src",
     "tools": {
-      "boundary": {
-        "excluded": "The boundary checker has no implemented layer rules for this production root."
-      },
+      "boundary": true,
       "dependency": true,
       "duplication": true
     }

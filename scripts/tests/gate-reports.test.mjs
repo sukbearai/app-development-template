@@ -5,6 +5,32 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { validateGateReports } from "../gate-reports.mjs";
 
+for (const [gate, category] of [
+  ["test:monitor-collector", "monitor-collector"],
+  ["test:deployment", "deployment"],
+]) {
+  test(`${gate} requires source-bound successful runtime evidence and cleanup`, async (t) => {
+    const root = await mkdtemp(path.join(tmpdir(), "operations-gate-"));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const directory = path.join(root, ".verification", category, "run");
+    await mkdir(directory, { recursive: true });
+    const file = path.join(directory, "summary.json");
+    const source = { gitSha: "a".repeat(40), dirty: false, sourceSha256: "b".repeat(64) };
+    await assert.rejects(validateGateReports(gate, [], root, source), /one new/);
+    const report = { source, status: "passed", cleanupErrors: [] };
+    await writeFile(file, JSON.stringify(report));
+    await validateGateReports(gate, [file], root, source);
+    for (const change of [
+      { status: "failed" },
+      { cleanupErrors: ["owned_container_remains"] },
+      { source: { ...source, sourceSha256: "c".repeat(64) } },
+    ]) {
+      await writeFile(file, JSON.stringify({ ...report, ...change }));
+      await assert.rejects(validateGateReports(gate, [file], root, source));
+    }
+  });
+}
+
 test("runtime gates require their new matching successful report rather than a command log", async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), "gate-reports-"));
   t.after(() => rm(root, { recursive: true, force: true }));

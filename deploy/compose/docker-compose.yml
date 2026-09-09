@@ -54,7 +54,7 @@ x-app: &app
 
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
@@ -103,7 +103,7 @@ services:
 
   redis:
     profiles: [redis]
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     ports:
       - "127.0.0.1:${REDIS_PORT:-56379}:6379"
     command: [redis-server, --appendonly, "yes"]
@@ -117,7 +117,7 @@ services:
 
   kafka:
     profiles: [kafka]
-    image: apache/kafka:3.9.1
+    image: apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed
     ports:
       - "127.0.0.1:${KAFKA_PORT:-59092}:19092"
     environment:
@@ -174,7 +174,7 @@ services:
 
   minio:
     profiles: [storage]
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-localadmin}
@@ -187,7 +187,7 @@ services:
 
   storage-init:
     profiles: [storage]
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3
     depends_on:
       minio:
         condition: service_started
@@ -208,7 +208,7 @@ services:
 
   clickhouse:
     profiles: [analytics]
-    image: clickhouse/clickhouse-server:25.6-alpine
+    image: clickhouse/clickhouse-server:25.6-alpine@sha256:aa13b8b9ac1aa22fbae3ee98a0c954bfc2037bb5b1ce3182390507cf72600009
     environment:
       CLICKHOUSE_DB: app_analytics
       CLICKHOUSE_USER: app

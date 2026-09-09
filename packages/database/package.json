@@ -21,10 +21,10 @@
     "zod": "4.4.3",
     "drizzle-orm": "0.45.2",
     "pg": "8.21.0",
-    "@pstack/contracts": "workspace:*"
+    "@pstack/contracts": "workspace:*",
+    "tsx": "4.23.13"
   },
   "devDependencies": {
-    "tsx": "4.21.0",
     "typescript": "5.9.3",
     "@types/node": "22.18.0",
     "drizzle-kit": "0.31.10",

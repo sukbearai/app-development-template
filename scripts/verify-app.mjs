@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { lockedImage } from "./toolchain.mjs";
 import { verificationDirectory } from "./verification-output.mjs";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -13,6 +14,7 @@ import net from "node:net";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { Client } from "pg";
+import { stopVerificationServer } from "./verification-server-shutdown.mjs";
 import { verifyWebShutdown } from "./web-shutdown-scenarios.mjs";
 import {
   acquireProductionLock,
@@ -43,6 +45,7 @@ let serverOutput = "";
 let serverClosed;
 let serverStop;
 const verificationRuns = [];
+const serverShutdowns = [];
 let rateLimitIsolationRestarts = 0;
 let interrupted = false;
 const interruption = new AbortController();
@@ -138,37 +141,15 @@ async function freePort() {
 }
 async function stopServer() {
   if (!server) return;
-  serverStop ??= (async () => {
-    const child = server;
-    let forced = false;
-    let killError;
-    if (child.exitCode === null && child.signalCode === null) {
-      try {
-        process.kill(-child.pid, "SIGTERM");
-      } catch (error) {
-        if (error.code !== "ESRCH") throw error;
-      }
-    }
-    const timer = setTimeout(() => {
-      forced = true;
-      try {
-        process.kill(-child.pid, "SIGKILL");
-      } catch (error) {
-        if (error.code !== "ESRCH") killError = error;
-      }
-    }, 10_000);
-    try {
-      const { code, signal } = await serverClosed;
-      if (killError) throw killError;
-      assert.equal(forced, false, "Web server required forced termination");
-      assert.ok(
-        code === 0 || (!production && signal === "SIGTERM"),
-        `Web server shutdown failed (${code ?? signal})`,
-      );
-    } finally {
-      clearTimeout(timer);
-    }
-  })();
+  serverStop ??= stopVerificationServer({
+    child: server,
+    closed: serverClosed,
+    production,
+    record(shutdown) {
+      serverShutdowns.push(shutdown);
+      log.write(JSON.stringify({ event: "server_shutdown", ...shutdown }) + "\n");
+    },
+  });
   await serverStop;
 }
 for (const signal of ["SIGINT", "SIGTERM"])
@@ -211,7 +192,7 @@ try {
           mode: "production",
           replicas: 1,
           storage: "local",
-          postgresImage: process.env.PSTACK_TEST_POSTGRES_IMAGE || "postgres:17-bullseye",
+          postgresImage: lockedImage("postgresTest", process.env.PSTACK_TEST_POSTGRES_IMAGE),
           uploadConcurrency: 2,
           databasePoolMax: 10,
           uploadMaxBytes: Number(childEnv.UPLOAD_MAX_BYTES),
@@ -240,7 +221,7 @@ try {
       "POSTGRES_DB=pstack_test",
       "-p",
       "127.0.0.1::5432",
-      process.env.PSTACK_TEST_POSTGRES_IMAGE || "postgres:17-bullseye",
+      lockedImage("postgresTest", process.env.PSTACK_TEST_POSTGRES_IMAGE),
     ],
     { capture: true, env: { ...childEnv, POSTGRES_PASSWORD: pgPassword } },
   );
@@ -445,8 +426,10 @@ try {
       if (production) {
         await stopServer();
         childEnv.POSTGRES_TOOLS = "docker";
-        childEnv.POSTGRES_TOOL_IMAGE =
-          process.env.PSTACK_TEST_POSTGRES_IMAGE || "postgres:17-bullseye";
+        childEnv.POSTGRES_TOOL_IMAGE = lockedImage(
+          "postgresTest",
+          process.env.PSTACK_TEST_POSTGRES_IMAGE,
+        );
         const backupPath = path.join(output, "backup");
         await command("node", [
           "scripts/db-backup.mjs",
@@ -566,6 +549,7 @@ try {
                 : failure.message,
             cleanupErrors,
             verificationRuns,
+            serverShutdowns,
             rateLimitIsolationRestarts,
           }
         : {
@@ -574,6 +558,7 @@ try {
             buildSha256: verifiedBuild,
             cleanupErrors,
             verificationRuns,
+            serverShutdowns,
             rateLimitIsolationRestarts,
           },
       null,

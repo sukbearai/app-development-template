@@ -4,7 +4,7 @@
 
 ## 本地启动
 
-需要 Node 22.12+、pnpm 10.33.4 和 Docker。
+需要 Node 22.13+、pnpm 11.26.0 和 Docker。
 
 ```bash
 pnpm install --frozen-lockfile

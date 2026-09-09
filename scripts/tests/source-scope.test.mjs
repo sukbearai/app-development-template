@@ -51,7 +51,7 @@ test("source scope rejects incomplete classifications and unexplained exclusions
   );
 });
 
-test("source scope keeps production exclusions explicit and validates excluded roots", async (t) => {
+test("source scope includes SDK and worker in every gate and validates their roots", async (t) => {
   const cwd = await mkdtemp(path.join(tmpdir(), "pstack-source-exclusions-"));
   t.after(() => rm(cwd, { recursive: true, force: true }));
   const manifest = JSON.parse(
@@ -64,13 +64,10 @@ test("source scope keeps production exclusions explicit and validates excluded r
   const dependency = await sourceRoots(cwd, "dependency");
   const duplication = await sourceRoots(cwd, "duplication");
   for (const directory of ["packages/sdk/src", "services/worker/src"]) {
-    assert.ok(!boundary.includes(directory));
+    assert.ok(boundary.includes(directory));
     assert.ok(dependency.includes(directory));
     assert.ok(duplication.includes(directory));
-    assert.match(
-      manifest.find((entry) => entry.path === directory).tools.boundary.excluded,
-      /no implemented layer rules/,
-    );
+    assert.equal(manifest.find((entry) => entry.path === directory).tools.boundary, true);
   }
   await rm(path.join(cwd, "packages/sdk/src"), { recursive: true });
   await assert.rejects(sourceRoots(cwd, "boundary"), /Missing production root: packages\/sdk\/src/);

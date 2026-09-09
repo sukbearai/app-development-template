@@ -80,11 +80,23 @@
     "storybook:test": "pnpm --filter @pstack/web storybook:test",
     "storybook:smoke": "pnpm storybook:build && pnpm --filter @pstack/web storybook:smoke",
     "test:tracing-collector": "pnpm --filter @pstack/server test:tracing-collector",
-    "tooling:upstream:check": "node scripts/check-tooling-upstream.mjs"
+    "tooling:upstream:check": "node scripts/check-tooling-upstream.mjs",
+    "supply-chain:check": "node scripts/check-supply-chain.mjs",
+    "security:audit": "pnpm audit --prod --audit-level high",
+    "release:scan": "node scripts/release-security.mjs",
+    "release:apply": "node scripts/release-deploy.mjs apply",
+    "release:rollback": "node scripts/release-deploy.mjs rollback",
+    "release:resume": "node scripts/release-deploy.mjs resume",
+    "release:status": "node scripts/release-deploy.mjs status",
+    "monitor:tick": "node scripts/monitor-tick.mjs",
+    "monitor:status": "node scripts/monitor-tick.mjs --status",
+    "test:monitor-collector": "node scripts/test-monitor-collector.mjs",
+    "test:deployment": "node scripts/test-deployment-compose.mjs",
+    "release:prove-rollback": "node scripts/release-rollback-proof.mjs"
   },
-  "packageManager": "pnpm@10.33.4",
+  "packageManager": "pnpm@11.26.0",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.13"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.1",
@@ -96,11 +108,13 @@
     "jscpd": "5.1.2",
     "openapi-typescript": "7.13.0",
     "oxlint": "1.78.0",
-    "pg": "8.21.0",
     "prettier": "3.9.6",
     "release-please": "17.3.0",
-    "tsx": "4.21.0",
-    "typescript": "5.9.3",
+    "typescript": "5.9.3"
+  },
+  "dependencies": {
+    "tsx": "4.23.13",
+    "pg": "8.21.0",
     "zod": "4.4.3"
   }
 }

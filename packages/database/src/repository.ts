@@ -23,7 +23,6 @@ import {
   appPermissions,
   appRolePermissions,
   appRoles,
-  appTasks,
   appTelemetryEvents,
   appUserRoles,
   appUsers,
@@ -145,7 +144,6 @@ export async function createUser(
   input: User & { passwordHash: string },
   context: TransactionContext,
 ) {
-  const database = context;
   {
     const tx = context;
     await tx.insert(appUsers).values({
@@ -175,7 +173,6 @@ export async function updateUser(
   },
   context: TransactionContext,
 ) {
-  const database = context;
   {
     const tx = context;
     const changes: Partial<typeof appUsers.$inferInsert> = {
@@ -197,7 +194,6 @@ export async function updateUser(
 }
 
 export async function createRole(input: Role, context: TransactionContext) {
-  const database = context;
   {
     const tx = context;
     await tx.insert(appRoles).values({ id: input.id, name: input.name, status: input.status });
@@ -224,7 +220,6 @@ export async function updateRole(
   },
   context: TransactionContext,
 ) {
-  const database = context;
   {
     const tx = context;
     const changes: Partial<typeof appRoles.$inferInsert> = {};

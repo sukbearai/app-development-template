@@ -104,3 +104,56 @@ test("helper-owned timeout fences a crash that finishes after cleanup", async (t
   t.mock.timers.tick(25);
   assert.equal(starts, 1);
 });
+
+test("consumer cleanup keeps connection and disconnect failures", async (t) => {
+  const connectionError = new Error("broker connection failed");
+  const disconnectError = new Error("broker disconnect failed");
+  t.mock.method(Cluster.prototype, "connect", async () => {
+    throw connectionError;
+  });
+  t.mock.method(Cluster.prototype, "disconnect", async () => {
+    throw disconnectError;
+  });
+  await assert.rejects(
+    runKafkaConsumer({
+      groupId: "lifecycle-dual-failure",
+      brokers: ["127.0.0.1:1"],
+      eachMessage: async () => {
+        throw new Error("Unexpected message");
+      },
+    }),
+    (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.ok(error.errors.includes(connectionError));
+      assert.ok(error.errors.includes(disconnectError));
+      return true;
+    },
+  );
+});
+
+test("cancelled consumer still reports owned cleanup failures", async (t) => {
+  const controller = new AbortController();
+  controller.abort();
+  const disconnectError = new Error("cancelled consumer disconnect failed");
+  t.mock.method(Cluster.prototype, "connect", async () => {
+    throw new Error("Cancelled consumer connected");
+  });
+  t.mock.method(Cluster.prototype, "disconnect", async () => {
+    throw disconnectError;
+  });
+  await assert.rejects(
+    runKafkaConsumer({
+      groupId: "lifecycle-cancelled-cleanup",
+      brokers: ["127.0.0.1:1"],
+      signal: controller.signal,
+      eachMessage: async () => {
+        throw new Error("Unexpected message");
+      },
+    }),
+    (error) => {
+      assert.ok(error instanceof AggregateError);
+      assert.deepEqual(error.errors, [disconnectError]);
+      return true;
+    },
+  );
+});

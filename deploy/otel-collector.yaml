@@ -3,11 +3,44 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol/storage
+    create_directory: true
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 128
+    spike_limit_mib: 32
+  batch:
+    timeout: 1s
+    send_batch_size: 512
+    send_batch_max_size: 1024
 exporters:
-  debug:
-    verbosity: detailed
+  otlphttp:
+    endpoint: https://${env:OTEL_BACKEND_AUTHORITY}
+    headers:
+      Authorization: Bearer ${env:OTEL_BACKEND_TOKEN}
+    tls:
+      insecure: false
+      insecure_skip_verify: false
+      min_version: "1.2"
+      ca_file: ${env:OTEL_BACKEND_CA_FILE}
+    timeout: 10s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1000
+      storage: file_storage
 service:
+  extensions: [file_storage]
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [debug]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp]

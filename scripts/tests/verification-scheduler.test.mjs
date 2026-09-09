@@ -25,6 +25,8 @@ test("template keeps historical coverage and PR profiles retain their build and 
     "duplication:check",
     "boundary:check",
     "dependency:check",
+    "supply-chain:check",
+    "security:audit",
     "typecheck",
     "contract:check",
     "migration:check",
@@ -41,6 +43,8 @@ test("template keeps historical coverage and PR profiles retain their build and 
     "storybook:test",
     "storybook:smoke",
     "test:tracing-collector",
+    "test:monitor-collector",
+    "test:deployment",
   ]);
   assert.deepEqual(verificationPlan([], { full: true }), [...CORE_GATES, ...FULL_GATES]);
   assert.deepEqual(verificationPlan([], { release: true }), [...RELEASE_GATES]);
@@ -63,6 +67,8 @@ const phases = [
     "duplication:check",
     "boundary:check",
     "dependency:check",
+    "supply-chain:check",
+    "security:audit",
     "typecheck",
     "contract:check",
     "migration:check",
@@ -77,6 +83,8 @@ const phases = [
     "storybook:test",
     "storybook:smoke",
     "test:tracing-collector",
+    "test:monitor-collector",
+    "test:deployment",
     "db:integration",
     "test:e2e",
     "test:ui",
@@ -399,4 +407,40 @@ test("lock release failure invalidates the actual evidence index and matching su
   );
   assert.equal(JSON.parse(await readFile(path.join(root, evidence), "utf8")).status, "failed");
   assert.equal(JSON.parse(await readFile(path.join(root, summary), "utf8")).passed, false);
+});
+
+test("lock cleanup preserves execution and evidence errors in order", async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), "verification-dual-failure-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const executionError = new Error("gate failed");
+  const releaseError = new Error("lock release failed");
+  const evidenceError = new Error("evidence write failed");
+  for (const executionFails of [true, false]) {
+    await assert.rejects(
+      withVerificationLock(
+        root,
+        async () => {
+          if (executionFails) throw executionError;
+          return passed;
+        },
+        {
+          release: async (lock) => {
+            await rm(lock, { recursive: true });
+            throw releaseError;
+          },
+          onCleanupError: async () => {
+            throw evidenceError;
+          },
+        },
+      ),
+      (error) => {
+        assert.ok(error instanceof AggregateError);
+        assert.deepEqual(
+          error.errors,
+          executionFails ? [executionError, releaseError] : [releaseError, evidenceError],
+        );
+        return true;
+      },
+    );
+  }
 });

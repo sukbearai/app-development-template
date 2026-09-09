@@ -93,6 +93,7 @@ export async function withVerificationLock(
     throw error;
   }
   let result;
+  const failures = [];
   try {
     await writeFile(
       path.join(lock, "owner.json"),
@@ -100,13 +101,23 @@ export async function withVerificationLock(
       { flag: "wx" },
     );
     result = await execute();
-    return result;
+  } catch (error) {
+    failures.push(error);
   } finally {
     try {
       await release(lock);
     } catch (error) {
-      if (result) await onCleanupError(result);
-      throw error;
+      failures.push(error);
+      if (result) {
+        try {
+          await onCleanupError(result);
+        } catch (evidenceError) {
+          failures.push(evidenceError);
+        }
+      }
     }
   }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length) throw new AggregateError(failures, "Verification and cleanup failed");
+  return result;
 }
