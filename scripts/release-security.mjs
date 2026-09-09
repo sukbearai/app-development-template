@@ -148,7 +148,21 @@ export function securityExec(program, args, options = {}) {
     ...options,
   });
 }
+export function scannerUser(host = process) {
+  assert.ok(
+    ["linux", "darwin"].includes(host.platform),
+    "Image scanning requires a Linux or macOS host with a numeric UID and GID",
+  );
+  const uid = host.getuid?.();
+  const gid = host.getgid?.();
+  assert.ok(
+    Number.isSafeInteger(uid) && uid >= 0 && Number.isSafeInteger(gid) && gid >= 0,
+    "Image scanning requires a numeric UID and GID",
+  );
+  return `${uid}:${gid}`;
+}
 export async function scanCandidate(root, candidate, output, run = securityExec) {
+  const user = scannerUser();
   await mkdir(output, { recursive: true });
   const evidenceFile = path.join(output, "security.json");
   try {
@@ -166,6 +180,8 @@ export async function scanCandidate(root, candidate, output, run = securityExec)
       [
         "run",
         "--rm",
+        "--user",
+        user,
         "--mount",
         `type=bind,src=${root},dst=/workspace,readonly`,
         "--mount",
@@ -308,7 +324,6 @@ export function provenance(candidate, security, role) {
         security,
       },
       internalParameters: {},
-      resolvedDependencies: [],
     },
     runDetails: { builder: { id: "https://github.com/pstack/release" }, metadata: {} },
   };

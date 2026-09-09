@@ -232,6 +232,7 @@ jobs:
           else
             node scripts/release-rollback-proof.mjs --candidate artifacts/release-candidate/candidate.json --evidence "$EVIDENCE_INDEX" --previous-root "$PREVIOUS_ROOT" --previous "$PREVIOUS_MANIFEST" --repo "$GITHUB_REPOSITORY" --output artifacts/rollback --context default
           fi
+      - run: pnpm test:release-permissions
       - name: Publish the verified image batch and draft
         if: success() && steps.verify.outputs.evidence != ''
         env:

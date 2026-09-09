@@ -83,6 +83,7 @@
     "tooling:upstream:check": "node scripts/check-tooling-upstream.mjs",
     "supply-chain:check": "node scripts/check-supply-chain.mjs",
     "security:audit": "pnpm audit --prod --audit-level high",
+    "test:release-permissions": "node scripts/test-scanner-permissions.mjs",
     "release:scan": "node scripts/release-security.mjs",
     "release:apply": "node scripts/release-deploy.mjs apply",
     "release:rollback": "node scripts/release-deploy.mjs rollback",
