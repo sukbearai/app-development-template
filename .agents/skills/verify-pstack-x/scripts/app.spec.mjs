@@ -237,6 +237,71 @@ test("login: delayed JavaScript enables submission only after hydration", async 
   }
 });
 
+for (const directory of ["users", "roles"]) {
+  test(`admin: ${directory} status changes wait for delayed JavaScript`, async ({
+    page,
+  }, testInfo) => {
+    const login = await rpc(page.request).auth.login.mutate({ account, password });
+    const admin = rpc(page.request, { authorization: `Bearer ${login.token}` });
+    const identifier = `hydration_${directory}_${Date.now()}`;
+    if (directory === "users") {
+      await admin.users.create.mutate({
+        account: identifier,
+        displayName: "Delayed status test",
+        password: "Delayed-Status-Password-43!",
+        roleIds: [],
+        status: "enabled",
+      });
+    } else {
+      await admin.roles.create.mutate({
+        id: identifier,
+        name: "Delayed status test",
+        permissionIds: [],
+        status: "active",
+      });
+    }
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
+    });
+    let blockedScripts = 0;
+    await page.route("**/*", async (route) => {
+      if (route.request().resourceType() === "script") {
+        blockedScripts++;
+        await gate;
+      }
+      await route.continue();
+    });
+    try {
+      await page.goto(`/admin/${directory}`, { waitUntil: "commit" });
+      const row = page.getByRole("row").filter({ hasText: identifier });
+      const disable = row.getByRole("button", { name: "停用", exact: true });
+      await expect(disable).toBeVisible();
+      await expect.poll(() => blockedScripts).toBeGreaterThan(0);
+      await expect(disable).toBeDisabled();
+      await row.screenshot({ path: testInfo.outputPath("status-before-hydration.png") });
+      release();
+      await expect(disable).toBeEnabled();
+      for (const label of ["停用", "启用"]) {
+        const response = page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === `/api/trpc/${directory}.update` &&
+            response.request().method() === "POST",
+        );
+        await row.getByRole("button", { name: label, exact: true }).click();
+        expect((await response).status()).toBe(200);
+        const nextLabel = label === "停用" ? "启用" : "停用";
+        await expect(row.getByRole("button", { name: nextLabel, exact: true })).toBeVisible();
+        await page.reload();
+        await expect(row.getByRole("button", { name: nextLabel, exact: true })).toBeVisible();
+      }
+    } finally {
+      release();
+      await page.unrouteAll({ behavior: "wait" });
+    }
+  });
+}
+
 test("admin: new-user password cannot enter URL before hydration", async ({
   browser,
 }, testInfo) => {

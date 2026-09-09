@@ -144,6 +144,7 @@ function StatusButton({
 }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
+  const ready = useHydrated();
 
   async function updateStatus() {
     setMessage("");
@@ -160,7 +161,7 @@ function StatusButton({
         className="button secondary table-action"
         type="button"
         onClick={updateStatus}
-        disabled={pending}
+        disabled={!ready || pending}
       >
         {icon}
         {enabled ? "停用" : "启用"}
