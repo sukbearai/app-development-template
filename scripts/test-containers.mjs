@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { verificationDirectory } from "./verification-output.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -31,7 +32,7 @@ const kafkaImage = process.env.PSTACK_TEST_KAFKA_IMAGE || "bitnamilegacy/kafka:3
 const password = randomBytes(24).toString("base64url");
 const adminPassword = randomBytes(24).toString("base64url");
 const secrets = [password, adminPassword];
-const outputRoot = path.join(root, ".verification", "containers");
+const outputRoot = verificationDirectory(root, "containers");
 await mkdir(outputRoot, { recursive: true });
 const output = await mkdtemp(path.join(outputRoot, "run-"));
 const log = createWriteStream(path.join(output, "commands.log"), { mode: 0o600 });
@@ -457,13 +458,19 @@ try {
     } catch (error) {
       cleanupErrors.push(error.message);
     }
-  if (summary.status === "passed" && !interrupted && !cleanupErrors.length && options.output) {
+  if (summary.status === "passed" && !interrupted && !cleanupErrors.length) {
     try {
       assert.deepEqual(
         await sourceIdentity(root),
         source,
         "Source changed during container verification",
       );
+    } catch (error) {
+      cleanupErrors.push(error.message);
+    }
+  }
+  if (summary.status === "passed" && !interrupted && !cleanupErrors.length && options.output) {
+    try {
       for (const role of ["web", "worker"]) {
         assert.equal(
           await command("docker", ["image", "inspect", "--format", "{{.Id}}", images[role]], {

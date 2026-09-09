@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { verificationDirectory } from "./verification-output.mjs";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createWriteStream, realpathSync } from "node:fs";
@@ -29,7 +30,7 @@ const root = realpathSync(fileURLToPath(new URL("../", import.meta.url)));
 const verificationSource = await sourceIdentity(root);
 const webRoot = path.join(root, "apps/web");
 const vinextCLI = realpathSync(path.join(webRoot, "node_modules/vinext/dist/cli.js"));
-const outputRoot = path.join(root, ".verification", "app");
+const outputRoot = verificationDirectory(root, "app");
 await mkdir(outputRoot, { recursive: true });
 const output = await mkdtemp(path.join(outputRoot, "run-"));
 const containerName = `pstack-x-verify-${randomBytes(6).toString("hex")}`;
@@ -39,6 +40,10 @@ const log = createWriteStream(path.join(output, "run.log"));
 let containerCreated = false;
 let server;
 let serverOutput = "";
+let serverClosed;
+let serverStop;
+const verificationRuns = [];
+let rateLimitIsolationRestarts = 0;
 let interrupted = false;
 const interruption = new AbortController();
 let releaseProductionLock;
@@ -132,23 +137,39 @@ async function freePort() {
   return address.port;
 }
 async function stopServer() {
-  if (!server || server.exitCode !== null || server.signalCode !== null) return;
-  const exited = new Promise((resolve) => server.once("exit", resolve));
-  try {
-    process.kill(-server.pid, "SIGTERM");
-  } catch (error) {
-    if (error.code !== "ESRCH") throw error;
-  }
-  const timer = setTimeout(() => {
+  if (!server) return;
+  serverStop ??= (async () => {
+    const child = server;
+    let forced = false;
+    let killError;
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        process.kill(-child.pid, "SIGTERM");
+      } catch (error) {
+        if (error.code !== "ESRCH") throw error;
+      }
+    }
+    const timer = setTimeout(() => {
+      forced = true;
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch (error) {
+        if (error.code !== "ESRCH") killError = error;
+      }
+    }, 10_000);
     try {
-      process.kill(-server.pid, "SIGKILL");
-    } catch {}
-  }, 10_000);
-  try {
-    await exited;
-  } finally {
-    clearTimeout(timer);
-  }
+      const { code, signal } = await serverClosed;
+      if (killError) throw killError;
+      assert.equal(forced, false, "Web server required forced termination");
+      assert.ok(
+        code === 0 || (!production && signal === "SIGTERM"),
+        `Web server shutdown failed (${code ?? signal})`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  })();
+  await serverStop;
 }
 for (const signal of ["SIGINT", "SIGTERM"])
   process.once(signal, () => {
@@ -161,7 +182,9 @@ for (const signal of ["SIGINT", "SIGTERM"])
         if (error.code !== "ESRCH") throw error;
       }
     }
-    void stopServer();
+    void stopServer().catch((error) => {
+      failure ??= error;
+    });
     process.exitCode = 1;
   });
 console.log(`Evidence: ${output}`);
@@ -287,6 +310,10 @@ try {
         ],
         { cwd: webRoot, env: serverEnv, detached: true, stdio: ["ignore", "pipe", "pipe"] },
       );
+      serverStop = undefined;
+      serverClosed = new Promise((resolve) => {
+        server.once("close", (code, signal) => resolve({ code, signal }));
+      });
       server.stdout.on("data", (chunk) => {
         serverOutput += chunk;
         log.write(chunk);
@@ -363,25 +390,59 @@ try {
       monitoringCheck = true;
       capacityResult.monitoringCheck = true;
     } else {
-      await command("node", ["apps/web/scripts/smoke.mjs"]);
-      if (mode === "ui") await command("bash", [".agents/skills/verify-pstack-x/scripts/run.sh"]);
-      if (production) {
-        const failures = serverOutput.split("\n").flatMap((line) => {
-          try {
-            const entry = JSON.parse(line);
-            return entry.message === "http request failed" ? [entry] : [];
-          } catch {
-            return [];
-          }
-        });
-        assert.ok(
-          failures.some((entry) =>
-            entry.fields?.error?.frames?.some((frame) =>
-              /^(?:apps\/web\/)?dist\/server\//.test(frame.file),
+      async function verifyRound(database) {
+        const run = {
+          database,
+          smoke: {
+            pid: server.pid,
+            owner: childEnv.PSTACK_VERIFY_OWNER,
+            buildSha256: verifiedBuild,
+          },
+          status: "running",
+        };
+        verificationRuns.push(run);
+        await command("node", ["apps/web/scripts/smoke.mjs"]);
+        if (production) {
+          run.smoke.log = path.join(output, `smoke-server-${database}.log`);
+          await writeFile(run.smoke.log, serverOutput);
+          const failures = serverOutput.split("\n").flatMap((line) => {
+            try {
+              const entry = JSON.parse(line);
+              return entry.message === "http request failed" ? [entry] : [];
+            } catch {
+              return [];
+            }
+          });
+          assert.ok(
+            failures.some((entry) =>
+              entry.fields?.error?.frames?.some((frame) =>
+                /^(?:apps\/web\/)?dist\/server\//.test(frame.file),
+              ),
             ),
-          ),
-          "Production HTTP failures must retain application bundle source locations",
-        );
+            "Production HTTP failures must retain application bundle source locations",
+          );
+          run.smoke.errorFrames = "passed";
+        }
+        if (mode === "ui") {
+          if (production) {
+            await stopServer();
+            await launchServer();
+            rateLimitIsolationRestarts++;
+            assert.notEqual(server.pid, run.smoke.pid, "Browser requires a fresh Web process");
+            assert.equal(childEnv.RATE_LIMIT_DRIVER, "memory");
+            run.rateLimitIsolation = "fresh-process";
+          }
+          run.browser = {
+            pid: server.pid,
+            owner: childEnv.PSTACK_VERIFY_OWNER,
+            buildSha256: verifiedBuild,
+          };
+          await command("bash", [".agents/skills/verify-pstack-x/scripts/run.sh"]);
+        }
+        run.status = "passed";
+      }
+      await verifyRound("initial");
+      if (production) {
         await stopServer();
         childEnv.POSTGRES_TOOLS = "docker";
         childEnv.POSTGRES_TOOL_IMAGE =
@@ -415,8 +476,7 @@ try {
         await command("pnpm", ["--filter", "@pstack/database", "db:migrate"]);
         await command("pnpm", ["--filter", "@pstack/database", "db:integration"]);
         await launchServer();
-        await command("node", ["apps/web/scripts/smoke.mjs"]);
-        if (mode === "ui") await command("bash", [".agents/skills/verify-pstack-x/scripts/run.sh"]);
+        await verifyRound("restored");
         await stopServer();
         await verifyWebShutdown({ launch: launchServer, env: childEnv, output });
       }
@@ -505,8 +565,17 @@ try {
                 ? (capacityResult?.error ?? `capacity_${verificationStage}_failed`)
                 : failure.message,
             cleanupErrors,
+            verificationRuns,
+            rateLimitIsolationRestarts,
           }
-        : { ...result, source: verificationSource, buildSha256: verifiedBuild, cleanupErrors },
+        : {
+            ...result,
+            source: verificationSource,
+            buildSha256: verifiedBuild,
+            cleanupErrors,
+            verificationRuns,
+            rateLimitIsolationRestarts,
+          },
       null,
       2,
     ),

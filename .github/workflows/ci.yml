@@ -43,8 +43,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm hooks:install
-      - run: pnpm version:check
-      - run: pnpm docs:check
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm db:migrate
       - run: pnpm admin:bootstrap
@@ -61,6 +59,7 @@ jobs:
           name: verification-evidence
           path: |
             artifacts/
+            .verification/verify-*/
             .verification/containers/
             .verification/app/
             .verification/pstack-x/

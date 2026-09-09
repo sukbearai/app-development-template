@@ -38,6 +38,6 @@ Production checks use the server child owned by `verify-app.mjs`. Each launch wr
 
 Inspect screenshots and traces along with assertions. An empty tracked diff does not imply a clean repository when files are untracked; source-sha256.json includes untracked source. Check run.log and exit-code.txt on startup failure. Evidence must survive cleanup.
 
-The verification script prints its output directory. For a manual interrupted run, stop only its retained process handle, then check its port with `lsof -nP -iTCP:PORT -sTCP:LISTEN`. Do not delete another process's lock or remove shared Docker volumes.
+The verification script prints its output directory. Under the shared verification runner, `PSTACK_VERIFICATION_ROOT` assigns a private gate directory within this checkout; standalone commands retain the usual `.verification/app` and `.verification/pstack-x` locations. Production UI uses a fresh Web process after each smoke phase, preserving the same build and database while isolating the process-local rate limit. For a manual interrupted run, stop only its retained process handle, then check its port with `lsof -nP -iTCP:PORT -sTCP:LISTEN`. Do not delete another process's lock or remove shared Docker volumes.
 
 Update the feature map and browser tests together when adding an entry point. Use the application UI for user flows; a direct API request does not prove form or navigation behavior.

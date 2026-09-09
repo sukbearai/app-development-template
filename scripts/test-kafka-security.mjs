@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { verificationDirectory } from "./verification-output.mjs";
+import { sourceIdentity } from "./verification-evidence.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -95,7 +97,7 @@ async function run() {
   const name = `pstack-kafka-security-${id}`;
   const image = process.env.PSTACK_TEST_KAFKA_SECURITY_IMAGE || "apache/kafka:3.9.1";
   const temp = await mkdtemp(path.join(os.tmpdir(), `${name}-`));
-  const evidenceRoot = path.join(root, ".verification/kafka-security");
+  const evidenceRoot = verificationDirectory(root, "kafka-security");
   await mkdir(evidenceRoot, { recursive: true });
   const evidence = await mkdtemp(path.join(evidenceRoot, "run-"));
   const password = randomBytes(24).toString("hex");
@@ -158,7 +160,13 @@ async function run() {
       });
     });
   }
-  const summary = { source: root, image, checks: [], status: "running" };
+  const summary = {
+    source: await sourceIdentity(root),
+    checkout: root,
+    image,
+    checks: [],
+    status: "running",
+  };
   let containerCreated = false;
   console.log(`Kafka security evidence: ${evidence}`);
   try {
@@ -358,6 +366,11 @@ async function run() {
       }
     }
     await rm(temp, { recursive: true, force: true });
+    if (JSON.stringify(await sourceIdentity(root)) !== JSON.stringify(summary.source)) {
+      summary.status = "failed";
+      summary.error = "Source changed during verification";
+      process.exitCode = 1;
+    }
     await writeFile(path.join(evidence, "summary.json"), JSON.stringify(summary, null, 2) + "\n", {
       mode: 0o600,
     });

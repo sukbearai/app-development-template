@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { verificationDirectory } from "./verification-output.mjs";
+import { sourceIdentity } from "./verification-evidence.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -146,12 +148,13 @@ async function proveRecovery() {
   const password = randomBytes(24).toString("base64url");
   const postgresImage = process.env.PSTACK_TEST_POSTGRES_IMAGE || "postgres:17-bullseye";
   const kafkaImage = process.env.PSTACK_TEST_KAFKA_IMAGE || "bitnamilegacy/kafka:3.8.0";
-  const evidenceRoot = path.join(root, ".verification", "async-recovery");
+  const evidenceRoot = verificationDirectory(root, "async-recovery");
   await mkdir(evidenceRoot, { recursive: true });
   const output = await mkdtemp(path.join(evidenceRoot, "run-"));
   const log = createWriteStream(path.join(output, "commands.log"), { mode: 0o600 });
   const summary = {
-    source: root,
+    source: await sourceIdentity(root),
+    checkout: root,
     output,
     postgresImage,
     kafkaImage,
@@ -1069,6 +1072,11 @@ async function proveRecovery() {
     if (cleanupErrors.length) {
       summary.cleanupErrors = cleanupErrors;
       summary.status = "failed";
+      process.exitCode = 1;
+    }
+    if (JSON.stringify(await sourceIdentity(root)) !== JSON.stringify(summary.source)) {
+      summary.status = "failed";
+      summary.error = "Source changed during verification";
       process.exitCode = 1;
     }
     await writeFile(path.join(output, "summary.json"), JSON.stringify(summary, null, 2) + "\n", {

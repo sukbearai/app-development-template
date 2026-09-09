@@ -6,9 +6,10 @@ if [[ ! "$PSTACK_VERIFY_PORT" =~ ^[0-9]+$ ]] || (( PSTACK_VERIFY_PORT < 1024 || 
   echo 'PSTACK_VERIFY_PORT must be an integer from 1024 to 65535.' >&2
   exit 2
 fi
-mkdir -p .verification/pstack-x
+PSTACK_VERIFY_EVIDENCE_DIR="$(node scripts/verification-output.mjs pstack-x)"
+mkdir -p "$PSTACK_VERIFY_EVIDENCE_DIR"
 export PSTACK_VERIFY_OUTPUT
-PSTACK_VERIFY_OUTPUT="$(mktemp -d "$PWD/.verification/pstack-x/run-XXXXXXXX")"
+PSTACK_VERIFY_OUTPUT="$(mktemp -d "$PSTACK_VERIFY_EVIDENCE_DIR/run-XXXXXXXX")"
 export PSTACK_VERIFY_STARTED_MS
 PSTACK_VERIFY_STARTED_MS="${PSTACK_VERIFY_STARTED_MS:-$(node -p 'Date.now()')}"
 printf 'Evidence: %s\n' "$PSTACK_VERIFY_OUTPUT"

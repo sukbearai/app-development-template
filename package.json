@@ -32,7 +32,7 @@
     "pr:verify": "node scripts/pr-verify.mjs",
     "smoke": "pnpm --filter @pstack/web smoke",
     "test": "pnpm test:unit && pnpm test:integration",
-    "verify": "pnpm format:check && pnpm sdk:check && pnpm lint && pnpm duplication:check && pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm version:check && pnpm docs:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security && pnpm storybook:test && pnpm storybook:smoke && pnpm test:tracing-collector",
+    "verify": "node scripts/pr-verify.mjs --template",
     "local:init": "node scripts/local.mjs init",
     "local:up": "node scripts/local.mjs up",
     "local:down": "node scripts/local.mjs down",

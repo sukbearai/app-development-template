@@ -93,7 +93,6 @@ test("uploads: batch queue persists real files and cancellation remains explicit
 test("diagnostics: browser failures send bounded metadata without error content", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
   const requestBody = { event: "browser.error", payload: { kind: "script" } };
   async function emitFailure() {
     await page.goto("/login");
@@ -108,11 +107,6 @@ test("diagnostics: browser failures send bounded metadata without error content"
     expect(response.request().postDataJSON()).toEqual(requestBody);
     return response;
   }
-  let response = await emitFailure();
-  if (response.status() === 429) {
-    // The production smoke test consumes the endpoint's fixed one-minute budget.
-    await page.waitForTimeout(60_100);
-    response = await emitFailure();
-  }
+  const response = await emitFailure();
   expect(response.status()).toBe(201);
 });

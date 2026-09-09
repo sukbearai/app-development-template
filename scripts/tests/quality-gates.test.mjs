@@ -71,7 +71,8 @@ test("all generic vendor rules are errors and quality gates run in both aggregat
   assert.equal(manifest.devDependencies["@oxlint/plugins"], "1.78.0");
   assert.equal(manifest.devDependencies.jscpd, "5.1.2");
   for (const gate of ["lint", "duplication:check"]) {
-    assert.ok(manifest.scripts.verify.includes(`pnpm ${gate}`));
+    assert.equal(manifest.scripts.verify, "node scripts/pr-verify.mjs --template");
+    assert.ok(verificationPlan([], { template: true }).includes(gate));
     assert.ok(verificationPlan([], { full: true }).includes(gate));
     assert.ok(verificationPlan(["scripts/example.mjs"], {}).includes(gate));
   }

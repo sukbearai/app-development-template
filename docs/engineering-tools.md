@@ -56,3 +56,15 @@ node --input-type=module -e 'import {verifyEvidence} from "./scripts/verificatio
 ## 验证范围
 
 本地工具测试覆盖真实临时文件、临时 Git 仓库、版本库 fixture、报告篡改、缺失门禁、中断和错误状态。冷启动与容量实测使用各自拥有的数据库和进程。GitHub App、主分支保护、远端检查触发、GHCR 推送、Release 公开和目标部署仍需独立验收，不能用 fixture 代替。
+
+## 验证调度
+
+`pnpm verify` 与 `pnpm pr:verify` 共用执行器，分别保留模板、PR 和发行检查集合。默认最多两个任务并行，`pnpm verify --concurrency 1` 可串行运行。源码只读检查先完成，工具测试与单元测试分别独占执行，随后进入运行态检查。运行态并发上限为两个；共享 Web 构建、开发锁或 Storybook 目录的任务互斥，容量测试全局独占。
+
+SDK 的独立检查命令仍先验证契约。执行器将契约检查列为 SDK 类型检查的前置步骤，只执行一次。CI 不再在完整 PR 检查之前重复运行版本和文档检查。
+
+每次执行创建 `.verification/verify-<runId>/<gate>/`，通过 `PSTACK_VERIFICATION_ROOT` 将该目录交给子命令。子命令只能在当前检出的 `.verification` 下输出，报告与附件不能借用其他任务的目录。索引仍位于 `artifacts/verification/run-*/index.json`，记录每个检查的开始、结束、耗时、源码身份和证据内容哈希。
+
+同一检出只允许一个执行器运行，所有者记录位于 `.verification/verify.lock/owner.json`。发生失败时停止派发新任务，等待在途任务结束并清理，再记录未运行项目。用户取消时协作进程收到停止信号；备份测试会自然完成当前任务和清理，因此取消响应可能较慢。未运行、取消、清理失败或源码变化都不能计为通过。
+
+生产浏览器每轮使用 smoke 之后重新启动的 Web 进程，同一轮复用相同构建和独占数据库。smoke 的真实限流耗尽检查保留，浏览器第一次错误上报必须成功，不再等待限流窗口恢复。生产报告记录两轮 smoke/browser 的不同 PID、相同构建哈希及 smoke 错误诊断日志。

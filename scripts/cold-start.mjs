@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { verificationDirectory } from "./verification-output.mjs";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -55,7 +56,7 @@ export async function coldStart(args = process.argv.slice(2)) {
       );
       return;
     }
-    const outputRoot = path.join(root, ".verification/cold-start");
+    const outputRoot = verificationDirectory(root, "cold-start");
     await mkdir(outputRoot, { recursive: true });
     output = await mkdtemp(path.join(outputRoot, "run-"));
     checkNode();
