@@ -4,6 +4,7 @@ import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from "@tan
 import { parseAsInteger, useQueryStates } from "nuqs";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { useTransition } from "react";
+import { useHydrated } from "@/components/use-hydrated";
 
 type PaginatedTableProps<T> = {
   items: T[];
@@ -14,6 +15,7 @@ type PaginatedTableProps<T> = {
 };
 
 function TableView<T>({ items, columns, page, limit, total }: PaginatedTableProps<T>) {
+  const hydrated = useHydrated();
   const [pending, startTransition] = useTransition();
   const [, setQuery] = useQueryStates(
     { page: parseAsInteger.withDefault(1) },
@@ -59,7 +61,7 @@ function TableView<T>({ items, columns, page, limit, total }: PaginatedTableProp
         <button
           className="button secondary"
           type="button"
-          disabled={pending || page <= 1}
+          disabled={!hydrated || pending || page <= 1}
           onClick={() => void setQuery({ page: page - 1 })}
         >
           上一页
@@ -70,7 +72,7 @@ function TableView<T>({ items, columns, page, limit, total }: PaginatedTableProp
         <button
           className="button secondary"
           type="button"
-          disabled={pending || page >= pageCount}
+          disabled={!hydrated || pending || page >= pageCount}
           onClick={() => void setQuery({ page: page + 1 })}
         >
           下一页
@@ -79,7 +81,7 @@ function TableView<T>({ items, columns, page, limit, total }: PaginatedTableProp
           <button
             className="button secondary"
             type="button"
-            disabled={pending}
+            disabled={!hydrated || pending}
             onClick={() => void setQuery({ page: 1 })}
           >
             返回第一页

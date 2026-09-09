@@ -528,6 +528,69 @@ test("directories: server pagination, filters and browser history preserve URL s
       fullPage: true,
       animations: "disabled",
     });
+    for (const scenario of [
+      {
+        name: "users-next",
+        url: `/admin/users?search=${prefix}&sort=account&direction=asc&limit=20`,
+        button: "下一页",
+        expectedPage: 2,
+        expectedRows: 20,
+      },
+      {
+        name: "audit-previous",
+        url: `/admin/audit?search=${prefix}&action=directory.test&limit=100&page=2`,
+        button: "上一页",
+        expectedPage: 1,
+        expectedRows: 100,
+      },
+      {
+        name: "audit-first",
+        url: `/admin/audit?search=${prefix}&action=directory.test&limit=100&page=999`,
+        button: "返回第一页",
+        expectedPage: 1,
+        expectedRows: 100,
+      },
+    ]) {
+      await test.step(`delayed hydration: ${scenario.name}`, async () => {
+        let release;
+        const gate = new Promise((resolve) => {
+          release = resolve;
+        });
+        let blockedScripts = 0;
+        await page.route("**/*", async (route) => {
+          if (route.request().resourceType() === "script") {
+            blockedScripts++;
+            await gate;
+          }
+          await route.continue();
+        });
+        try {
+          await page.goto(scenario.url, { waitUntil: "commit" });
+          const pagination = page.getByRole("navigation", { name: "列表分页" });
+          const button = pagination.getByRole("button", { name: scenario.button, exact: true });
+          await expect(button).toBeVisible();
+          await expect.poll(() => blockedScripts).toBeGreaterThan(0);
+          for (const control of await pagination.getByRole("button").all()) {
+            await expect(control).toBeDisabled();
+          }
+          await pagination.screenshot({
+            path: testInfo.outputPath(`${scenario.name}-before-hydration.png`),
+          });
+          release();
+          await expect(button).toBeEnabled();
+          await button.click();
+          await expect(pagination).toContainText(`第 ${scenario.expectedPage} /`);
+          await expect(page.locator("tbody tr")).toHaveCount(scenario.expectedRows);
+          const query = new URL(page.url()).searchParams;
+          expect(Number(query.get("page") ?? 1)).toBe(scenario.expectedPage);
+          expect(query.get("search")).toBe(prefix);
+          if (scenario.name.startsWith("audit")) expect(query.get("action")).toBe("directory.test");
+        } finally {
+          release();
+          await page.unrouteAll({ behavior: "wait" });
+        }
+      });
+    }
     const admin = rpc(page.request);
     await expect(admin.users.list.query({ page: 0 })).rejects.toMatchObject({
       data: { httpStatus: 400 },
