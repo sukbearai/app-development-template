@@ -18,6 +18,8 @@ Run `pnpm test:ui` for browser evidence and `pnpm test:e2e` for API rejection an
 
 User and role status tests block browser scripts, verify that status buttons remain disabled, then release scripts and toggle each status through the UI. Successful mutation responses and reloads verify that both changes persist.
 
+The shell test blocks scripts on reload and verifies that logout and mobile navigation remain disabled until hydration. It then opens and closes navigation, verifies a successful logout request, and rejects both the revoked session and a protected page visit.
+
 The `dx.spec.mjs` suite covers field errors, axe scans, mobile keyboard focus, Uppy batch persistence, cancellation and bounded browser diagnostics. `app.spec.mjs` covers user and audit directory SQL pagination, URL filters and browser history. It blocks browser scripts to verify that next, previous and first-page controls stay disabled until hydration, then navigate while preserving filters. Both run through the same isolated development and production harness.
 
 Internal business calls now use 14 tRPC procedures. The browser suite exercises the typed client and cookie session behavior; smoke verifies authorization, malformed input, body limits and retired REST 404 responses. Contract checks separately validate the five retained REST operations and the tRPC adapter/procedure inventory.

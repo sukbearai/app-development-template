@@ -237,6 +237,59 @@ test("login: delayed JavaScript enables submission only after hydration", async 
   }
 });
 
+test("admin: logout and mobile navigation wait for delayed JavaScript", async ({
+  page,
+}, testInfo) => {
+  const login = await rpc(page.request).auth.login.mutate({ account, password });
+  const oldSession = rpc(page.request, { authorization: `Bearer ${login.token}` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/admin/roles");
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  let blockedScripts = 0;
+  await page.route("**/*", async (route) => {
+    if (route.request().resourceType() === "script") {
+      blockedScripts++;
+      await gate;
+    }
+    await route.continue();
+  });
+  try {
+    await page.reload({ waitUntil: "commit" });
+    const logout = page.getByRole("button", { name: "退出登录" });
+    const navigation = page.getByRole("button", { name: "打开导航" });
+    await expect(logout).toBeVisible();
+    await expect.poll(() => blockedScripts).toBeGreaterThan(0);
+    await page.screenshot({ path: testInfo.outputPath("shell-before-hydration.png") });
+    await expect(logout).toBeDisabled();
+    await expect(navigation).toBeDisabled();
+    release();
+    await expect(navigation).toBeEnabled();
+    await navigation.click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    await page.getByRole("button", { name: "关闭导航" }).click();
+    await expect(page.getByRole("dialog")).toBeHidden();
+    const response = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/trpc/auth.logout" &&
+        response.request().method() === "POST",
+    );
+    await logout.click();
+    expect((await response).status()).toBe(200);
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(oldSession.auth.me.query()).rejects.toMatchObject({
+      data: { httpStatus: 401 },
+    });
+    await page.goto("/admin/roles");
+    await expect(page).toHaveURL(/\/login/);
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: "wait" });
+  }
+});
+
 for (const directory of ["users", "roles"]) {
   test(`admin: ${directory} status changes wait for delayed JavaScript`, async ({
     page,

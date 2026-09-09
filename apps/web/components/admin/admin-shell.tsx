@@ -20,6 +20,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useTRPC } from "@/components/trpc-client";
+import { useHydrated } from "@/components/use-hydrated";
 
 type AdminShellProps = {
   accountName: string;
@@ -124,6 +125,7 @@ export function AdminShell({ accountName, displayName, permissions, children }: 
   const router = useRouter();
   const queryClient = useQueryClient();
   const trpc = useTRPC();
+  const ready = useHydrated();
   const logoutMutation = useMutation(trpc.auth.logout.mutationOptions());
   const [navOpen, setNavOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -185,7 +187,7 @@ export function AdminShell({ accountName, displayName, permissions, children }: 
               type="button"
               title="退出登录"
               onClick={logout}
-              disabled={loggingOut}
+              disabled={!ready || loggingOut}
             >
               <LogOut size={18} />
             </button>
@@ -195,6 +197,7 @@ export function AdminShell({ accountName, displayName, permissions, children }: 
                 type="button"
                 title="打开导航"
                 aria-label="打开导航"
+                disabled={!ready}
               >
                 <Menu size={18} />
               </button>
