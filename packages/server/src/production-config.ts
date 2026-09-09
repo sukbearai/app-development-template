@@ -12,10 +12,7 @@ const storageEnvNames = [
 ] as const;
 
 function isProductionRuntime() {
-  return (
-    process.env.NODE_ENV === "production" ||
-    process.env.APP_ENV === "production"
-  );
+  return process.env.NODE_ENV === "production" || process.env.APP_ENV === "production";
 }
 
 export function validateProductionConfig() {
@@ -29,15 +26,14 @@ export function validateProductionConfig() {
     }
   }
   if (process.env.APP_ORIGIN?.trim() && !appOriginSchema.safeParse(process.env.APP_ORIGIN).success)
-    issues.push("APP_ORIGIN must be an HTTP(S) origin without credentials, path, query, or fragment");
+    issues.push(
+      "APP_ORIGIN must be an HTTP(S) origin without credentials, path, query, or fragment",
+    );
 
   if (Number(process.env.WEB_REPLICAS ?? "1") > 1 && process.env.RATE_LIMIT_DRIVER !== "redis")
     issues.push("RATE_LIMIT_DRIVER=redis is required when WEB_REPLICAS > 1");
 
-  if (
-    process.env.RATE_LIMIT_DRIVER === "redis" &&
-    !process.env.REDIS_URL?.trim()
-  ) {
+  if (process.env.RATE_LIMIT_DRIVER === "redis" && !process.env.REDIS_URL?.trim()) {
     issues.push("REDIS_URL is required when RATE_LIMIT_DRIVER=redis");
   }
 
@@ -48,10 +44,7 @@ export function validateProductionConfig() {
     }
   }
 
-  if (
-    process.env.OUTBOX_PUBLISHER === "kafka" &&
-    !process.env.KAFKA_BROKERS?.trim()
-  ) {
+  if (process.env.OUTBOX_PUBLISHER === "kafka" && !process.env.KAFKA_BROKERS?.trim()) {
     issues.push("KAFKA_BROKERS is required when OUTBOX_PUBLISHER=kafka");
   }
 

@@ -620,9 +620,94 @@
     "/api/admin/users": {
       "get": {
         "operationId": "getApiAdminUsers",
-        "summary": "查询用户、角色和权限",
+        "summary": "分页搜索用户、角色和权限",
         "tags": [
           "Admin"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+$"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+$"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "",
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "all",
+                "enabled",
+                "disabled"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "createdAt",
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "account",
+                "displayName"
+              ]
+            }
+          }
         ],
         "security": [
           {
@@ -639,6 +724,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserDirectorySuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailure"
                 }
               }
             }
@@ -1272,9 +1367,89 @@
     "/api/admin/audit-logs": {
       "get": {
         "operationId": "getApiAdminAuditLogs",
-        "summary": "查询审计日志",
+        "summary": "分页搜索审计日志",
         "tags": [
           "Admin"
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+$"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^\\d+$"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "",
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "",
+              "type": "string",
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "createdAt",
+              "type": "string",
+              "enum": [
+                "createdAt",
+                "action"
+              ]
+            }
+          }
         ],
         "security": [
           {
@@ -1291,6 +1466,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditListSuccess"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "请求参数无效",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiFailure"
                 }
               }
             }
@@ -3675,6 +3860,64 @@
         ],
         "additionalProperties": false
       },
+      "UserPageQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+$"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+$"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "search": {
+            "default": "",
+            "type": "string",
+            "maxLength": 200
+          },
+          "direction": {
+            "default": "desc",
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "status": {
+            "default": "all",
+            "type": "string",
+            "enum": [
+              "all",
+              "enabled",
+              "disabled"
+            ]
+          },
+          "sort": {
+            "default": "createdAt",
+            "type": "string",
+            "enum": [
+              "createdAt",
+              "account",
+              "displayName"
+            ]
+          }
+        }
+      },
       "UserDirectorySuccess": {
         "type": "object",
         "properties": {
@@ -3685,6 +3928,21 @@
           "data": {
             "type": "object",
             "properties": {
+              "page": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              "limit": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 100
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
               "users": {
                 "type": "array",
                 "items": {
@@ -3793,6 +4051,9 @@
               }
             },
             "required": [
+              "page",
+              "limit",
+              "total",
               "users",
               "roles",
               "permissions"
@@ -4110,6 +4371,59 @@
           }
         }
       },
+      "AuditPageQuery": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+$"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d+$"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "search": {
+            "default": "",
+            "type": "string",
+            "maxLength": 200
+          },
+          "direction": {
+            "default": "desc",
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ]
+          },
+          "action": {
+            "default": "",
+            "type": "string",
+            "maxLength": 200
+          },
+          "sort": {
+            "default": "createdAt",
+            "type": "string",
+            "enum": [
+              "createdAt",
+              "action"
+            ]
+          }
+        }
+      },
       "AuditListSuccess": {
         "type": "object",
         "properties": {
@@ -4118,55 +4432,82 @@
             "minLength": 1
           },
           "data": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "actorId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "action": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "targetType": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "targetId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "traceId": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "createdAt": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                },
-                "metadata": {
-                  "type": "object",
-                  "propertyNames": {
-                    "type": "string"
-                  },
-                  "additionalProperties": {}
-                }
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
               },
-              "required": [
-                "id",
-                "action",
-                "traceId",
-                "createdAt"
-              ],
-              "additionalProperties": false
-            }
+              "limit": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 100
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "actorId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "action": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetType": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "targetId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "traceId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "createdAt": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "propertyNames": {
+                        "type": "string"
+                      },
+                      "additionalProperties": {}
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "action",
+                    "traceId",
+                    "createdAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "page",
+              "limit",
+              "total",
+              "items"
+            ],
+            "additionalProperties": false
           },
           "meta": {
             "type": "object",

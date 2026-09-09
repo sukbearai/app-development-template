@@ -1,70 +1,99 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Check, Plus, RefreshCw, Upload } from "lucide-react";
+import { Check, Plus, RefreshCw } from "lucide-react";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import type { z } from "zod";
+import { FormField, setSubmissionError } from "@/components/admin/form-field";
 import { useHydrated } from "@/components/use-hydrated";
-import { fileAssetSchema, roleSchema, userSchema, type Permission, type Role, type User } from "@pstack/contracts";
-import { requestForm, requestJson } from "@/components/api-client";
-
-function formValues(form: HTMLFormElement) {
-  return new FormData(form);
-}
-
-function selectedValues(data: FormData, name: string) {
-  return data.getAll(name).map((value) => String(value)).filter(Boolean);
-}
+import {
+  createUserRequestSchema,
+  createRoleRequestSchema,
+  roleSchema,
+  userSchema,
+  type CreateUserRequest,
+  type CreateRoleRequest,
+  type Permission,
+  type Role,
+  type User,
+} from "@pstack/contracts";
+import { useApiMutation } from "@/components/api-query";
+import { requestJson } from "@/components/api-client";
 
 export function CreateUserForm({ roles }: { roles: Role[] }) {
   const router = useRouter();
   const ready = useHydrated();
   const [message, setMessage] = useState("");
-  const [pending, setPending] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<z.input<typeof createUserRequestSchema>, undefined, CreateUserRequest>({
+    resolver: zodResolver(createUserRequestSchema),
+    defaultValues: { roleIds: [] },
+  });
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
+  const create = useApiMutation({
+    mutationFn: (data: CreateUserRequest) =>
+      requestJson("/api/admin/users", userSchema, { method: "POST", body: JSON.stringify(data) }),
+  });
+
+  async function submit(data: CreateUserRequest) {
     setMessage("");
-    const form = event.currentTarget;
-    const data = formValues(form);
     try {
-      await requestJson("/api/admin/users", userSchema, {
-        method: "POST",
-        body: JSON.stringify({
-          account: String(data.get("account") || ""),
-          displayName: String(data.get("displayName") || ""),
-          password: String(data.get("password") || ""),
-          status: String(data.get("status") || "enabled"),
-          roleIds: selectedValues(data, "roleIds"),
-        }),
-      });
-      form.reset();
+      await create.mutateAsync(data);
+      reset();
       setMessage("用户已创建");
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "创建失败");
-    } finally {
-      setPending(false);
+      setSubmissionError(error, setError, [
+        "account",
+        "displayName",
+        "password",
+        "status",
+        "roleIds",
+      ]);
     }
   }
 
   return (
-    <form className="admin-form compact" method="post" onSubmit={submit}>
-      <label>
-        <span>账号</span>
-        <input name="account" autoComplete="username" required />
-      </label>
-      <label>
-        <span>姓名</span>
-        <input name="displayName" required />
-      </label>
-      <label>
-        <span>初始密码</span>
-        <input name="password" type="password" autoComplete="new-password" minLength={8} required />
-      </label>
+    <form
+      className="admin-form compact"
+      method="post"
+      onSubmit={handleSubmit(submit)}
+      noValidate
+      aria-busy={isSubmitting}
+    >
+      <FormField
+        label="账号"
+        registration={register("account")}
+        error={errors.account}
+        autoComplete="username"
+        required
+      />
+      <FormField
+        label="姓名"
+        registration={register("displayName")}
+        error={errors.displayName}
+        required
+      />
+      <FormField
+        label="初始密码"
+        registration={register("password")}
+        error={errors.password}
+        type="password"
+        autoComplete="new-password"
+        minLength={8}
+        maxLength={256}
+        required
+      />
       <label>
         <span>状态</span>
-        <select name="status" defaultValue="enabled">
+        <select {...register("status")} aria-invalid={Boolean(errors.status)}>
           <option value="enabled">启用</option>
           <option value="disabled">停用</option>
         </select>
@@ -73,50 +102,88 @@ export function CreateUserForm({ roles }: { roles: Role[] }) {
         <legend>角色</legend>
         {roles.map((role) => (
           <label key={role.id} className="check-row">
-            <input name="roleIds" type="checkbox" value={role.id} />
+            <input {...register("roleIds")} type="checkbox" value={role.id} />
             <span>{role.name}</span>
           </label>
         ))}
       </fieldset>
-      <button className="button primary" type="submit" disabled={!ready || pending}>
+      {errors.roleIds && (
+        <p role="alert" className="form-error">
+          {errors.roleIds.message}
+        </p>
+      )}
+      <button className="button primary" type="submit" disabled={!ready || isSubmitting}>
         <Plus size={16} />
         创建用户
       </button>
-      {message && <p role="status" className="form-message">{message}</p>}
+      {errors.root && (
+        <p role="alert" className="form-error">
+          {errors.root.message}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="form-message">
+          {message}
+        </p>
+      )}
     </form>
   );
 }
 
-export function UserStatusButton({ user }: { user: User }) {
+function StatusButton({
+  mutate,
+  enabled,
+  icon,
+}: {
+  mutate: () => Promise<User | Role>;
+  enabled: boolean;
+  icon: React.ReactNode;
+}) {
   const router = useRouter();
-  const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
-  const nextStatus = user.status === "enabled" ? "disabled" : "enabled";
+  const update = useApiMutation({ mutationFn: mutate });
 
   async function updateStatus() {
-    setPending(true);
     setMessage("");
     try {
-      await requestJson(`/api/admin/users/${encodeURIComponent(user.id)}`, userSchema, {
-        method: "PATCH",
-        body: JSON.stringify({ status: nextStatus }),
-      });
+      await update.mutateAsync();
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "更新失败");
-    } finally {
-      setPending(false);
     }
   }
-
   return (
     <div>
-    <button className="button secondary table-action" type="button" onClick={updateStatus} disabled={pending}>
-      <RefreshCw size={15} />
-      {user.status === "enabled" ? "停用" : "启用"}
-    </button>
-    {message && <p role="alert" className="form-error">{message}</p>}
+      <button
+        className="button secondary table-action"
+        type="button"
+        onClick={updateStatus}
+        disabled={update.isPending}
+      >
+        {icon}
+        {enabled ? "停用" : "启用"}
+      </button>
+      {message && (
+        <p role="alert" className="form-error">
+          {message}
+        </p>
+      )}
     </div>
+  );
+}
+
+export function UserStatusButton({ user }: { user: User }) {
+  return (
+    <StatusButton
+      enabled={user.status === "enabled"}
+      icon={<RefreshCw size={15} />}
+      mutate={() =>
+        requestJson(`/api/admin/users/${encodeURIComponent(user.id)}`, userSchema, {
+          method: "PATCH",
+          body: JSON.stringify({ status: user.status === "enabled" ? "disabled" : "enabled" }),
+        })
+      }
+    />
   );
 }
 
@@ -124,48 +191,54 @@ export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
   const router = useRouter();
   const ready = useHydrated();
   const [message, setMessage] = useState("");
-  const [pending, setPending] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setError,
+    formState: { errors, isSubmitting },
+  } = useForm<z.input<typeof createRoleRequestSchema>, undefined, CreateRoleRequest>({
+    resolver: zodResolver(createRoleRequestSchema),
+    defaultValues: { permissionIds: [] },
+  });
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
+  const create = useApiMutation({
+    mutationFn: (data: CreateRoleRequest) =>
+      requestJson("/api/admin/roles", roleSchema, { method: "POST", body: JSON.stringify(data) }),
+  });
+
+  async function submit(data: CreateRoleRequest) {
     setMessage("");
-    const form = event.currentTarget;
-    const data = formValues(form);
     try {
-      await requestJson("/api/admin/roles", roleSchema, {
-        method: "POST",
-        body: JSON.stringify({
-          id: String(data.get("id") || ""),
-          name: String(data.get("name") || ""),
-          status: String(data.get("status") || "active"),
-          permissionIds: selectedValues(data, "permissionIds"),
-        }),
-      });
-      form.reset();
+      await create.mutateAsync(data);
+      reset();
       setMessage("角色已创建");
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "创建失败");
-    } finally {
-      setPending(false);
+      setSubmissionError(error, setError, ["id", "name", "status", "permissionIds"]);
     }
   }
 
   return (
-    <form className="admin-form" method="post" onSubmit={submit}>
+    <form
+      className="admin-form"
+      method="post"
+      onSubmit={handleSubmit(submit)}
+      noValidate
+      aria-busy={isSubmitting}
+    >
       <div className="form-grid two">
-        <label>
-          <span>角色 ID</span>
-          <input name="id" placeholder="role_operator" required />
-        </label>
-        <label>
-          <span>角色名称</span>
-          <input name="name" required />
-        </label>
+        <FormField
+          label="角色 ID"
+          registration={register("id")}
+          error={errors.id}
+          placeholder="role_operator"
+          required
+        />
+        <FormField label="角色名称" registration={register("name")} error={errors.name} required />
         <label>
           <span>状态</span>
-          <select name="status" defaultValue="active">
+          <select {...register("status")} aria-invalid={Boolean(errors.status)}>
             <option value="active">启用</option>
             <option value="inactive">停用</option>
           </select>
@@ -175,89 +248,46 @@ export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
         <legend>权限</legend>
         {permissions.map((permission) => (
           <label key={permission.id} className="check-row">
-            <input name="permissionIds" type="checkbox" value={permission.id} />
+            <input {...register("permissionIds")} type="checkbox" value={permission.id} />
             <span>{permission.name}</span>
             <small>{permission.id}</small>
           </label>
         ))}
       </fieldset>
-      <button className="button primary" type="submit" disabled={!ready || pending}>
+      {errors.permissionIds && (
+        <p role="alert" className="form-error">
+          {errors.permissionIds.message}
+        </p>
+      )}
+      <button className="button primary" type="submit" disabled={!ready || isSubmitting}>
         <Plus size={16} />
         创建角色
       </button>
-      {message && <p role="status" className="form-message">{message}</p>}
+      {errors.root && (
+        <p role="alert" className="form-error">
+          {errors.root.message}
+        </p>
+      )}
+      {message && (
+        <p role="status" className="form-message">
+          {message}
+        </p>
+      )}
     </form>
   );
 }
 
 export function RoleStatusButton({ role }: { role: Role }) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-  const nextStatus = role.status === "active" ? "inactive" : "active";
-
-  async function updateStatus() {
-    setPending(true);
-    setMessage("");
-    try {
-      await requestJson(`/api/admin/roles/${encodeURIComponent(role.id)}`, roleSchema, {
-        method: "PATCH",
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      router.refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "更新失败");
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
-    <div>
-    <button className="button secondary table-action" type="button" onClick={updateStatus} disabled={pending}>
-      <Check size={15} />
-      {role.status === "active" ? "停用" : "启用"}
-    </button>
-    {message && <p role="alert" className="form-error">{message}</p>}
-    </div>
-  );
-}
-
-export function UploadAssetForm() {
-  const router = useRouter();
-  const ready = useHydrated();
-  const [message, setMessage] = useState("");
-  const [pending, setPending] = useState(false);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setMessage("");
-    const form = event.currentTarget;
-    const data = formValues(form);
-    try {
-      const uploaded = await requestForm("/api/uploads", fileAssetSchema, { method: "POST", body: data });
-      form.reset();
-      setMessage(`已上传 ${uploaded.fileName}`);
-      router.refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "上传失败");
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <form className="admin-form inline" method="post" onSubmit={submit}>
-      <label>
-        <span>选择文件</span>
-        <input name="file" type="file" required />
-      </label>
-      <button className="button primary" type="submit" disabled={!ready || pending}>
-        <Upload size={16} />
-        上传
-      </button>
-      {message && <p role="status" className="form-message">{message}</p>}
-    </form>
+    <StatusButton
+      enabled={role.status === "active"}
+      icon={<Check size={15} />}
+      mutate={() =>
+        requestJson(`/api/admin/roles/${encodeURIComponent(role.id)}`, roleSchema, {
+          method: "PATCH",
+          body: JSON.stringify({ status: role.status === "active" ? "inactive" : "active" }),
+        })
+      }
+    />
   );
 }

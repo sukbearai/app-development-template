@@ -9,13 +9,14 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx --test tests/unit.test.mjs tests/s3-retry.test.mjs tests/deployment-config.test.mjs",
+    "test:unit": "tsx --test tests/unit.test.mjs tests/s3-retry.test.mjs tests/deployment-config.test.mjs tests/tracing.test.mjs",
     "admin:bootstrap": "tsx scripts/bootstrap-admin.ts",
     "test:integration": "tsx --test tests/integration.test.mjs tests/s3.integration.test.mjs tests/auth-production.test.mjs tests/storage-production.integration.test.mjs tests/telemetry-rate-limit.integration.test.mjs tests/health.integration.test.mjs && tsx --tsconfig ../../apps/web/tsconfig.json --test tests/runtime-metrics.integration.test.mjs",
     "config:check": "tsx scripts/config-check.ts",
     "storage:cleanup": "tsx scripts/cleanup-uploads.ts",
     "admin:recover": "tsx scripts/recover-admin.ts",
-    "test:auth-production": "tsx --test tests/auth-production.test.mjs"
+    "test:auth-production": "tsx --test tests/auth-production.test.mjs",
+    "test:tracing-collector": "tsx tests/tracing-collector.mjs"
   },
   "dependencies": {
     "zod": "4.4.3",
@@ -24,7 +25,12 @@
     "redis": "5.8.2",
     "@aws-sdk/client-s3": "3.922.0",
     "kafkajs": "2.2.4",
-    "@pstack/kafka": "workspace:*"
+    "@pstack/kafka": "workspace:*",
+    "@opentelemetry/api": "1.9.0",
+    "@opentelemetry/sdk-trace-node": "2.11.0",
+    "@opentelemetry/sdk-trace-base": "2.11.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/exporter-trace-otlp-http": "0.222.0"
   },
   "devDependencies": {
     "tsx": "4.21.0",

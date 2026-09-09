@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "jsx": "react-jsx" },
+  "include": [
+    "*.ts",
+    "*.tsx",
+    "../vitest.storybook.config.ts",
+    "../stories/**/*.ts",
+    "../stories/**/*.tsx"
+  ]
+}

@@ -23,13 +23,21 @@ function backlogHealth(events, options = {}) {
     quarantine: { messageQuarantine: 0, recoveryQuarantine: 0 },
     thresholds: { pendingWarn: 50, pendingBlocked: 200, failedWarn: 10 },
     outboxEvents: events.map((event) => ({
-      topic: "app.tasks", status: "pending", createdAt: healthNow, ...event,
+      topic: "app.tasks",
+      status: "pending",
+      createdAt: healthNow,
+      ...event,
     })),
     ...options,
   });
 }
 
-for (const [pending, expected] of [[49, "ok"], [50, "degraded"], [199, "degraded"], [200, "blocked"]]) {
+for (const [pending, expected] of [
+  [49, "ok"],
+  [50, "degraded"],
+  [199, "degraded"],
+  [200, "blocked"],
+]) {
   test(`async runtime health reports ${pending} pending as ${expected}`, () => {
     const snapshot = backlogHealth([{ count: pending }]);
     assert.equal(snapshot.status, expected);
@@ -38,69 +46,107 @@ for (const [pending, expected] of [[49, "ok"], [50, "degraded"], [199, "degraded
     assert.deepEqual(snapshot.blockedReasons, pending >= 200 ? ["outbox_pending_blocked"] : []);
   });
 }
-for (const [age, expected] of [[31999, "ok"], [32000, "degraded"]]) {
+for (const [age, expected] of [
+  [31999, "ok"],
+  [32000, "degraded"],
+]) {
   test(`async runtime health reports pending age ${age} as ${expected}`, () => {
     const snapshot = backlogHealth([{ createdAt: new Date(healthNow.getTime() - age) }]);
     assert.equal(snapshot.status, expected);
-    assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age")?.threshold,
-      age < 32000 ? undefined : 32000);
+    assert.equal(
+      snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age")?.threshold,
+      age < 32000 ? undefined : 32000,
+    );
   });
 }
 test("async runtime health applies pending thresholds across topics", () => {
-  const snapshot = backlogHealth([{ topic: "one", count: 100 }, { topic: "two", count: 100 }]);
+  const snapshot = backlogHealth([
+    { topic: "one", count: 100 },
+    { topic: "two", count: 100 },
+  ]);
   assert.equal(snapshot.status, "blocked");
   assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_pending_blocked").value, 200);
 });
 test("async runtime health retains topic and stale-lock diagnostics", () => {
-  const snapshot = backlogHealth([
-    { status: "dead_letter", count: 1 },
-    { status: "failed", count: 1 },
-    { status: "processing", staleCount: 1 },
-  ], { staleLockMs: 1234 });
-  assert.deepEqual(snapshot.alerts.map((item) => item.reason), [
-    "async_topic_dead_letter", "async_topic_failed_backlog", "outbox_stale_processing_lock",
-  ]);
+  const snapshot = backlogHealth(
+    [
+      { status: "dead_letter", count: 1 },
+      { status: "failed", count: 1 },
+      { status: "processing", staleCount: 1 },
+    ],
+    { staleLockMs: 1234 },
+  );
+  assert.deepEqual(
+    snapshot.alerts.map((item) => item.reason),
+    ["async_topic_dead_letter", "async_topic_failed_backlog", "outbox_stale_processing_lock"],
+  );
   assert.equal(snapshot.alerts[2].threshold, 1234);
 });
 
 test("async runtime health applies custom thresholds to aggregate metrics", () => {
   const thresholds = { pendingWarn: 5, pendingBlocked: 20, failedWarn: 2 };
-  const snapshot = backlogHealth([
-    { topic: "one", count: 10 }, { topic: "two", count: 10 },
-    { topic: "one", status: "failed" }, { topic: "two", status: "failed" },
-  ], { thresholds });
+  const snapshot = backlogHealth(
+    [
+      { topic: "one", count: 10 },
+      { topic: "two", count: 10 },
+      { topic: "one", status: "failed" },
+      { topic: "two", status: "failed" },
+    ],
+    { thresholds },
+  );
   assert.equal(snapshot.status, "blocked");
   const globalAlerts = snapshot.alerts.filter((item) => !item.topic);
-  assert.deepEqual(globalAlerts.map(({ reason, value, threshold }) => [reason, value, threshold]), [
-    ["outbox_pending_blocked", 20, 20], ["outbox_failed_backlog", 2, 2],
-  ]);
+  assert.deepEqual(
+    globalAlerts.map(({ reason, value, threshold }) => [reason, value, threshold]),
+    [
+      ["outbox_pending_blocked", 20, 20],
+      ["outbox_failed_backlog", 2, 2],
+    ],
+  );
 });
 test("async runtime health includes failed retries in the oldest pending age", () => {
-  const snapshot = backlogHealth([{ status: "failed", createdAt: new Date(healthNow.getTime() - 32000) }]);
-  assert.equal(snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age").value, 32000);
+  const snapshot = backlogHealth([
+    { status: "failed", createdAt: new Date(healthNow.getTime() - 32000) },
+  ]);
+  assert.equal(
+    snapshot.alerts.find((item) => item.reason === "outbox_oldest_pending_age").value,
+    32000,
+  );
 });
 
 for (const [quarantine, expected] of [
   [{ messageQuarantine: 1, recoveryQuarantine: 0 }, ["async_message_quarantine"]],
   [{ messageQuarantine: 0, recoveryQuarantine: 1 }, ["async_recovery_quarantine"]],
-  [{ messageQuarantine: 1, recoveryQuarantine: 1 }, ["async_message_quarantine", "async_recovery_quarantine"]],
+  [
+    { messageQuarantine: 1, recoveryQuarantine: 1 },
+    ["async_message_quarantine", "async_recovery_quarantine"],
+  ],
 ]) {
   test(`administrator health reports quarantine ${JSON.stringify(quarantine)}`, () => {
     const snapshot = backlogHealth([], { quarantine });
     assert.equal(snapshot.status, "blocked");
     assert.deepEqual(snapshot.blockedReasons, expected);
-    assert.deepEqual(snapshot.alerts.map(({ reason }) => reason), expected);
+    assert.deepEqual(
+      snapshot.alerts.map(({ reason }) => reason),
+      expected,
+    );
   });
 }
 
 test("request trace IDs preserve valid identities and replace invalid metadata before use", () => {
   for (const value of ["client-trace", "a".repeat(2000), "é".repeat(1000)]) {
-    const traceId = getTraceId(new Request("https://app.example", { headers: { "x-trace-id": value } }));
+    const traceId = getTraceId(
+      new Request("https://app.example", { headers: { "x-trace-id": value } }),
+    );
     assert.equal(traceId, value);
     assert.equal(asyncIdentifierSchema.parse(traceId), traceId);
   }
   for (const value of [undefined, "   ", "a".repeat(2400), "a".repeat(6000), "é".repeat(1001)]) {
-    const traceId = getTraceId(new Request("https://app.example", { headers: value === undefined ? {} : { "x-trace-id": value } }));
+    const traceId = getTraceId(
+      new Request("https://app.example", {
+        headers: value === undefined ? {} : { "x-trace-id": value },
+      }),
+    );
     assert.match(traceId, /^trace_[0-9a-f-]{36}$/);
     assert.equal(asyncIdentifierSchema.parse(traceId), traceId);
   }
@@ -117,22 +163,51 @@ test("production login logs a database failure without exposing credentials to l
     const { closeDatabase } = await import('@pstack/database/client');
     await closeDatabase();
   `;
-  const output = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", APP_ORIGIN: "https://app.example", DATABASE_URL: "postgres://proof-user:synthetic-db-secret@127.0.0.1:1/proof", RATE_LIMIT_DRIVER: "memory", WEB_REPLICAS: "1", LOG_LEVEL: "error" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const output = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", source],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        APP_ORIGIN: "https://app.example",
+        DATABASE_URL: "postgres://proof-user:synthetic-db-secret@127.0.0.1:1/proof",
+        RATE_LIMIT_DRIVER: "memory",
+        WEB_REPLICAS: "1",
+        LOG_LEVEL: "error",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   assert.equal(output.status, 0, output.stderr);
-  const response = output.stdout.trim().split("\n").map(line => JSON.parse(line)).find(line => line.responseStatus);
+  const response = output.stdout
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line))
+    .find((line) => line.responseStatus);
   assert.equal(response.responseStatus, 500);
   assert.equal(response.responseBody.error.code, "INTERNAL_ERROR");
-  const errors = output.stderr.split("\n").filter(line => line.startsWith("{")).map(line => JSON.parse(line));
-  assert.equal(errors.length, 1, "the actual route must log its unknown failure once at LOG_LEVEL=error");
+  const errors = output.stderr
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) => JSON.parse(line));
+  assert.equal(
+    errors.length,
+    1,
+    "the actual route must log its unknown failure once at LOG_LEVEL=error",
+  );
   assert.equal(errors[0].level, "error");
   assert.equal(errors[0].fields.traceId, response.responseBody.traceId);
   assert.match(JSON.stringify(errors[0]), /ECONNREFUSED/);
-  assert.ok(errors[0].fields.error.frames.length > 0, "the real database failure retains source locations");
-  assert.doesNotMatch(output.stdout + output.stderr, /synthetic-db-secret|synthetic-password-never-log/);
+  assert.ok(
+    errors[0].fields.error.frames.length > 0,
+    "the real database failure retains source locations",
+  );
+  assert.doesNotMatch(
+    output.stdout + output.stderr,
+    /synthetic-db-secret|synthetic-password-never-log/,
+  );
 });
 test("production diagnostics keep bounded causes and source locations without error payloads", () => {
   const source = `
@@ -168,21 +243,33 @@ test("production diagnostics keep bounded causes and source locations without er
     const unknownCode = Object.assign(new Error(secret), { code: secret });
     console.log(JSON.stringify({ direct: redact(wrapped), hostile: redact(hostile), unknownCode: redact(unknownCode), responses }));
   `;
-  const output = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
-    encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", LOG_LEVEL: "error" },
-    stdio: ["ignore", "pipe", "pipe"],
-  });
+  const output = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", source],
+    {
+      encoding: "utf8",
+      env: { ...process.env, NODE_ENV: "production", LOG_LEVEL: "error" },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
   assert.equal(output.status, 0, output.stderr);
   assert.doesNotMatch(output.stdout + output.stderr, /synthetic-error-secret|Failed query|SELECT/);
   const result = JSON.parse(output.stdout);
   assert.equal(result.direct.message, "Operation failed");
   assert.equal(result.direct.cause.code, "23505");
-  assert.deepEqual(result.direct.frames[0], { file: "packages/server/src/auth-service.ts", line: 42, column: 9 });
+  assert.deepEqual(result.direct.frames[0], {
+    file: "packages/server/src/auth-service.ts",
+    line: 42,
+    column: 9,
+  });
   assert.equal(result.direct.frames.length, 8);
   assert.equal(result.hostile.message, "Operation failed");
   assert.equal(result.unknownCode.code, undefined);
-  const errors = output.stderr.trim().split("\n").filter(line => line.startsWith("{")).map(line => JSON.parse(line));
+  const errors = output.stderr
+    .trim()
+    .split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) => JSON.parse(line));
   assert.equal(errors.length, result.responses.length);
   assert.equal(errors[1].fields.error.cause.message, "[CIRCULAR]");
   assert.equal(errors[2].fields.error.cause.cause.cause, undefined);
@@ -195,24 +282,32 @@ test("production diagnostics keep bounded causes and source locations without er
 test("passwords require scrypt and verify the complete digest", async () => {
   assert.equal(await verifyPassword("admin", "plain:admin"), false);
   const encoded = await hashPassword("a-strong-generated-password");
-  assert.equal(
-    await verifyPassword("a-strong-generated-password", encoded),
-    true,
-  );
+  assert.equal(await verifyPassword("a-strong-generated-password", encoded), true);
   assert.equal(await verifyPassword("wrong", encoded), false);
 });
 test("boolean config and cookie TTL use explicit values", () => {
   assert.equal(
-    envSchema.parse({ OBJECT_STORAGE_FORCE_PATH_STYLE: "false" })
-      .OBJECT_STORAGE_FORCE_PATH_STYLE,
+    envSchema.parse({ OBJECT_STORAGE_FORCE_PATH_STYLE: "false" }).OBJECT_STORAGE_FORCE_PATH_STYLE,
     false,
   );
-  assert.throws(() =>
-    envSchema.parse({ OBJECT_STORAGE_FORCE_PATH_STYLE: "yes" }),
+  assert.throws(() => envSchema.parse({ OBJECT_STORAGE_FORCE_PATH_STYLE: "yes" }));
+  assert.equal(
+    envSchema.parse({ APP_ORIGIN: "https://app.example/" }).APP_ORIGIN,
+    "https://app.example",
   );
-  assert.equal(envSchema.parse({ APP_ORIGIN: "https://app.example/" }).APP_ORIGIN, "https://app.example");
-  assert.equal(envSchema.parse({ APP_ORIGIN: "https://APP.EXAMPLE:443/" }).APP_ORIGIN, "https://app.example");
-  for (const origin of ["not-a-url", "https://", "ftp://app.example", "https://user:pass@app.example", "https://app.example/path", "https://app.example/?query=1", "https://app.example/#fragment"])
+  assert.equal(
+    envSchema.parse({ APP_ORIGIN: "https://APP.EXAMPLE:443/" }).APP_ORIGIN,
+    "https://app.example",
+  );
+  for (const origin of [
+    "not-a-url",
+    "https://",
+    "ftp://app.example",
+    "https://user:pass@app.example",
+    "https://app.example/path",
+    "https://app.example/?query=1",
+    "https://app.example/#fragment",
+  ])
     assert.equal(envSchema.safeParse({ APP_ORIGIN: origin }).success, false);
   const response = setSessionCookie(new Response(), "id.secret");
   assert.match(response.headers.get("set-cookie"), /Max-Age=86400/);
@@ -249,12 +344,30 @@ test("canonical deployment origins accept same-origin cookie writes and reject f
     });
     console.log(JSON.stringify({ origin: env.APP_ORIGIN, results, issues: validateProductionConfig() }));
   `;
-  const result = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", source], {
-    cwd: new URL("..", import.meta.url), encoding: "utf8",
-    env: { ...process.env, NODE_ENV: "production", APP_ORIGIN: "https://APP.EXAMPLE:443/", DATABASE_URL: "postgres://test:test@localhost/test", RATE_LIMIT_DRIVER: "memory", WEB_REPLICAS: "1", UPLOAD_STORAGE_DRIVER: "local", OUTBOX_PUBLISHER: "disabled" },
-  });
+  const result = spawnSync(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", source],
+    {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        APP_ORIGIN: "https://APP.EXAMPLE:443/",
+        DATABASE_URL: "postgres://test:test@localhost/test",
+        RATE_LIMIT_DRIVER: "memory",
+        WEB_REPLICAS: "1",
+        UPLOAD_STORAGE_DRIVER: "local",
+        OUTBOX_PUBLISHER: "disabled",
+      },
+    },
+  );
   assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(JSON.parse(result.stdout), { origin: "https://app.example", results: [200, 403, 403], issues: [] });
+  assert.deepEqual(JSON.parse(result.stdout), {
+    origin: "https://app.example",
+    results: [200, 403, 403],
+    issues: [],
+  });
 });
 test("JSON parse and unknown error boundaries preserve safe status", async () => {
   await assert.rejects(
@@ -287,10 +400,7 @@ test("JSON parse and unknown error boundaries preserve safe status", async () =>
     ),
     (error) => error.status === 413,
   );
-  const response = fail(
-    new Error("postgres://admin:secret@example/database"),
-    "trace",
-  );
+  const response = fail(new Error("postgres://admin:secret@example/database"), "trace");
   assert.equal(response.status, 500);
   assert.equal((await response.json()).error.code, "INTERNAL_ERROR");
   assert.doesNotMatch(
@@ -309,10 +419,7 @@ test("actual stream bytes enforce upload ceiling without content length", async 
     headers: { "content-type": "multipart/form-data; boundary=x" },
     body: new Uint8Array(1024 * 1024 + 20),
   });
-  await assert.rejects(
-    readBoundedFormData(request, 10),
-    (error) => error.status === 413,
-  );
+  await assert.rejects(readBoundedFormData(request, 10), (error) => error.status === 413);
   const form = new FormData();
   form.append("file", new File(["hello"], "hello.txt"));
   const valid = await readBoundedFormData(
@@ -325,8 +432,7 @@ test("HTTP boundary rejects an invalid success body", async () => {
   const response = await withAccessLog(
     new Request("http://localhost/api/auth/login", { method: "POST" }),
     "trace",
-    async () =>
-      Response.json({ traceId: "trace", data: { broken: true }, meta: {} }),
+    async () => Response.json({ traceId: "trace", data: { broken: true }, meta: {} }),
   );
   assert.equal(response.status, 500);
 });
@@ -338,10 +444,16 @@ test("HTTP boundary validates thrown API failures and preserves valid client err
   });
   assert.equal(valid.status, 401);
   assert.deepEqual(await valid.json(), {
-    traceId: "trace-client", error: { code: "INVALID_CREDENTIALS", message: "凭据无效", details: { remaining: 2 } },
+    traceId: "trace-client",
+    error: { code: "INVALID_CREDENTIALS", message: "凭据无效", details: { remaining: 2 } },
   });
-  for (const error of [new ApiError(401, "INVALID_CREDENTIALS", "凭据无效", "invalid-details"), new ApiError(418, "UNDECLARED", "未声明状态")]) {
-    const response = await withAccessLog(request, "trace-invalid", async () => { throw error; });
+  for (const error of [
+    new ApiError(401, "INVALID_CREDENTIALS", "凭据无效", "invalid-details"),
+    new ApiError(418, "UNDECLARED", "未声明状态"),
+  ]) {
+    const response = await withAccessLog(request, "trace-invalid", async () => {
+      throw error;
+    });
     assert.equal(response.status, 500);
     assert.equal((await response.json()).error.code, "INTERNAL_ERROR");
   }
@@ -349,15 +461,22 @@ test("HTTP boundary validates thrown API failures and preserves valid client err
 
 test("login route keeps origin and input rejection ahead of authentication", async () => {
   const { POST } = await import("../../../apps/web/app/api/auth/login/route.ts");
-  const forbidden = await POST(new Request("https://app.example/api/auth/login", {
-    method: "POST", headers: { cookie: "pstack_session=synthetic", origin: "https://evil.example" },
-  }));
+  const forbidden = await POST(
+    new Request("https://app.example/api/auth/login", {
+      method: "POST",
+      headers: { cookie: "pstack_session=synthetic", origin: "https://evil.example" },
+    }),
+  );
   assert.equal(forbidden.status, 403);
   assert.equal((await forbidden.json()).error.code, "CSRF_ORIGIN_INVALID");
   assert.equal(forbidden.headers.get("set-cookie"), null);
-  const invalid = await POST(new Request("https://app.example/api/auth/login", {
-    method: "POST", headers: { "content-type": "text/plain" }, body: "invalid",
-  }));
+  const invalid = await POST(
+    new Request("https://app.example/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "invalid",
+    }),
+  );
   assert.equal(invalid.status, 415);
   assert.equal((await invalid.json()).error.code, "UNSUPPORTED_MEDIA_TYPE");
   assert.equal(invalid.headers.get("set-cookie"), null);
@@ -365,17 +484,40 @@ test("login route keeps origin and input rejection ahead of authentication", asy
 
 test("HTTP boundary removes undeclared output fields and preserves cookies", async () => {
   const response = await withAccessLog(
-    new Request("http://localhost/api/admin/users", { method: "POST" }), "trace",
-    async () => Response.json({ traceId: "trace", data: { id: "user", account: "test", displayName: "Test", status: "enabled", roleIds: [], createdAt: new Date().toISOString(), passwordHash: "synthetic-secret" }, meta: {} }, { status: 201, headers: { "set-cookie": "test=value; HttpOnly" } }),
+    new Request("http://localhost/api/admin/users", { method: "POST" }),
+    "trace",
+    async () =>
+      Response.json(
+        {
+          traceId: "trace",
+          data: {
+            id: "user",
+            account: "test",
+            displayName: "Test",
+            status: "enabled",
+            roleIds: [],
+            createdAt: new Date().toISOString(),
+            passwordHash: "synthetic-secret",
+          },
+          meta: {},
+        },
+        { status: 201, headers: { "set-cookie": "test=value; HttpOnly" } },
+      ),
   );
   assert.equal(response.status, 201);
   assert.match(response.headers.get("set-cookie"), /test=value/);
   assert.equal("passwordHash" in (await response.json()).data, false);
 });
 
-
 test("metrics remain closed when no dedicated token is configured", () => {
-  const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      `
     import assert from "node:assert/strict";
     import { requireMetricsToken } from "./src/metrics-auth.ts";
     for (const authorization of ["Bearer " + "a".repeat(32), ""]) {
@@ -383,6 +525,13 @@ test("metrics remain closed when no dedicated token is configured", () => {
         headers: { authorization, cookie: "pstack_session=administrator" },
       })), (error) => error.status === 401 && error.code === "METRICS_UNAUTHORIZED");
     }
-  `], { cwd: new URL("..", import.meta.url), env: { ...process.env, METRICS_TOKEN: "" }, encoding: "utf8" });
+  `,
+    ],
+    {
+      cwd: new URL("..", import.meta.url),
+      env: { ...process.env, METRICS_TOKEN: "" },
+      encoding: "utf8",
+    },
+  );
   assert.equal(child.status, 0, child.stderr);
 });

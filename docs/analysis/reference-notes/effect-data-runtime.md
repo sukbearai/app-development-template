@@ -8,17 +8,17 @@ Effect 的 `packages/effect/package.json:4` 确认为 `4.0.0-rc.112`；`:36`、`
 
 ## 采用判断
 
-| 对象 | 分类 | 对新模板的判断 |
-| --- | --- | --- |
-| Scope、Fiber 所有权、类型化失败、组合式重试 | 成熟可借鉴；纯进程内路径可直接采用 | 用来统一连接回收、worker 关闭、有界并发与测试时钟。先限定一个服务或 worker，保持业务持久状态不变。 |
-| SqlClient/PgClient | 需 POC，事务结构可借鉴 | 有真实连接保留、嵌套 savepoint、失败及取消回滚，适合数据访问层。替换现有 pg/Drizzle 必须核对 SQL 类型、事务上下文、连接与取消语义。 |
-| Migrator 替换现有 Drizzle 流程 | 需 POC；不能直接等价替换 | 缺少模板现有 journal/snapshot/内容哈希门禁，迁移历史格式也不同。查询层采用 Effect 不要求同时替换迁移体系。 |
-| Schedule、Queue、PubSub | 进程内用途可直接采用；不可替代持久任务和 Kafka | 提供定时、背压与广播，不保存跨进程重启状态，不提供 Kafka topic、partition、consumer group、offset 与保留日志协议。 |
-| Workflow/Activity/DurableQueue/cluster | 需 POC | 已有 SQL 持久化、去重、分片所有权与重启测试，但外部副作用幂等、跨版本恢复、死信处置仍需产品设计。 |
-| NodeRedis | 需 POC；驱动真实存在 | 可替换模板手写 RESP 连接，仍需验证业务限流原子性、TTL、故障策略与取消边界。 |
-| ClickhouseClient | 需 POC；驱动真实存在 | 官方客户端封装、查询取消、错误分类可用作起点。不能推导为 PostgreSQL 一样的事务能力。 |
-| S3 | 不可直接替代 | 本次 Effect packages 文件及包清单搜索未发现 S3/AWS SDK 驱动。需保留现有适配器或另选 SDK 后自行封装。此结论不覆盖仓库之外的社区包。 |
-| OpenTelemetry 与 @effect/vitest | 可直接采用到受控模块 | 统一 trace/metric/log 生命周期和可控时间测试；不自动提供业务审计、日志脱敏、告警规则或现场验收。 |
+| 对象                                        | 分类                                           | 对新模板的判断                                                                                                                      |
+| ------------------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Scope、Fiber 所有权、类型化失败、组合式重试 | 成熟可借鉴；纯进程内路径可直接采用             | 用来统一连接回收、worker 关闭、有界并发与测试时钟。先限定一个服务或 worker，保持业务持久状态不变。                                  |
+| SqlClient/PgClient                          | 需 POC，事务结构可借鉴                         | 有真实连接保留、嵌套 savepoint、失败及取消回滚，适合数据访问层。替换现有 pg/Drizzle 必须核对 SQL 类型、事务上下文、连接与取消语义。 |
+| Migrator 替换现有 Drizzle 流程              | 需 POC；不能直接等价替换                       | 缺少模板现有 journal/snapshot/内容哈希门禁，迁移历史格式也不同。查询层采用 Effect 不要求同时替换迁移体系。                          |
+| Schedule、Queue、PubSub                     | 进程内用途可直接采用；不可替代持久任务和 Kafka | 提供定时、背压与广播，不保存跨进程重启状态，不提供 Kafka topic、partition、consumer group、offset 与保留日志协议。                  |
+| Workflow/Activity/DurableQueue/cluster      | 需 POC                                         | 已有 SQL 持久化、去重、分片所有权与重启测试，但外部副作用幂等、跨版本恢复、死信处置仍需产品设计。                                   |
+| NodeRedis                                   | 需 POC；驱动真实存在                           | 可替换模板手写 RESP 连接，仍需验证业务限流原子性、TTL、故障策略与取消边界。                                                         |
+| ClickhouseClient                            | 需 POC；驱动真实存在                           | 官方客户端封装、查询取消、错误分类可用作起点。不能推导为 PostgreSQL 一样的事务能力。                                                |
+| S3                                          | 不可直接替代                                   | 本次 Effect packages 文件及包清单搜索未发现 S3/AWS SDK 驱动。需保留现有适配器或另选 SDK 后自行封装。此结论不覆盖仓库之外的社区包。  |
+| OpenTelemetry 与 @effect/vitest             | 可直接采用到受控模块                           | 统一 trace/metric/log 生命周期和可控时间测试；不自动提供业务审计、日志脱敏、告警规则或现场验收。                                    |
 
 ## SQL 事务与连接生命周期
 
@@ -35,13 +35,13 @@ Effect 的 `packages/effect/package.json:4` 确认为 `4.0.0-rc.112`；`:36`、`
 
 ## 迁移不能只比较 API
 
-| 要点 | Effect Migrator | 旧模板 |
-| --- | --- | --- |
-| 执行入口 | `E/packages/effect/src/unstable/sql/Migrator.ts:100`，加载 Effect 迁移 | `T/apps/web/package.json:10–11`，drizzle-kit generate/migrate |
-| 历史记录 | 默认 effect_sql_migrations；id/name/created_at，见 `Migrator.ts:111`、`:139–143` | 自定义 Drizzle schema/table，见 `T/apps/web/drizzle.config.ts:39–42` |
-| 待执行判断 | 读取最大 migration_id，跳过所有 <= 最大值的迁移，见 `Migrator.ts:162–175`、`:249–253` | journal 对应 SQL 与 snapshot；当前仓库不含安装后的 drizzle-kit 实现，未核实其底层运行时算法 |
-| 并发互斥 | PostgreSQL `LOCK TABLE ... ACCESS EXCLUSIVE`，见 `Migrator.ts:225`；建历史表在事务调用之前，见 `:305–308` | 自有代码未发现 advisory lock runner；实际调用 drizzle-kit，不能宣称模板已经实现 advisory lock |
-| 原子执行 | 记录待执行项并执行迁移体，外层 sql.withTransaction，见 `Migrator.ts:262–285`、`:307–308` | 当前只确认调用 drizzle-kit，未安装依赖、未验证底层事务执行 |
+| 要点       | Effect Migrator                                                                                              | 旧模板                                                                                                       |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| 执行入口   | `E/packages/effect/src/unstable/sql/Migrator.ts:100`，加载 Effect 迁移                                       | `T/apps/web/package.json:10–11`，drizzle-kit generate/migrate                                                |
+| 历史记录   | 默认 effect_sql_migrations；id/name/created_at，见 `Migrator.ts:111`、`:139–143`                             | 自定义 Drizzle schema/table，见 `T/apps/web/drizzle.config.ts:39–42`                                         |
+| 待执行判断 | 读取最大 migration_id，跳过所有 <= 最大值的迁移，见 `Migrator.ts:162–175`、`:249–253`                        | journal 对应 SQL 与 snapshot；当前仓库不含安装后的 drizzle-kit 实现，未核实其底层运行时算法                  |
+| 并发互斥   | PostgreSQL `LOCK TABLE ... ACCESS EXCLUSIVE`，见 `Migrator.ts:225`；建历史表在事务调用之前，见 `:305–308`    | 自有代码未发现 advisory lock runner；实际调用 drizzle-kit，不能宣称模板已经实现 advisory lock                |
+| 原子执行   | 记录待执行项并执行迁移体，外层 sql.withTransaction，见 `Migrator.ts:262–285`、`:307–308`                     | 当前只确认调用 drizzle-kit，未安装依赖、未验证底层事务执行                                                   |
 | 内容完整性 | 所读实现无 checksum 列，也未重新比对已应用迁移内容；只检查当前 loader 数字 ID 重复，见 `Migrator.ts:240–244` | `migration-check.mjs:63–72` 检查 journal；`:78–92` 检查 snapshot；`:104–143` 计算和比对 SQL/snapshot SHA-256 |
 
 Effect 的迁移表锁与 cluster 的 advisory lock 属于不同机制。`E/packages/effect/src/unstable/cluster/SqlRunnerStorage.ts:55–57` 的 advisory lock 用于 shard 所有权，不是 Migrator 的迁移锁。两个都出现“lock”不能视为等价。

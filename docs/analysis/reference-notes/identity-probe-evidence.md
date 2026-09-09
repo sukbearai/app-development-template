@@ -11,7 +11,7 @@ node /Users/fayon/workspace/github/pnpm/pstack-x/.verification/template-analysis
 标准输出：
 
 ```json
-{"inactiveRoleGrantsAdminWrite":true,"invalidSecretRevokeCalls":["known-session-id"]}
+{ "inactiveRoleGrantsAdminWrite": true, "invalidSecretRevokeCalls": ["known-session-id"] }
 ```
 
 Node 22.22.0 同时发出 stripTypeScriptTypes ExperimentalWarning。退出码 0。

@@ -4,7 +4,8 @@ import { stripTypeScriptTypes } from "node:module";
 import assert from "node:assert/strict";
 
 const root = process.argv[2] || "/Users/fayon/workspace/github/app-development-template";
-const source = fs.readFileSync(`${root}/apps/web/lib/auth-service.ts`, "utf8")
+const source = fs
+  .readFileSync(`${root}/apps/web/lib/auth-service.ts`, "utf8")
   .replace(/^import .*;\n/gm, "")
   .replace(/^export /gm, "");
 const calls = [];
@@ -21,4 +22,6 @@ const grants = vm.runInContext(
 assert.equal(grants, true);
 await vm.runInContext('logout("known-session-id.invalid-secret")', context);
 assert.deepEqual(calls, ["known-session-id"]);
-console.log(JSON.stringify({ inactiveRoleGrantsAdminWrite: grants, invalidSecretRevokeCalls: calls }));
+console.log(
+  JSON.stringify({ inactiveRoleGrantsAdminWrite: grants, invalidSecretRevokeCalls: calls }),
+);

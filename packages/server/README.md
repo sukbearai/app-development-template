@@ -16,7 +16,6 @@ HTTP routes let exceptions reach `withAccessLog` instead of converting them with
 
 Run `test:unit` for local behavior and `test:integration` for disposable PostgreSQL and Redis service checks. Existing databases are never used by integration tests.
 
-
 ## Password lifecycle
 
 Password characters, including surrounding spaces, are preserved by login, user creation, rotation and bootstrap. Login and current-password verification preserve compatibility with existing longer passwords. New user and API replacement passwords require 8–256 characters; bootstrap and operator recovery require 16–256. Older API-created passwords were trimmed before hashing: enter that stored trimmed value, or replace the password. There is no automatic trimming fallback.

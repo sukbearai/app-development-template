@@ -31,10 +31,12 @@ for (const stopping of [false, true]) {
       await consumer.disconnect();
     });
     await consumer.run();
-    const crash = runner.onCrash(Object.assign(new Error("Retriable fetch failure"), {
-      retriable: true,
-      retryTime: 25,
-    }));
+    const crash = runner.onCrash(
+      Object.assign(new Error("Retriable fetch failure"), {
+        retriable: true,
+        retryTime: 25,
+      }),
+    );
     if (stopping) controller.abort();
     await consumer.stop();
     await consumer.disconnect();
@@ -72,16 +74,27 @@ test("helper-owned timeout fences a crash that finishes after cleanup", async (t
     brokers: ["127.0.0.1:1"],
     maxWaitMs: 25,
     onReady: initialized.resolve,
-    eachMessage: async () => { throw new Error("Unexpected message"); },
+    eachMessage: async () => {
+      throw new Error("Unexpected message");
+    },
   });
-  const rejected = assert.rejects(operation, (error) =>
-    error instanceof AggregateError && error.errors.some((cause) => cause.message === "Kafka consumer timed out"));
+  const rejected = assert.rejects(
+    operation,
+    (error) =>
+      error instanceof AggregateError &&
+      error.errors.some((cause) => cause.message === "Kafka consumer timed out"),
+  );
   await initialized.promise;
-  const crash = runner.onCrash(Object.assign(new Error("Retriable fetch failure"), {
-    retriable: true,
-    retryTime: 25,
-  }));
-  t.after(async () => { releaseCrash.resolve(); await crash; });
+  const crash = runner.onCrash(
+    Object.assign(new Error("Retriable fetch failure"), {
+      retriable: true,
+      retryTime: 25,
+    }),
+  );
+  t.after(async () => {
+    releaseCrash.resolve();
+    await crash;
+  });
   await disconnecting.promise;
   t.mock.timers.tick(25);
   await rejected;

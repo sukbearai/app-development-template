@@ -6,8 +6,7 @@ let completed: { snapshot: HealthSnapshot; expiresAt: number } | undefined;
 let inFlight: Promise<HealthSnapshot> | undefined;
 
 export async function healthCheck() {
-  if (completed && performance.now() < completed.expiresAt)
-    return completed.snapshot;
+  if (completed && performance.now() < completed.expiresAt) return completed.snapshot;
   inFlight ??= probeHealth()
     .then((snapshot) => {
       completed = { snapshot, expiresAt: performance.now() + 1000 };

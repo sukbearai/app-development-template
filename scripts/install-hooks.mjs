@@ -11,7 +11,9 @@ try {
   if (configured.status !== 0 && configured.status !== 1) throw new Error(configured.stderr);
   const hooksPath = configured.stdout.trim();
   if (configured.status === 0 && path.resolve(root, hooksPath) !== path.join(root, ".githooks")) {
-    throw new Error(`Existing core.hooksPath=${JSON.stringify(hooksPath)}; integrate or remove that hook configuration explicitly before installing.`);
+    throw new Error(
+      `Existing core.hooksPath=${JSON.stringify(hooksPath)}; integrate or remove that hook configuration explicitly before installing.`,
+    );
   }
   if (configured.status === 1) {
     const directory = path.resolve(root, git("rev-parse", "--git-common-dir"), "hooks");
@@ -20,7 +22,10 @@ try {
       return [];
     });
     const foreign = existing.filter((entry) => !entry.name.endsWith(".sample"));
-    if (foreign.length) throw new Error(`Existing hooks at ${directory}: ${foreign.map((entry) => entry.name).join(", ")}; integrate or remove them explicitly before installing.`);
+    if (foreign.length)
+      throw new Error(
+        `Existing hooks at ${directory}: ${foreign.map((entry) => entry.name).join(", ")}; integrate or remove them explicitly before installing.`,
+      );
   }
   await chmod(path.join(root, ".githooks/pre-commit"), 0o755);
   git("config", "--local", "core.hooksPath", ".githooks");

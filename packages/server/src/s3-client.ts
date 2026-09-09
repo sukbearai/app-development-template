@@ -29,11 +29,7 @@ function getClient() {
   registerProcessCleanup(closeS3);
   return client;
 }
-export async function putS3Object(input: {
-  key: string;
-  bytes: Buffer;
-  contentType: string;
-}) {
+export async function putS3Object(input: { key: string; bytes: Buffer; contentType: string }) {
   await getClient().send(
     new PutObjectCommand({
       Bucket: env.OBJECT_STORAGE_BUCKET,
@@ -46,22 +42,19 @@ export async function putS3Object(input: {
   return { storageKey: input.key, storageProvider: "s3" as const };
 }
 export async function deleteS3Object(key: string) {
-  await getClient().send(
-    new DeleteObjectCommand({ Bucket: env.OBJECT_STORAGE_BUCKET, Key: key }),
-    { abortSignal: AbortSignal.timeout(5000) },
-  );
+  await getClient().send(new DeleteObjectCommand({ Bucket: env.OBJECT_STORAGE_BUCKET, Key: key }), {
+    abortSignal: AbortSignal.timeout(5000),
+  });
 }
 export async function headS3Object(key: string) {
-  return getClient().send(
-    new HeadObjectCommand({ Bucket: env.OBJECT_STORAGE_BUCKET, Key: key }),
-    { abortSignal: AbortSignal.timeout(5000) },
-  );
+  return getClient().send(new HeadObjectCommand({ Bucket: env.OBJECT_STORAGE_BUCKET, Key: key }), {
+    abortSignal: AbortSignal.timeout(5000),
+  });
 }
 export async function probeS3() {
-  await getClient().send(
-    new HeadBucketCommand({ Bucket: env.OBJECT_STORAGE_BUCKET }),
-    { abortSignal: AbortSignal.timeout(3000) },
-  );
+  await getClient().send(new HeadBucketCommand({ Bucket: env.OBJECT_STORAGE_BUCKET }), {
+    abortSignal: AbortSignal.timeout(3000),
+  });
 }
 export function closeS3() {
   client?.destroy();

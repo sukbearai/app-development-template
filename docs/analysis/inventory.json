@@ -340,9 +340,7 @@
       "## 产品化能力",
       "## 默认账号"
     ],
-    "deploy/compose/README.md": [
-      "# Local Infrastructure"
-    ],
+    "deploy/compose/README.md": ["# Local Infrastructure"],
     "docs/README.md": [
       "# Documentation Index",
       "## Choose By Scenario",
@@ -403,11 +401,7 @@
       "## Async Consumer Baseline",
       "## Acceptance"
     ],
-    "docs/requirements.md": [
-      "# Requirements",
-      "## MVP",
-      "## Out of Scope"
-    ],
+    "docs/requirements.md": ["# Requirements", "## MVP", "## Out of Scope"],
     "docs/technical-design.md": [
       "# Technical Design",
       "## Design Goals",
@@ -427,12 +421,7 @@
       "## 2026-07-07 · template-maintenance brain initialized · #engineering",
       "## 2026-07-07 · AIBC parity tightened · #engineering"
     ],
-    "loops/README.md": [
-      "# Loop Brain",
-      "## Layout",
-      "## Current Domains",
-      "## Rules"
-    ],
+    "loops/README.md": ["# Loop Brain", "## Layout", "## Current Domains", "## Rules"],
     "loops/domains/template-maintenance/README.md": [
       "# Template Maintenance",
       "## Current Focus",
@@ -453,109 +442,36 @@
   ],
   "routes": {
     "apps/web/app/api/[...segments]/route.ts": [],
-    "apps/web/app/api/admin/async-runtime-health/route.ts": [
-      "GET"
-    ],
-    "apps/web/app/api/admin/audit-logs/route.ts": [
-      "GET"
-    ],
-    "apps/web/app/api/admin/outbox-events/route.ts": [
-      "GET"
-    ],
-    "apps/web/app/api/admin/roles/[id]/route.ts": [
-      "PATCH"
-    ],
-    "apps/web/app/api/admin/roles/route.ts": [
-      "GET",
-      "POST"
-    ],
-    "apps/web/app/api/admin/users/[id]/route.ts": [
-      "PATCH"
-    ],
-    "apps/web/app/api/admin/users/route.ts": [
-      "GET",
-      "POST"
-    ],
-    "apps/web/app/api/auth/login/route.ts": [
-      "POST"
-    ],
-    "apps/web/app/api/auth/logout/route.ts": [
-      "POST"
-    ],
-    "apps/web/app/api/auth/me/route.ts": [
-      "GET"
-    ],
-    "apps/web/app/api/system/health/route.ts": [
-      "GET"
-    ],
-    "apps/web/app/api/telemetry/route.ts": [
-      "POST"
-    ],
-    "apps/web/app/api/uploads/route.ts": [
-      "POST"
-    ]
+    "apps/web/app/api/admin/async-runtime-health/route.ts": ["GET"],
+    "apps/web/app/api/admin/audit-logs/route.ts": ["GET"],
+    "apps/web/app/api/admin/outbox-events/route.ts": ["GET"],
+    "apps/web/app/api/admin/roles/[id]/route.ts": ["PATCH"],
+    "apps/web/app/api/admin/roles/route.ts": ["GET", "POST"],
+    "apps/web/app/api/admin/users/[id]/route.ts": ["PATCH"],
+    "apps/web/app/api/admin/users/route.ts": ["GET", "POST"],
+    "apps/web/app/api/auth/login/route.ts": ["POST"],
+    "apps/web/app/api/auth/logout/route.ts": ["POST"],
+    "apps/web/app/api/auth/me/route.ts": ["GET"],
+    "apps/web/app/api/system/health/route.ts": ["GET"],
+    "apps/web/app/api/telemetry/route.ts": ["POST"],
+    "apps/web/app/api/uploads/route.ts": ["POST"]
   },
   "apiContractEntries": [
-    [
-      "POST",
-      "/api/auth/login"
-    ],
-    [
-      "GET",
-      "/api/auth/me"
-    ],
-    [
-      "POST",
-      "/api/auth/logout"
-    ],
-    [
-      "GET",
-      "/api/system/health"
-    ],
-    [
-      "GET",
-      "/api/admin/users"
-    ],
-    [
-      "POST",
-      "/api/admin/users"
-    ],
-    [
-      "PATCH",
-      "/api/admin/users/{id}"
-    ],
-    [
-      "GET",
-      "/api/admin/roles"
-    ],
-    [
-      "POST",
-      "/api/admin/roles"
-    ],
-    [
-      "PATCH",
-      "/api/admin/roles/{id}"
-    ],
-    [
-      "GET",
-      "/api/admin/audit-logs"
-    ],
-    [
-      "GET",
-      "/api/admin/outbox-events"
-    ],
-    [
-      "GET",
-      "/api/admin/async-runtime-health"
-    ],
-    [
-      "POST",
-      "/api/uploads"
-    ],
-    [
-      "POST",
-      "/api/telemetry"
-    ]
+    ["POST", "/api/auth/login"],
+    ["GET", "/api/auth/me"],
+    ["POST", "/api/auth/logout"],
+    ["GET", "/api/system/health"],
+    ["GET", "/api/admin/users"],
+    ["POST", "/api/admin/users"],
+    ["PATCH", "/api/admin/users/{id}"],
+    ["GET", "/api/admin/roles"],
+    ["POST", "/api/admin/roles"],
+    ["PATCH", "/api/admin/roles/{id}"],
+    ["GET", "/api/admin/audit-logs"],
+    ["GET", "/api/admin/outbox-events"],
+    ["GET", "/api/admin/async-runtime-health"],
+    ["POST", "/api/uploads"],
+    ["POST", "/api/telemetry"]
   ],
   "tables": [
     "app_users",
@@ -692,12 +608,5 @@
     ".agents/skills/app-template-loop/SKILL.md",
     ".agents/skills/app-template-pr-verify/SKILL.md"
   ],
-  "composeServices": [
-    "postgres",
-    "redis",
-    "kafka",
-    "minio",
-    "clickhouse",
-    "worker"
-  ]
+  "composeServices": ["postgres", "redis", "kafka", "minio", "clickhouse", "worker"]
 }

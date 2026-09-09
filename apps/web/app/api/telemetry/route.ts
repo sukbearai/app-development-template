@@ -15,6 +15,14 @@ export async function POST(request: Request) {
     });
     assertSafeWriteOrigin(request);
     const body = parseInput(telemetryRequestSchema, await readJson(request));
-    return created(await recordTelemetry({ event: body.event, route: body.route, payload: body.payload, traceId }), traceId);
+    return created(
+      await recordTelemetry({
+        event: body.event,
+        route: body.route,
+        payload: body.payload,
+        traceId,
+      }),
+      traceId,
+    );
   });
 }

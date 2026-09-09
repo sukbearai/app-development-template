@@ -23,19 +23,10 @@ export const appUsers = pgTable(
     status: text("status", { enum: ["enabled", "disabled"] })
       .notNull()
       .default("enabled"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [
-    check(
-      "app_users_status_check",
-      sql`${table.status} in ('enabled', 'disabled')`,
-    ),
-  ],
+  (table) => [check("app_users_status_check", sql`${table.status} in ('enabled', 'disabled')`)],
 );
 
 export const appRoles = pgTable(
@@ -46,16 +37,9 @@ export const appRoles = pgTable(
     status: text("status", { enum: ["active", "inactive"] })
       .notNull()
       .default("active"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [
-    check(
-      "app_roles_status_check",
-      sql`${table.status} in ('active', 'inactive')`,
-    ),
-  ],
+  (table) => [check("app_roles_status_check", sql`${table.status} in ('active', 'inactive')`)],
 );
 
 export const appPermissions = pgTable("app_permissions", {
@@ -102,17 +86,16 @@ export const appUserSessions = pgTable(
       .references(() => appUsers.id),
     secretHash: text("secret_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    lastUsedAt: timestamp("last_used_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => ({
     userIdx: index("app_user_sessions_user_idx").on(table.userId),
-    retentionIdx: index("app_user_sessions_retention_idx").on(sql`least(${table.expiresAt}, ${table.revokedAt})`, table.id),
+    retentionIdx: index("app_user_sessions_retention_idx").on(
+      sql`least(${table.expiresAt}, ${table.revokedAt})`,
+      table.id,
+    ),
   }),
 );
 
@@ -126,15 +109,10 @@ export const appAuditLogs = pgTable(
     targetId: text("target_id"),
     traceId: text("trace_id").notNull(),
     metadata: jsonb("metadata").notNull().default({}),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    retentionIdx: index("app_audit_logs_retention_idx").on(
-      table.createdAt,
-      table.id,
-    ),
+    retentionIdx: index("app_audit_logs_retention_idx").on(table.createdAt, table.id),
     traceIdx: index("app_audit_logs_trace_idx").on(table.traceId),
   }),
 );
@@ -147,30 +125,27 @@ export const appTelemetryEvents = pgTable(
     route: text("route"),
     traceId: text("trace_id").notNull(),
     payload: jsonb("payload").notNull().default({}),
-    occurredAt: timestamp("occurred_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    retentionIdx: index("app_telemetry_events_retention_idx").on(
-      table.occurredAt,
-      table.id,
-    ),
+    retentionIdx: index("app_telemetry_events_retention_idx").on(table.occurredAt, table.id),
     traceIdx: index("app_telemetry_events_trace_idx").on(table.traceId),
   }),
 );
 
-export const appFileAssets = pgTable("app_file_assets", {
-  id: text("id").primaryKey(),
-  fileName: text("file_name").notNull(),
-  mimeType: text("mime_type").notNull(),
-  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
-  storageKey: text("storage_key").notNull(),
-  uploadedBy: text("uploaded_by"),
-  uploadedAt: timestamp("uploaded_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-}, (table) => [index("app_file_assets_page_idx").on(table.uploadedAt.desc(), table.id.desc())]);
+export const appFileAssets = pgTable(
+  "app_file_assets",
+  {
+    id: text("id").primaryKey(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    storageKey: text("storage_key").notNull(),
+    uploadedBy: text("uploaded_by"),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("app_file_assets_page_idx").on(table.uploadedAt.desc(), table.id.desc())],
+);
 
 export const appOutboxEvents = pgTable(
   "app_outbox_events",
@@ -182,9 +157,7 @@ export const appOutboxEvents = pgTable(
     status: text("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),
     maxAttempts: integer("max_attempts").notNull().default(5),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
     leaseGeneration: integer("lease_generation").notNull().default(0),
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
     lockedBy: text("locked_by"),
@@ -193,12 +166,8 @@ export const appOutboxEvents = pgTable(
     errorCode: text("error_code"),
     lastError: text("last_error"),
     traceId: text("trace_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     dueIdx: index("app_outbox_events_due_idx")
@@ -210,14 +179,8 @@ export const appOutboxEvents = pgTable(
     retentionIdx: index("app_outbox_events_retention_idx")
       .on(table.updatedAt, table.id)
       .where(sql`${table.status} = 'published'`),
-    statusNextIdx: index("app_outbox_events_status_next_idx").on(
-      table.status,
-      table.nextAttemptAt,
-    ),
-    lockIdx: index("app_outbox_events_locked_idx").on(
-      table.status,
-      table.lockedAt,
-    ),
+    statusNextIdx: index("app_outbox_events_status_next_idx").on(table.status, table.nextAttemptAt),
+    lockIdx: index("app_outbox_events_locked_idx").on(table.status, table.lockedAt),
   }),
 );
 
@@ -232,9 +195,7 @@ export const appIdempotencyKeys = pgTable(
     requestHash: text("request_hash").notNull(),
     responseData: jsonb("response_data"),
     status: text("status").notNull().default("processing"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => ({
@@ -245,9 +206,7 @@ export const appIdempotencyKeys = pgTable(
       .on(table.leaseUntil, table.key)
       .where(sql`${table.status} in ('pending','processing','failed')`),
     scopeIdx: index("app_idempotency_keys_scope_idx").on(table.scope),
-    expiresAtIdx: index("app_idempotency_keys_expires_at_idx").on(
-      table.expiresAt,
-    ),
+    expiresAtIdx: index("app_idempotency_keys_expires_at_idx").on(table.expiresAt),
   }),
 );
 
@@ -263,24 +222,14 @@ export const appTasks = pgTable(
     objectId: text("object_id"),
     errorCode: text("error_code"),
     message: text("message"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
     statusIdx: index("app_tasks_status_idx").on(table.status),
     traceIdx: index("app_tasks_trace_idx").on(table.traceId),
-    objectIdx: index("app_tasks_object_idx").on(
-      table.objectType,
-      table.objectId,
-    ),
-    typeStatusIdx: index("app_tasks_type_status_idx").on(
-      table.taskType,
-      table.status,
-    ),
+    objectIdx: index("app_tasks_object_idx").on(table.objectType, table.objectId),
+    typeStatusIdx: index("app_tasks_type_status_idx").on(table.taskType, table.status),
   }),
 );
 
@@ -294,15 +243,10 @@ export const appTaskEvents = pgTable(
     status: text("status"),
     message: text("message"),
     payload: jsonb("payload"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    retentionIdx: index("app_task_events_retention_idx").on(
-      table.createdAt,
-      table.id,
-    ),
+    retentionIdx: index("app_task_events_retention_idx").on(table.createdAt, table.id),
     taskCreatedAtIdx: index("app_task_events_task_created_at_idx").on(
       table.taskId,
       table.createdAt,
@@ -317,29 +261,16 @@ export const appUploadIntents = pgTable(
     id: text("id").primaryKey(),
     storageKey: text("storage_key").notNull().unique(),
     provider: text("provider", { enum: ["local", "s3"] }).notNull(),
-    storageLocation: text("storage_location")
-      .notNull()
-      .default("legacy-unbound"),
+    storageLocation: text("storage_location").notNull().default("legacy-unbound"),
     leaseUntil: timestamp("lease_until", { withTimezone: true }),
     blockedReason: text("blocked_reason"),
     state: text("state", {
-      enum: [
-        "pending",
-        "writing",
-        "committed",
-        "cleanup",
-        "deleted",
-        "blocked",
-      ],
+      enum: ["pending", "writing", "committed", "cleanup", "deleted", "blocked"],
     })
       .notNull()
       .default("pending"),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("app_upload_intents_cleanup_idx")
@@ -358,9 +289,7 @@ export const appAsyncReceipts = pgTable("app_async_receipts", {
   eventType: text("event_type").notNull(),
   payloadHash: text("payload_hash").notNull(),
   result: jsonb("result").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export const appAsyncRecoveryQuarantine = pgTable("app_async_recovery_quarantine", {
   idempotencyKey: text("idempotency_key").primaryKey(),
@@ -368,9 +297,7 @@ export const appAsyncRecoveryQuarantine = pgTable("app_async_recovery_quarantine
   originalRecord: jsonb("original_record").notNull(),
   errorCode: text("error_code").notNull(),
   errorMessage: text("error_message").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export const appMessageQuarantine = pgTable(
   "app_message_quarantine",
@@ -383,9 +310,7 @@ export const appMessageQuarantine = pgTable(
     rawValue: text("raw_value"),
     errorCode: text("error_code").notNull(),
     errorMessage: text("error_message").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     uniqueIndex("app_message_quarantine_source_idx").on(

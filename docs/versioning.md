@@ -6,13 +6,13 @@
 
 提交使用 Conventional Commits，说明继续使用中文。例如 `feat(auth): 增加会话管理`、`fix(worker): 修复恢复检查`。不兼容变更使用 `!` 或正文中的 `BREAKING CHANGE:`。Squash merge 必须在最终提交中保留这些标记。
 
-| 当前版本 | 提交 | 下个版本 |
-| --- | --- | --- |
-| `0.1.0` | `fix` 或 `feat` | `0.1.1` |
-| `0.1.0` | breaking | `0.2.0` |
-| `1.2.3` | `fix` | `1.2.4` |
-| `1.2.3` | `feat` | `1.3.0` |
-| `1.2.3` | breaking | `2.0.0` |
+| 当前版本 | 提交                 | 下个版本          |
+| -------- | -------------------- | ----------------- |
+| `0.1.0`  | `fix` 或 `feat`      | `0.1.1`           |
+| `0.1.0`  | breaking             | `0.2.0`           |
+| `1.2.3`  | `fix`                | `1.2.4`           |
+| `1.2.3`  | `feat`               | `1.3.0`           |
+| `1.2.3`  | breaking             | `2.0.0`           |
 | 任意版本 | 仅 `docs` 或 `chore` | 不默认产生版本 PR |
 
 执行 `node scripts/release-version-check.mjs` 检查配置和版本字段。执行 `node --test scripts/tests/release-version.test.mjs`，通过固定版本的真实 release-please 库检查提交解析、版本变化、CHANGELOG、草稿参数及重复运行行为。测试使用内存 GitHub 适配器，不访问或写入远端。

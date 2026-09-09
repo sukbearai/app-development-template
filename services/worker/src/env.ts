@@ -66,13 +66,19 @@ function positiveInt(name: string, fallback: number, maximum = Infinity) {
   if (raw === undefined || raw === "") return fallback;
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0 || value > maximum) {
-    throw new Error(`${name} must be a positive integer${maximum === Infinity ? "" : ` no greater than ${maximum}`}`);
+    throw new Error(
+      `${name} must be a positive integer${maximum === Infinity ? "" : ` no greater than ${maximum}`}`,
+    );
   }
   return value;
 }
 
 function outboxPublisher(allowMissingPublisher: boolean) {
-  if (process.env.NODE_ENV === "production" && !process.env.OUTBOX_PUBLISHER && !allowMissingPublisher)
+  if (
+    process.env.NODE_ENV === "production" &&
+    !process.env.OUTBOX_PUBLISHER &&
+    !allowMissingPublisher
+  )
     throw new Error("OUTBOX_PUBLISHER is required in production; use kafka or explicit dry-run");
   const value = process.env.OUTBOX_PUBLISHER || "dry-run";
   if (value !== "dry-run" && value !== "kafka") {
@@ -83,13 +89,7 @@ function outboxPublisher(allowMissingPublisher: boolean) {
 
 function logLevel() {
   const value = process.env.LOG_LEVEL || "info";
-  if (
-    value === "debug" ||
-    value === "info" ||
-    value === "warn" ||
-    value === "error"
-  )
-    return value;
+  if (value === "debug" || value === "info" || value === "warn" || value === "error") return value;
   return "info";
 }
 
@@ -106,14 +106,8 @@ export function loadWorkerEnv({ allowMissingPublisher = false } = {}): WorkerEnv
     outboxRetryDelaySeconds: positiveInt("OUTBOX_RETRY_DELAY_SECONDS", 60),
     outboxRetryBaseMs: positiveInt("OUTBOX_RETRY_BASE_MS", 1000),
     outboxRetryMaxMs: positiveInt("OUTBOX_RETRY_MAX_MS", 300000),
-    asyncTaskIdempotencyTtlHours: positiveInt(
-      "ASYNC_TASK_IDEMPOTENCY_TTL_HOURS",
-      168,
-    ),
-    asyncTaskDefaultMaxAttempts: positiveInt(
-      "ASYNC_TASK_DEFAULT_MAX_ATTEMPTS",
-      5,
-    ),
+    asyncTaskIdempotencyTtlHours: positiveInt("ASYNC_TASK_IDEMPOTENCY_TTL_HOURS", 168),
+    asyncTaskDefaultMaxAttempts: positiveInt("ASYNC_TASK_DEFAULT_MAX_ATTEMPTS", 5),
     asyncTaskRetryBaseMs: positiveInt("ASYNC_TASK_RETRY_BASE_MS", 1000),
     asyncTaskRetryMaxMs: positiveInt("ASYNC_TASK_RETRY_MAX_MS", 300000),
     kafkaBrokers: (process.env.KAFKA_BROKERS || "")

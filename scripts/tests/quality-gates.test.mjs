@@ -28,16 +28,40 @@ const sample = `export function summarize(values: number[]) {
 `;
 
 function lint(args) {
-  const result = spawnSync(process.execPath, [oxlint, "--config", configFile, "--disable-nested-config", "--report-unused-disable-directives-severity", "error", ...args], { cwd: root, encoding: "utf8", timeout: 30_000 });
+  const result = spawnSync(
+    process.execPath,
+    [
+      oxlint,
+      "--config",
+      configFile,
+      "--disable-nested-config",
+      "--report-unused-disable-directives-severity",
+      "error",
+      ...args,
+    ],
+    { cwd: root, encoding: "utf8", timeout: 30_000 },
+  );
   assert.ifError(result.error);
   return result;
 }
 
 test("all generic vendor rules are errors and quality gates run in both aggregate entry points", async () => {
   const config = await readJson(".oxlintrc.json");
-  const loaded = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", 'import plugin from "./tools/anti-slop/src/index.ts"; console.log(JSON.stringify(Object.keys(plugin.rules)))'], { cwd: root, encoding: "utf8" });
+  const loaded = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      'import plugin from "./tools/anti-slop/src/index.ts"; console.log(JSON.stringify(Object.keys(plugin.rules)))',
+    ],
+    { cwd: root, encoding: "utf8" },
+  );
   assert.equal(loaded.status, 0, loaded.stderr);
-  const names = JSON.parse(loaded.stdout).map((name) => `anti-slop/${name}`).sort();
+  const names = JSON.parse(loaded.stdout)
+    .map((name) => `anti-slop/${name}`)
+    .sort();
   assert.equal(names.length, 15);
   assert.deepEqual(Object.keys(config.rules).sort(), names);
   for (const name of names) assert.equal(config.rules[name], "error");
@@ -71,17 +95,33 @@ test("real lint scans owned scripts and rejects chained assertions and unused su
     const invalid = lint([file]);
     assert.equal(invalid.status, 1);
     assert.match(invalid.stdout, /no-chained-type-assertions/);
-    await writeFile(file, "// oxlint-disable-next-line anti-slop/no-chained-type-assertions\nexport const label = 42;\n");
+    await writeFile(
+      file,
+      "// oxlint-disable-next-line anti-slop/no-chained-type-assertions\nexport const label = 42;\n",
+    );
     const unused = lint([file]);
     assert.equal(unused.status, 1);
     assert.match(unused.stdout, /unused|Unused/);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("duplication configuration covers every current production package", async () => {
   const config = await readJson(".jscpd.json");
-  const packages = (await readdir(path.join(root, "packages"), { withFileTypes: true })).filter((entry) => entry.isDirectory()).map((entry) => `packages/${entry.name}/src`);
-  assert.deepEqual([...config.path].sort(), ["apps/web/app", "apps/web/components", "apps/web/lib", "services/worker/src", ...packages].sort());
+  const packages = (await readdir(path.join(root, "packages"), { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => `packages/${entry.name}/src`);
+  assert.deepEqual(
+    [...config.path].sort(),
+    [
+      "apps/web/app",
+      "apps/web/components",
+      "apps/web/lib",
+      "services/worker/src",
+      ...packages,
+    ].sort(),
+  );
   assert.equal(config.minLines, 8);
   assert.equal(config.minTokens, 80);
   assert.equal(config.mode, "weak");
@@ -108,7 +148,18 @@ test("native baseline accepts existing clones, rejects new copies, and fails on 
     await writeFile(path.join(cwd, "src/b.ts"), sample);
     await assert.rejects(checkDuplication({ cwd }), /new clones/);
     assert.equal(await readFile(baselineFile, "utf8"), baseline);
-    const accepted = spawnSync(process.execPath, [path.join(root, "node_modules/jscpd/run-jscpd.js"), "--config", ".jscpd.json", "--baseline", baselineFile, "--update-baseline"], { cwd, encoding: "utf8" });
+    const accepted = spawnSync(
+      process.execPath,
+      [
+        path.join(root, "node_modules/jscpd/run-jscpd.js"),
+        "--config",
+        ".jscpd.json",
+        "--baseline",
+        baselineFile,
+        "--update-baseline",
+      ],
+      { cwd, encoding: "utf8" },
+    );
     assert.equal(accepted.status, 0, accepted.stderr);
     assert.equal((await checkDuplication({ cwd })).newClones, 0);
     await writeFile(path.join(cwd, "src/c.ts"), sample);
@@ -122,17 +173,29 @@ test("native baseline accepts existing clones, rejects new copies, and fails on 
     await assert.rejects(checkDuplication({ cwd }), /no source|ENOENT/);
     await rm(path.join(cwd, "src"), { recursive: true });
     await assert.rejects(checkDuplication({ cwd }), /ENOENT/);
-  } finally { await rm(cwd, { recursive: true, force: true }); }
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
 });
 
 test("missing, malformed and inconsistent reports fail validation", () => {
-  for (const report of [null, {}, { statistics: { total: { sources: 0 } } }, { statistics: { total: { sources: 1, tokens: 1, clones: 0, newClones: 0 } } }, { statistics: { total: { sources: 1, tokens: 1, clones: 1, newClones: 0 } }, duplicates: [] }]) {
+  for (const report of [
+    null,
+    {},
+    { statistics: { total: { sources: 0 } } },
+    { statistics: { total: { sources: 1, tokens: 1, clones: 0, newClones: 0 } } },
+    { statistics: { total: { sources: 1, tokens: 1, clones: 1, newClones: 0 } }, duplicates: [] },
+  ]) {
     assert.throws(() => validateReport(report));
   }
 });
 
 test("CI refuses the explicit baseline update command", () => {
-  const result = spawnSync(process.execPath, ["scripts/check-duplication.mjs", "--update-baseline"], { cwd: root, encoding: "utf8", env: { ...process.env, CI: "true" } });
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/check-duplication.mjs", "--update-baseline"],
+    { cwd: root, encoding: "utf8", env: { ...process.env, CI: "true" } },
+  );
   assert.equal(result.status, 1);
   assert.match(result.stderr, /disabled in CI/);
 });

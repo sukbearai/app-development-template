@@ -6,10 +6,16 @@ test("a disconnected PUT remains uncertain without an acknowledged retry", async
   let attempts = 0;
   let objectExists = false;
   let releaseFirst, markSettled;
-  const settled = new Promise(resolve => { markSettled = resolve; });
-  const pending = new Promise(resolve => { releaseFirst = resolve; });
+  const settled = new Promise((resolve) => {
+    markSettled = resolve;
+  });
+  const pending = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
   const server = http.createServer(async (request, response) => {
-    for await (const chunk of request) { /* Receive the complete body before losing the response. */ }
+    for await (const chunk of request) {
+      /* Receive the complete body before losing the response. */
+    }
     if (request.method === "PUT") {
       attempts++;
       if (attempts === 1) {
@@ -27,7 +33,7 @@ test("a disconnected PUT remains uncertain without an acknowledged retry", async
       response.end();
     }
   });
-  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   Object.assign(process.env, {
     NODE_ENV: "test",
     OBJECT_STORAGE_ENDPOINT: `http://127.0.0.1:${server.address().port}`,
@@ -38,16 +44,22 @@ test("a disconnected PUT remains uncertain without an acknowledged retry", async
   });
   const { putS3Object, closeS3 } = await import("../src/s3-client.ts");
   try {
-    await assert.rejects(putS3Object({ key: "upload_1234", bytes: Buffer.from("sample"), contentType: "text/plain" }));
+    await assert.rejects(
+      putS3Object({ key: "upload_1234", bytes: Buffer.from("sample"), contentType: "text/plain" }),
+    );
     assert.equal(attempts, 1);
     assert.equal(objectExists, false);
     releaseFirst();
     await settled;
-    assert.equal(objectExists, true, "a rejected request may still finish remotely and needs reconciliation evidence");
+    assert.equal(
+      objectExists,
+      true,
+      "a rejected request may still finish remotely and needs reconciliation evidence",
+    );
   } finally {
     releaseFirst();
     closeS3();
     server.closeAllConnections();
-    await new Promise(resolve => server.close(resolve));
+    await new Promise((resolve) => server.close(resolve));
   }
 });

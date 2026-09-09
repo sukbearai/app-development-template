@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parseReleaseStatusArgs, preflightRelease, resolveRecoveryArtifact, resolveReleaseStatus, validateReleaseIdentity } from "../release-status.mjs";
+import {
+  parseReleaseStatusArgs,
+  preflightRelease,
+  resolveRecoveryArtifact,
+  resolveReleaseStatus,
+  validateReleaseIdentity,
+} from "../release-status.mjs";
 
 const sha = "a".repeat(40);
 const otherSha = "b".repeat(40);
@@ -26,8 +32,18 @@ function fixture() {
 
 test("resolves the authenticated draft and commit rather than the current branch head", async () => {
   const { api } = fixture();
-  assert.deepEqual(await resolveReleaseStatus(api, "owner/application", tag, sha), { tag, sha, releaseId: 73, version: "0.1.1" });
-  assert.deepEqual(await resolveReleaseStatus(api, "owner/application", tag), { tag, sha, releaseId: 73, version: "0.1.1" });
+  assert.deepEqual(await resolveReleaseStatus(api, "owner/application", tag, sha), {
+    tag,
+    sha,
+    releaseId: 73,
+    version: "0.1.1",
+  });
+  assert.deepEqual(await resolveReleaseStatus(api, "owner/application", tag), {
+    tag,
+    sha,
+    releaseId: 73,
+    version: "0.1.1",
+  });
 });
 
 test("resolves annotated tag objects to their commit", async () => {
@@ -45,7 +61,8 @@ test("rejects release drift and publication before retry", () => {
     { ...release, target_commitish: otherSha },
     { ...release, tag_name: "v0.1.2" },
     { ...release, id: -1 },
-  ]) assert.throws(() => validateReleaseIdentity(changed, tag, sha, sha));
+  ])
+    assert.throws(() => validateReleaseIdentity(changed, tag, sha, sha));
   assert.throws(() => validateReleaseIdentity(release, tag, otherSha, sha), /original candidate/);
   const rc = { ...release, tag_name: "v0.1.1-rc.1", prerelease: true };
   assert.equal(validateReleaseIdentity(rc, rc.tag_name, sha, sha).version, "0.1.1-rc.1");
@@ -69,10 +86,18 @@ test("rejects missing, ambiguous, moved and unrelated candidates", async () => {
 
 test("preflight refuses an existing mismatched tag before release-please can ignore it", async () => {
   const { api, responses } = fixture();
-  const pending = { number: 12, merged_at: "2026-09-08T00:00:00Z", merge_commit_sha: sha, labels: [{ name: "autorelease: pending" }] };
+  const pending = {
+    number: 12,
+    merged_at: "2026-09-08T00:00:00Z",
+    merge_commit_sha: sha,
+    labels: [{ name: "autorelease: pending" }],
+  };
   const pullsPath = `${prefix}/pulls?state=closed&base=main&per_page=100&sort=updated&direction=desc`;
   responses.set(pullsPath, [pending]);
-  responses.set(`${prefix}/contents/package.json?ref=${sha}`, { encoding: "base64", content: Buffer.from(JSON.stringify({ version: "0.1.1" })).toString("base64") });
+  responses.set(`${prefix}/contents/package.json?ref=${sha}`, {
+    encoding: "base64",
+    content: Buffer.from(JSON.stringify({ version: "0.1.1" })).toString("base64"),
+  });
   responses.set(`${prefix}/releases?per_page=100`, []);
   responses.set(`${prefix}/git/ref/tags/${tag}`, null);
   assert.deepEqual(await preflightRelease(api, "owner/application"), { pending: 1 });
@@ -87,16 +112,22 @@ test("preflight refuses an existing mismatched tag before release-please can ign
 });
 
 test("argument validation rejects malformed identity before making API calls", () => {
-  assert.deepEqual(parseReleaseStatusArgs(["resolve", "--repo", "owner/application", "--tag", tag, "--sha", sha]), { command: "resolve", repository: "owner/application", tag, sha });
+  assert.deepEqual(
+    parseReleaseStatusArgs(["resolve", "--repo", "owner/application", "--tag", tag, "--sha", sha]),
+    { command: "resolve", repository: "owner/application", tag, sha },
+  );
   for (const args of [
-    [], ["publish"], ["resolve", "--repo", "owner/application", "--tag", "main"],
+    [],
+    ["publish"],
+    ["resolve", "--repo", "owner/application", "--tag", "main"],
     ["preflight", "--repo", "owner/application", "--unknown", "x"],
     ["preflight", "--repo", "owner/application", "--repo", "owner/other"],
     ["resolve", "--repo", "owner/application", "--tag", tag, "--sha", "main"],
     ["resolve", "--repo", "owner/application", "--tag"],
     ["recovery", "--repo", "owner/application", "--tag", tag, "--attempt", "1"],
     ["recovery", "--repo", "owner/application", "--tag", tag, "--run-id", "15", "--attempt", "0"],
-  ]) assert.throws(() => parseReleaseStatusArgs(args));
+  ])
+    assert.throws(() => parseReleaseStatusArgs(args));
 });
 
 test("recovery binds to the original release workflow attempt and nonexpired artifact", async () => {
@@ -104,31 +135,61 @@ test("recovery binds to the original release workflow attempt and nonexpired art
   const runPath = `${prefix}/actions/runs/150/attempts/2`;
   const workflowPath = `${prefix}/actions/workflows/34`;
   const artifactsPath = `${prefix}/actions/runs/150/artifacts?per_page=100`;
-  const run = { id: 150, run_attempt: 2, workflow_id: 34, path: ".github/workflows/release.yml", status: "completed", head_branch: 'main', event: 'push' };
+  const run = {
+    id: 150,
+    run_attempt: 2,
+    workflow_id: 34,
+    path: ".github/workflows/release.yml",
+    status: "completed",
+    head_branch: "main",
+    event: "push",
+  };
   const artifact = { name: `release-evidence-${tag}-2`, expired: false, workflow_run: { id: 150 } };
   responses.set(runPath, run);
   responses.set(workflowPath, { path: ".github/workflows/release.yml" });
   responses.set(artifactsPath, { artifacts: [artifact] });
-  assert.deepEqual(await resolveRecoveryArtifact(api, "owner/application", tag, "150", "2"), { runId: "150", artifactName: artifact.name });
+  assert.deepEqual(await resolveRecoveryArtifact(api, "owner/application", tag, "150", "2"), {
+    runId: "150",
+    artifactName: artifact.name,
+  });
   for (const changed of [
-    { ...run, path: ".github/workflows/ci.yml" }, { ...run, run_attempt: 3 }, { ...run, head_branch: 'untrusted' }, { ...run, event: 'pull_request' },
-    { ...run, id: 151 }, { ...run, status: "in_progress" },
+    { ...run, path: ".github/workflows/ci.yml" },
+    { ...run, run_attempt: 3 },
+    { ...run, head_branch: "untrusted" },
+    { ...run, event: "pull_request" },
+    { ...run, id: 151 },
+    { ...run, status: "in_progress" },
   ]) {
     responses.set(runPath, changed);
     await assert.rejects(resolveRecoveryArtifact(api, "owner/application", tag, "150", "2"));
   }
   responses.set(runPath, run);
-  for (const artifacts of [[], [artifact, artifact], [{ ...artifact, expired: true }], [{ ...artifact, workflow_run: { id: 151 } }], [{ ...artifact, name: `release-evidence-${tag}-1` }]]) {
+  for (const artifacts of [
+    [],
+    [artifact, artifact],
+    [{ ...artifact, expired: true }],
+    [{ ...artifact, workflow_run: { id: 151 } }],
+    [{ ...artifact, name: `release-evidence-${tag}-1` }],
+  ]) {
     responses.set(artifactsPath, { artifacts });
     await assert.rejects(resolveRecoveryArtifact(api, "owner/application", tag, "150", "2"));
   }
 });
 
 test("workflow ties publishing to an exact checked candidate and explicit retry", () => {
-  const workflow = readFileSync(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+  const workflow = readFileSync(
+    new URL("../../.github/workflows/release.yml", import.meta.url),
+    "utf8",
+  );
   assert.match(workflow, /cancel-in-progress: false/);
-  assert.match(workflow, /googleapis\/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071/);
-  assert.match(workflow, /actions\/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349/);
+  assert.match(
+    workflow,
+    /googleapis\/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071/,
+  );
+  assert.match(
+    workflow,
+    /actions\/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349/,
+  );
   assert.match(workflow, /token: \$\{\{ steps\.app\.outputs\.token \}\}/);
   assert.match(workflow, /ref: \$\{\{ needs\.prepare\.outputs\.sha \}\}/);
   assert.match(workflow, /node scripts\/release-version-check\.mjs --candidate/);
@@ -142,10 +203,21 @@ test("workflow ties publishing to an exact checked candidate and explicit retry"
   assert.match(workflow, /actions\/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093/);
   assert.match(workflow, /run-id: \$\{\{ needs\.prepare\.outputs\.recovery_run \}\}/);
   assert.match(workflow, /name: \$\{\{ needs\.prepare\.outputs\.recovery_artifact \}\}/);
-  assert.match(workflow, /Verify source and the candidate images\n\s+if: needs\.prepare\.outputs\.recovery_run == ''/);
+  assert.match(
+    workflow,
+    /Verify source and the candidate images\n\s+if: needs\.prepare\.outputs\.recovery_run == ''/,
+  );
   assert.match(workflow, /pnpm db:migrate\n\s+if: needs\.prepare\.outputs\.recovery_run == ''/);
-  assert.match(workflow, /pnpm admin:bootstrap\n\s+if: needs\.prepare\.outputs\.recovery_run == ''/);
+  assert.match(
+    workflow,
+    /pnpm admin:bootstrap\n\s+if: needs\.prepare\.outputs\.recovery_run == ''/,
+  );
   assert.doesNotMatch(workflow, /github\.sha/);
-  const commands = [...workflow.matchAll(/^\s*(?:- )?run: (?:\||[^\n]+)/gm)].map((entry) => entry[0]);
-  assert.ok(commands.every((command) => !command.includes("${{")), "run commands must use environment variables for untrusted expressions");
+  const commands = [...workflow.matchAll(/^\s*(?:- )?run: (?:\||[^\n]+)/gm)].map(
+    (entry) => entry[0],
+  );
+  assert.ok(
+    commands.every((command) => !command.includes("${{")),
+    "run commands must use environment variables for untrusted expressions",
+  );
 });

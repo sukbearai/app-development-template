@@ -12,8 +12,15 @@ export default async function AdminPermissionsPage() {
 
   return (
     <>
-      <PageHeader title="权限目录" eyebrow="Permission Catalog" description="权限是 API 和页面授权的共享边界，应通过迁移和 shared contract 同步维护。" />
-      <Section title="权限清单" description={`${permissions.length} 个权限，${roles.length} 个角色引用。`}>
+      <PageHeader
+        title="权限目录"
+        eyebrow="Permission Catalog"
+        description="权限是 API 和页面授权的共享边界，应通过迁移和 shared contract 同步维护。"
+      />
+      <Section
+        title="权限清单"
+        description={`${permissions.length} 个权限，${roles.length} 个角色引用。`}
+      >
         {permissions.length ? (
           <div className="table-wrap">
             <table className="data-table">
@@ -30,11 +37,17 @@ export default async function AdminPermissionsPage() {
                   return (
                     <tr key={permission.id}>
                       <td>{permission.name}</td>
-                      <td><code>{permission.id}</code></td>
+                      <td>
+                        <code>{permission.id}</code>
+                      </td>
                       <td>
                         {usedBy.length ? (
                           <div className="tag-list">
-                            {usedBy.map((role) => <span className="soft-tag" key={role.id}>{role.name}</span>)}
+                            {usedBy.map((role) => (
+                              <span className="soft-tag" key={role.id}>
+                                {role.name}
+                              </span>
+                            ))}
                           </div>
                         ) : (
                           <StatusBadge tone="warning">未授权</StatusBadge>

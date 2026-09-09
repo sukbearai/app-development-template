@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "timezone": "Australia/Perth",
+  "schedule": ["before 7am on monday"],
+  "rangeStrategy": "pin",
+  "automerge": false,
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "description": "Keep related runtime and tooling packages on compatible versions.",
+      "matchPackageNames": ["react", "react-dom", "@types/react", "@types/react-dom"],
+      "groupName": "React"
+    },
+    {
+      "matchPackageNames": ["effect", "@effect/**"],
+      "groupName": "Effect"
+    },
+    {
+      "matchPackageNames": ["drizzle-orm", "drizzle-kit"],
+      "groupName": "Drizzle"
+    },
+    {
+      "matchPackageNames": ["@aws-sdk/**", "@smithy/**"],
+      "groupName": "AWS SDK"
+    },
+    {
+      "matchPackageNames": ["@playwright/test", "playwright", "playwright-core"],
+      "groupName": "Playwright"
+    },
+    {
+      "matchPackageNames": ["oxlint", "@oxlint/**"],
+      "groupName": "Oxlint"
+    },
+    {
+      "matchPackageNames": ["openapi-typescript", "openapi-fetch", "openapi-typescript-helpers"],
+      "groupName": "OpenAPI SDK"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "groupName": null,
+      "dependencyDashboardApproval": true
+    }
+  ],
+  "lockFileMaintenance": { "enabled": true }
+}

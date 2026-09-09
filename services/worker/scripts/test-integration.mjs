@@ -40,10 +40,7 @@ function stopTest(signal = "SIGTERM") {
   } catch (error) {
     if (error.code === "ESRCH") return;
     // macOS can return EPERM for a group that disappeared after child exit.
-    if (
-      error.code === "EPERM" &&
-      (testChild.exitCode !== null || testChild.signalCode !== null)
-    )
+    if (error.code === "EPERM" && (testChild.exitCode !== null || testChild.signalCode !== null))
       return;
     terminationError = `Unable to terminate test process group: ${error.message}`;
     testChild.kill(signal);
@@ -82,8 +79,7 @@ function command(
     let escalation;
     const poll = test
       ? setInterval(() => {
-          if (interrupted && !escalation)
-            escalation = setTimeout(() => stopTest("SIGKILL"), 5000);
+          if (interrupted && !escalation) escalation = setTimeout(() => stopTest("SIGKILL"), 5000);
         }, 100)
       : undefined;
     child.stdout.on("data", (data) => {
@@ -131,8 +127,7 @@ async function reservePort() {
   });
   const address = server.address();
   // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Node may return a Unix address; only a TCP address has the allocated Kafka port.
-  if (!address || typeof address === "string")
-    throw new Error("Unable to allocate Kafka port");
+  if (!address || typeof address === "string") throw new Error("Unable to allocate Kafka port");
   await new Promise((resolve, reject) =>
     server.close((error) => (error ? reject(error) : resolve())),
   );
@@ -145,8 +140,7 @@ async function inspectOwned(name) {
     `{{index .Config.Labels "${ownerLabel}"}}`,
     name,
   );
-  if (label !== runId)
-    throw new Error(`Container ownership does not match this run: ${name}`);
+  if (label !== runId) throw new Error(`Container ownership does not match this run: ${name}`);
 }
 async function waitReady(description, action, deadlineMs = 120000) {
   const deadline = Date.now() + deadlineMs;
@@ -161,9 +155,7 @@ async function waitReady(description, action, deadlineMs = 120000) {
     }
     await pause(500);
   }
-  throw new Error(
-    `${description} readiness timed out: ${redact(lastError?.message)}`,
-  );
+  throw new Error(`${description} readiness timed out: ${redact(lastError?.message)}`);
 }
 async function cleanup() {
   const failures = [];
@@ -208,10 +200,7 @@ try {
   await inspectOwned(names.postgres);
   const mapping = await docker("port", names.postgres, "5432/tcp");
   const match = /^127\.0\.0\.1:(\d+)$/.exec(mapping);
-  if (!match)
-    throw new Error(
-      "PostgreSQL container port is not bound exclusively to loopback",
-    );
+  if (!match) throw new Error("PostgreSQL container port is not bound exclusively to loopback");
   const databaseUrl = `postgres://postgres:${password}@127.0.0.1:${match[1]}/worker_integration`;
   await waitReady("PostgreSQL SELECT", async () => {
     const pool = new Pool({
@@ -278,9 +267,7 @@ try {
       await admin.connect();
       const cluster = await admin.describeCluster();
       if (
-        !cluster.brokers.some(
-          (broker) => broker.host === "127.0.0.1" && broker.port === kafkaPort,
-        )
+        !cluster.brokers.some((broker) => broker.host === "127.0.0.1" && broker.port === kafkaPort)
       )
         throw new Error("Kafka advertises an unexpected broker");
     } finally {
@@ -302,19 +289,11 @@ try {
   };
   // A caller's unrelated migration directory must not change the self-contained check.
   env.WORKER_TEST_MIGRATIONS = fileURLToPath(
-    new URL(
-      "../migrations/template/",
-      import.meta.resolve("@pstack/database/client"),
-    ),
+    new URL("../migrations/template/", import.meta.resolve("@pstack/database/client")),
   );
   await command(
     process.execPath,
-    [
-      "--import",
-      import.meta.resolve("tsx"),
-      "--test",
-      "tests/integration.test.mjs",
-    ],
+    ["--import", import.meta.resolve("tsx"), "--test", "tests/integration.test.mjs"],
     { env, stream: true, test: true, timeoutMs: 180000 },
   );
   checkInterrupted();

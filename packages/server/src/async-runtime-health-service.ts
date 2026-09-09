@@ -84,11 +84,7 @@ export type AsyncRuntimeHealthSnapshot = {
   checkedAt: string;
 };
 
-function positiveIntegerEnv(
-  name: string,
-  fallback: number,
-  env: NodeJS.ProcessEnv = process.env,
-) {
+function positiveIntegerEnv(name: string, fallback: number, env: NodeJS.ProcessEnv = process.env) {
   const value = Number(env[name]);
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
 }
@@ -121,7 +117,9 @@ function emptyTaskCounts(): AsyncRuntimeTaskCounts {
 export function buildRuntimePlanFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): AsyncRuntimePlanSnapshot {
-  const topics = (env.ASYNC_RUNTIME_TOPICS || "app.tasks,telemetry.events,files.events,audit.events")
+  const topics = (
+    env.ASYNC_RUNTIME_TOPICS || "app.tasks,telemetry.events,files.events,audit.events"
+  )
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
@@ -137,22 +135,13 @@ export function buildRuntimePlanFromEnv(
     kafka: {
       brokersConfigured,
       clientId: env.KAFKA_CLIENT_ID || "app-template-worker",
-      consumerGroupId:
-        env.KAFKA_CONSUMER_GROUP_ID || "app-template-worker-consumer",
+      consumerGroupId: env.KAFKA_CONSUMER_GROUP_ID || "app-template-worker-consumer",
     },
     asyncTask: {
-      defaultMaxAttempts: positiveIntegerEnv(
-        "ASYNC_TASK_DEFAULT_MAX_ATTEMPTS",
-        5,
-        env,
-      ),
+      defaultMaxAttempts: positiveIntegerEnv("ASYNC_TASK_DEFAULT_MAX_ATTEMPTS", 5, env),
       retryBaseMs: positiveIntegerEnv("ASYNC_TASK_RETRY_BASE_MS", 1000, env),
       retryMaxMs: positiveIntegerEnv("ASYNC_TASK_RETRY_MAX_MS", 300000, env),
-      idempotencyTtlHours: positiveIntegerEnv(
-        "ASYNC_TASK_IDEMPOTENCY_TTL_HOURS",
-        168,
-        env,
-      ),
+      idempotencyTtlHours: positiveIntegerEnv("ASYNC_TASK_IDEMPOTENCY_TTL_HOURS", 168, env),
     },
   };
 }
@@ -168,11 +157,8 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
 }): AsyncRuntimeHealthSnapshot {
   const now = input.now || new Date();
   const nowMs = now.getTime();
-  const staleLockMs =
-    input.staleLockMs ?? positiveIntegerEnv("OUTBOX_STALE_LOCK_MS", 300000);
-  const alerts: AsyncRuntimeHealthAlert[] = evaluateAsyncQuarantine(
-    input.quarantine,
-  );
+  const staleLockMs = input.staleLockMs ?? positiveIntegerEnv("OUTBOX_STALE_LOCK_MS", 300000);
+  const alerts: AsyncRuntimeHealthAlert[] = evaluateAsyncQuarantine(input.quarantine);
   const topicMap = new Map<string, AsyncRuntimeOutboxTopicCounts>();
 
   function ensureTopic(topic: string) {
@@ -251,18 +237,12 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
     (total, bucket) => ({
       pending: total.pending + bucket.pending,
       failed: total.failed + bucket.failed,
-      oldestPendingAgeMs: Math.max(
-        total.oldestPendingAgeMs,
-        bucket.oldestPendingAgeMs,
-      ),
+      oldestPendingAgeMs: Math.max(total.oldestPendingAgeMs, bucket.oldestPendingAgeMs),
     }),
     { pending: 0, failed: 0, oldestPendingAgeMs: 0 },
   );
   alerts.push(
-    ...evaluateOutboxBacklog(
-      backlog,
-      input.thresholds ?? readOutboxHealthThresholds(process.env),
-    ),
+    ...evaluateOutboxBacklog(backlog, input.thresholds ?? readOutboxHealthThresholds(process.env)),
   );
 
   if (staleLockCount > 0) {
@@ -280,8 +260,7 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
     alerts.push({
       severity: "critical",
       reason: "async_task_dead_letter",
-      message:
-        "Async tasks reached dead letter state and require investigation.",
+      message: "Async tasks reached dead letter state and require investigation.",
       metric: "deadLetter",
       value: tasks.deadLetter,
       threshold: 0,
@@ -320,10 +299,7 @@ export function buildAsyncRuntimeHealthSnapshot(input: {
 export async function readAdminAsyncRuntimeHealth() {
   const now = new Date();
   const staleLockMs = positiveIntegerEnv("OUTBOX_STALE_LOCK_MS", 300000);
-  const rows = await getAsyncRuntimeHealthRows(
-    undefined,
-    new Date(now.getTime() - staleLockMs),
-  );
+  const rows = await getAsyncRuntimeHealthRows(undefined, new Date(now.getTime() - staleLockMs));
   return buildAsyncRuntimeHealthSnapshot({
     now,
     staleLockMs,

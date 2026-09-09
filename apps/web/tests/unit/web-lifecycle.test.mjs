@@ -1,16 +1,16 @@
-import assert from 'node:assert/strict';
-import { test } from 'node:test';
-import { createWebLifecycle } from '../../scripts/process-lifecycle.mjs';
-import { closeDatabase, getPool } from '@pstack/database/client';
-import { trackWebWork } from '@pstack/database/process-lifecycle';
-import { withAccessLog } from '@pstack/server/logger';
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { createWebLifecycle } from "../../scripts/process-lifecycle.mjs";
+import { closeDatabase, getPool } from "@pstack/database/client";
+import { trackWebWork } from "@pstack/database/process-lifecycle";
+import { withAccessLog } from "@pstack/server/logger";
 
-test('the application bridge drains accepted work before ending its actual pg Pool', async () => {
+test("the application bridge drains accepted work before ending its actual pg Pool", async () => {
   const lifecycle = createWebLifecycle();
   const previous = process.pstackWebLifecycle;
   const databaseURL = process.env.DATABASE_URL;
   process.pstackWebLifecycle = lifecycle;
-  process.env.DATABASE_URL = 'postgres://unused:unused@127.0.0.1:1/unused';
+  process.env.DATABASE_URL = "postgres://unused:unused@127.0.0.1:1/unused";
   const pool = getPool();
   const pending = Promise.withResolvers();
   try {
@@ -19,15 +19,19 @@ test('the application bridge drains accepted work before ending its actual pg Po
     const drained = lifecycle.drain();
     await Promise.resolve();
     assert.equal(pool.ended, false);
-    const rejected = await withAccessLog(new Request('http://localhost/api/auth/login', { method: 'POST' }), 'shutdown_test', async () => {
-      assert.fail('New business work ran after draining began');
-    });
+    const rejected = await withAccessLog(
+      new Request("http://localhost/api/auth/login", { method: "POST" }),
+      "shutdown_test",
+      async () => {
+        assert.fail("New business work ran after draining began");
+      },
+    );
     assert.equal(rejected.status, 503);
-    assert.equal((await rejected.json()).error.code, 'SERVICE_UNAVAILABLE');
-    pending.resolve('committed');
-    assert.equal(await work, 'committed');
+    assert.equal((await rejected.json()).error.code, "SERVICE_UNAVAILABLE");
+    pending.resolve("committed");
+    assert.equal(await work, "committed");
     await drained;
-    assert.equal(pool.ended, true, 'The actual registered pool must end before the process exits');
+    assert.equal(pool.ended, true, "The actual registered pool must end before the process exits");
   } finally {
     pending.resolve();
     await closeDatabase();
@@ -37,12 +41,17 @@ test('the application bridge drains accepted work before ending its actual pg Po
   }
 });
 
-test('resource cleanup awaits every disposer and reports failures', async () => {
+test("resource cleanup awaits every disposer and reports failures", async () => {
   const lifecycle = createWebLifecycle();
   const pending = Promise.withResolvers();
   let released = false;
-  lifecycle.registerCleanup(async () => { throw new Error('cleanup failed'); });
-  lifecycle.registerCleanup(async () => { await pending.promise; released = true; });
+  lifecycle.registerCleanup(async () => {
+    throw new Error("cleanup failed");
+  });
+  lifecycle.registerCleanup(async () => {
+    await pending.promise;
+    released = true;
+  });
   lifecycle.beginDrain();
   const result = assert.rejects(lifecycle.drain(), AggregateError);
   await Promise.resolve();
@@ -50,16 +59,19 @@ test('resource cleanup awaits every disposer and reports failures', async () => 
   pending.resolve();
   await result;
   assert.equal(released, true);
-  await assert.rejects(lifecycle.trackWork(async () => assert.fail('Admission reopened')));
+  await assert.rejects(lifecycle.trackWork(async () => assert.fail("Admission reopened")));
 });
 
-test('repeated drain calls share one cleanup attempt and retain falsy rejection reasons', async () => {
+test("repeated drain calls share one cleanup attempt and retain falsy rejection reasons", async () => {
   const lifecycle = createWebLifecycle();
   let attempts = 0;
-  lifecycle.registerCleanup(() => { attempts++; throw undefined; });
+  lifecycle.registerCleanup(() => {
+    attempts++;
+    throw undefined;
+  });
   const first = lifecycle.drain();
   assert.equal(lifecycle.drain(), first);
-  await assert.rejects(first, error => {
+  await assert.rejects(first, (error) => {
     assert.ok(error instanceof AggregateError);
     assert.deepEqual(error.errors, [undefined]);
     return true;

@@ -17,3 +17,9 @@
 - [改造前分析](analysis/README.md)
 
 生成项目时，在 requirements.md 中定义产品目标、用户角色、业务对象和不做范围，在 acceptance.md 中记录真实验收路径。改造前分析保留旧实现事实，当前代码和运行文档定义模板行为。
+
+- [开发请求与交互页面](client-development.md)
+- [组件开发](component-development.md)
+- [SDK](sdk.md)
+- [OpenTelemetry](tracing.md)
+- [依赖维护](dependency-updates.md)

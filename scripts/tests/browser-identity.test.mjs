@@ -19,7 +19,11 @@ test("production browser source identity includes styles and static assets", asy
     const restyled = sourceSha256(root);
     assert.notEqual(restyled, original, "CSS changes must invalidate production source identity");
     await writeFile(path.join(root, "public/logo.svg"), "<svg><circle r='1'/></svg>");
-    assert.notEqual(sourceSha256(root), restyled, "Static assets must invalidate production source identity");
+    assert.notEqual(
+      sourceSha256(root),
+      restyled,
+      "Static assets must invalidate production source identity",
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }

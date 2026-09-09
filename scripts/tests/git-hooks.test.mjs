@@ -6,7 +6,11 @@ import path from "node:path";
 import { test } from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../..");
-const env = { ...process.env, GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null", GIT_CONFIG_NOSYSTEM: "1" };
+const env = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+};
 for (const key of ["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR"]) delete env[key];
 const good = "export const label = 42;\n";
 const bad = "export const label = 42 as unknown as string;\n";
@@ -27,7 +31,12 @@ const sample = `export function summarize(values: number[]) {
 `;
 
 function execute(cwd, executable, args, overrides = {}) {
-  const result = spawnSync(executable, args, { cwd, env: { ...env, ...overrides }, encoding: "utf8", timeout: 60_000 });
+  const result = spawnSync(executable, args, {
+    cwd,
+    env: { ...env, ...overrides },
+    encoding: "utf8",
+    timeout: 60_000,
+  });
   assert.ifError(result.error);
   return { ...result, output: result.stdout + result.stderr };
 }
@@ -45,7 +54,16 @@ async function fixture(t) {
   git(cwd, "config", "user.email", "hooks@example.invalid");
   git(cwd, "config", "user.name", "Hook tests");
   git(cwd, "config", "commit.gpgsign", "false");
-  for (const file of [".githooks", ".gitattributes", ".gitignore", ".oxlintrc.json", "tools/anti-slop", "scripts/pre-commit.mjs", "scripts/install-hooks.mjs", "scripts/check-duplication.mjs"]) {
+  for (const file of [
+    ".githooks",
+    ".gitattributes",
+    ".gitignore",
+    ".oxlintrc.json",
+    "tools/anti-slop",
+    "scripts/pre-commit.mjs",
+    "scripts/install-hooks.mjs",
+    "scripts/check-duplication.mjs",
+  ]) {
     await mkdir(path.dirname(path.join(cwd, file)), { recursive: true });
     await cp(path.join(root, file), path.join(cwd, file), { recursive: true });
   }
@@ -74,7 +92,10 @@ async function unchangedAfterFailure(cwd, expected) {
   const direct = execute(cwd, process.execPath, ["scripts/pre-commit.mjs"]);
   assert.notEqual(direct.status, 0, direct.output);
   assert.match(direct.output, expected);
-  assert.ok((await readFile(path.join(cwd, ".git/index"))).equals(index), "hook changed index bytes");
+  assert.ok(
+    (await readFile(path.join(cwd, ".git/index"))).equals(index),
+    "hook changed index bytes",
+  );
   const result = execute(cwd, "git", ["commit", "-m", "must fail"]);
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, expected);
@@ -117,7 +138,9 @@ test("real first commit, partial staging and deletions validate the index and cl
   assert.equal(success.status, 0, success.output);
   assert.equal(git(cwd, "show", "HEAD:src/with spaces.ts"), good.trim());
   assert.equal(await readFile(file, "utf8"), bad);
-  await assert.rejects(readdir(success.output.match(/checking the staged snapshot at (.+)/)[1]), { code: "ENOENT" });
+  await assert.rejects(readdir(success.output.match(/checking the staged snapshot at (.+)/)[1]), {
+    code: "ENOENT",
+  });
   await writeFile(file, good);
   await writeFile(path.join(cwd, "src/remove me.ts"), good.replace("label", "other"));
   git(cwd, "add", "src/remove me.ts");
@@ -138,7 +161,10 @@ test("real duplicate blocks commit and preserves report paths after cleanup", as
   const report = JSON.parse(await readFile(reportFile, "utf8"));
   assert.ok(report.statistics.total.newClones > 0);
   for (const clone of report.duplicates) {
-    assert.ok(clone.firstFile.name.endsWith("/src/duplicate.ts") || clone.firstFile.name.endsWith("/src/summary.ts"));
+    assert.ok(
+      clone.firstFile.name.endsWith("/src/duplicate.ts") ||
+        clone.firstFile.name.endsWith("/src/summary.ts"),
+    );
     assert.ok(clone.secondFile.name.startsWith(git(cwd, "rev-parse", "--show-toplevel")));
   }
 });
@@ -160,7 +186,11 @@ test("alternate Git index is exported without changing the ordinary index", asyn
   const alternate = path.join(cwd, ".git/alternate-index");
   await writeFile(alternate, index);
   await writeFile(path.join(cwd, "src/with spaces.ts"), bad);
-  const selected = { GIT_INDEX_FILE: alternate, GIT_DIR: path.join(cwd, ".git"), GIT_WORK_TREE: cwd };
+  const selected = {
+    GIT_INDEX_FILE: alternate,
+    GIT_DIR: path.join(cwd, ".git"),
+    GIT_WORK_TREE: cwd,
+  };
   assert.equal(execute(cwd, "git", ["add", "src/with spaces.ts"], selected).status, 0);
   const staged = await readFile(alternate);
   await writeFile(path.join(cwd, "src/with spaces.ts"), good);
@@ -172,36 +202,48 @@ test("alternate Git index is exported without changing the ordinary index", asyn
   assert.equal(await readFile(path.join(cwd, "src/with spaces.ts"), "utf8"), good);
 });
 
-
-test("termination stops the check process group and removes the snapshot", { skip: process.platform === "win32", timeout: 15_000 }, async (t) => {
-  const cwd = await fixture(t);
-  const manifest = JSON.parse(await readFile(path.join(cwd, "package.json"), "utf8"));
-  manifest.scripts.lint = "node scripts/wait.mjs";
-  await writeFile(path.join(cwd, "package.json"), JSON.stringify(manifest));
-  await writeFile(path.join(cwd, "scripts/wait.mjs"), 'console.log(`CHECK_READY ${process.pid}`); setInterval(() => {}, 1000);\n');
-  git(cwd, "add", "package.json", "scripts/wait.mjs");
-  const index = await readFile(path.join(cwd, ".git/index"));
-  const child = spawn(process.execPath, ["scripts/pre-commit.mjs"], { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
-  t.after(() => child.kill("SIGTERM"));
-  let output = "";
-  const finished = new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("close", resolve);
-  });
-  await new Promise((resolve, reject) => {
-    child.once("error", reject);
-    child.once("exit", () => reject(new Error(output)));
-    child.stderr.on("data", (chunk) => { output += chunk; });
-    child.stdout.on("data", (chunk) => {
-      output += chunk;
-      if (output.includes("CHECK_READY")) resolve();
+test(
+  "termination stops the check process group and removes the snapshot",
+  { skip: process.platform === "win32", timeout: 15_000 },
+  async (t) => {
+    const cwd = await fixture(t);
+    const manifest = JSON.parse(await readFile(path.join(cwd, "package.json"), "utf8"));
+    manifest.scripts.lint = "node scripts/wait.mjs";
+    await writeFile(path.join(cwd, "package.json"), JSON.stringify(manifest));
+    await writeFile(
+      path.join(cwd, "scripts/wait.mjs"),
+      "console.log(`CHECK_READY ${process.pid}`); setInterval(() => {}, 1000);\n",
+    );
+    git(cwd, "add", "package.json", "scripts/wait.mjs");
+    const index = await readFile(path.join(cwd, ".git/index"));
+    const child = spawn(process.execPath, ["scripts/pre-commit.mjs"], {
+      cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-  });
-  child.kill("SIGTERM");
-  assert.equal(await finished, 1, output);
-  const snapshot = output.match(/checking the staged snapshot at (.+)/)[1];
-  await assert.rejects(readdir(snapshot), { code: "ENOENT" });
-  const worker = Number(output.match(/CHECK_READY (\d+)/)[1]);
-  assert.throws(() => process.kill(worker, 0), { code: "ESRCH" });
-  assert.ok((await readFile(path.join(cwd, ".git/index"))).equals(index));
-});
+    t.after(() => child.kill("SIGTERM"));
+    let output = "";
+    const finished = new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("exit", () => reject(new Error(output)));
+      child.stderr.on("data", (chunk) => {
+        output += chunk;
+      });
+      child.stdout.on("data", (chunk) => {
+        output += chunk;
+        if (output.includes("CHECK_READY")) resolve();
+      });
+    });
+    child.kill("SIGTERM");
+    assert.equal(await finished, 1, output);
+    const snapshot = output.match(/checking the staged snapshot at (.+)/)[1];
+    await assert.rejects(readdir(snapshot), { code: "ENOENT" });
+    const worker = Number(output.match(/CHECK_READY (\d+)/)[1]);
+    assert.throws(() => process.kill(worker, 0), { code: "ESRCH" });
+    assert.ok((await readFile(path.join(cwd, ".git/index"))).equals(index));
+  },
+);

@@ -16,7 +16,7 @@ on:
         description: Original attempt that uploaded the release evidence artifact
         required: false
         type: string
-        default: '1'
+        default: "1"
 permissions:
   contents: read
 concurrency:

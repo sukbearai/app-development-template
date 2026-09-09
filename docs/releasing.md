@@ -19,13 +19,21 @@
       "reference": "ghcr.io/owner/repository-web@sha256:<64 hex>",
       "id": "sha256:<tested config ID>",
       "platform": "linux/arm64",
-      "manifest": { "path": "artifacts/release/web-manifest.json", "sha256": "<64 hex>", "bytes": 1234 }
+      "manifest": {
+        "path": "artifacts/release/web-manifest.json",
+        "sha256": "<64 hex>",
+        "bytes": 1234
+      }
     },
     "worker": {
       "reference": "ghcr.io/owner/repository-worker@sha256:<64 hex>",
       "id": "sha256:<tested config ID>",
       "platform": "linux/arm64",
-      "manifest": { "path": "artifacts/release/worker-manifest.json", "sha256": "<64 hex>", "bytes": 1234 }
+      "manifest": {
+        "path": "artifacts/release/worker-manifest.json",
+        "sha256": "<64 hex>",
+        "bytes": 1234
+      }
     }
   }
 }

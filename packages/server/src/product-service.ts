@@ -13,10 +13,7 @@ import { env } from "./env";
 import { logger } from "./logger";
 import * as repo from "@pstack/database/repository";
 import { putObject, deleteObject, storageLocation } from "./storage";
-import {
-  withTransaction,
-  type TransactionContext,
-} from "@pstack/database/client";
+import { withTransaction, type TransactionContext } from "@pstack/database/client";
 import { assertInMemoryUploadSize } from "./upload-memory-limits";
 import { parseInput } from "./validation";
 
@@ -50,13 +47,7 @@ export async function recordAudit(
   return event;
 }
 
-export async function listAuditEvents() {
-  return repo.getAuditEvents();
-}
-
-export async function recordTelemetry(
-  input: Omit<TelemetryEvent, "id" | "occurredAt">,
-) {
+export async function recordTelemetry(input: Omit<TelemetryEvent, "id" | "occurredAt">) {
   const event: TelemetryEvent = {
     id: `tel_${randomUUID()}`,
     occurredAt: new Date().toISOString(),
@@ -122,11 +113,7 @@ export async function storeUploadedFile(input: {
     );
     writeCompleted = true;
     const asset = await withTransaction(async (tx) => {
-      const actor = await requireWritePermission(
-        input.token,
-        "file.upload",
-        tx,
-      );
+      const actor = await requireWritePermission(input.token, "file.upload", tx);
       const intent = await repo.lockUploadIntent(intentId, tx);
       if (
         intent?.state !== "writing" ||
@@ -186,9 +173,7 @@ export async function storeUploadedFile(input: {
         intentId,
         writeCompleted || provider === "local" ? "cleanup" : "blocked",
         tx,
-        writeCompleted || provider === "local"
-          ? null
-          : "upload_outcome_unknown",
+        writeCompleted || provider === "local" ? null : "upload_outcome_unknown",
       );
     })
       .then(() => reconcileUploadIntent(intentId))
@@ -208,35 +193,18 @@ export async function reconcileUploadIntent(id: string, dryRun = false) {
       return "protected";
     if (intent.state === "deleted") return "deleted";
     if (intent.state === "pending" && intent.provider === "s3") {
-      if (!dryRun)
-        await repo.setUploadIntentState(
-          id,
-          "blocked",
-          tx,
-          "upload_outcome_unknown",
-        );
+      if (!dryRun) await repo.setUploadIntentState(id, "blocked", tx, "upload_outcome_unknown");
       return "upload_outcome_unknown";
     }
     if (intent.state === "writing") {
-      if (intent.leaseUntil && intent.leaseUntil.getTime() > Date.now())
-        return "busy";
-      if (!dryRun)
-        await repo.setUploadIntentState(
-          id,
-          "blocked",
-          tx,
-          "upload_outcome_unknown",
-        );
+      if (intent.leaseUntil && intent.leaseUntil.getTime() > Date.now()) return "busy";
+      if (!dryRun) await repo.setUploadIntentState(id, "blocked", tx, "upload_outcome_unknown");
       return "upload_outcome_unknown";
     }
-    if (
-      intent.state === "blocked" &&
-      intent.blockedReason === "upload_outcome_unknown"
-    )
+    if (intent.state === "blocked" && intent.blockedReason === "upload_outcome_unknown")
       return "upload_outcome_unknown";
     if (intent.storageLocation !== storageLocation(intent.provider)) {
-      if (!dryRun)
-        await repo.setUploadIntentState(id, "blocked", tx, "storage_changed");
+      if (!dryRun) await repo.setUploadIntentState(id, "blocked", tx, "storage_changed");
       return "storage_changed";
     }
     if (dryRun) return "deletable";
@@ -250,12 +218,9 @@ export async function resolveBlockedUpload(
   id: string,
   evidence: { writerStopped: true; remoteWriteSettled: true },
 ) {
-  if (!/^upload_[a-f0-9-]+$/.test(id))
-    throw new Error("Invalid managed upload intent ID");
+  if (!/^upload_[a-f0-9-]+$/.test(id)) throw new Error("Invalid managed upload intent ID");
   if (evidence.writerStopped !== true || evidence.remoteWriteSettled !== true)
-    throw new Error(
-      "Confirm the uploader is stopped and remote writes are settled before cleanup",
-    );
+    throw new Error("Confirm the uploader is stopped and remote writes are settled before cleanup");
   await withTransaction(async (tx) => {
     const intent = await repo.lockUploadIntent(id, tx);
     if (
@@ -301,28 +266,21 @@ export async function reconcileUploads(
       const group = await Promise.all(
         intents.slice(start, start + 4).map(async (intent) => ({
           id: intent.id,
-          state: await reconcileUploadIntent(intent.id, options.dryRun).catch(
-            async () => {
-              if (!options.dryRun)
-                await withTransaction(async (tx) => {
-                  const current = await repo.lockUploadIntent(intent.id, tx);
-                  if (
-                    current &&
-                    current.state !== "committed" &&
-                    current.state !== "deleted" &&
-                    current.state !== "writing" &&
-                    !(await repo.storageKeyReferenced(current.storageKey, tx))
-                  )
-                    await repo.setUploadIntentState(
-                      intent.id,
-                      "blocked",
-                      tx,
-                      "cleanup_failed",
-                    );
-                });
-              return "cleanup_failed";
-            },
-          ),
+          state: await reconcileUploadIntent(intent.id, options.dryRun).catch(async () => {
+            if (!options.dryRun)
+              await withTransaction(async (tx) => {
+                const current = await repo.lockUploadIntent(intent.id, tx);
+                if (
+                  current &&
+                  current.state !== "committed" &&
+                  current.state !== "deleted" &&
+                  current.state !== "writing" &&
+                  !(await repo.storageKeyReferenced(current.storageKey, tx))
+                )
+                  await repo.setUploadIntentState(intent.id, "blocked", tx, "cleanup_failed");
+              });
+            return "cleanup_failed";
+          }),
         })),
       );
       results.push(...group);
@@ -363,8 +321,7 @@ export async function createOutboxEvent(
     updatedAt: now,
   };
   if (tx) await repo.insertOutboxEvent(event, tx);
-  else
-    await withTransaction((context) => repo.insertOutboxEvent(event, context));
+  else await withTransaction((context) => repo.insertOutboxEvent(event, context));
   return event;
 }
 

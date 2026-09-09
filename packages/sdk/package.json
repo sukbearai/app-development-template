@@ -1,0 +1,23 @@
+{
+  "name": "@pstack/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.d.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:unit": "tsx --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@pstack/contracts": "workspace:*",
+    "openapi-fetch": "0.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.18.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

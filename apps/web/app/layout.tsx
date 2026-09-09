@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { env } from "@pstack/server/env";
 import { AppQueryProvider } from "@/components/query-provider";
+import { BrowserDiagnostics } from "@/components/browser-diagnostics";
+import { Notifications } from "@/components/notifications";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +14,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="zh-CN">
       <body>
-        <AppQueryProvider>{children}</AppQueryProvider>
+        <AppQueryProvider>
+          <BrowserDiagnostics />
+          {children}
+          <Notifications />
+        </AppQueryProvider>
       </body>
     </html>
   );

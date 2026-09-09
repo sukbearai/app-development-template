@@ -7,11 +7,16 @@ test("metrics use dedicated bearer security without session or cookie alternativ
   const document = buildOpenApiDocument();
   assert.deepEqual(document.paths["/api/system/metrics"].get.security, [{ metricsBearerAuth: [] }]);
   assert.equal(document.components.securitySchemes.metricsBearerAuth.scheme, "bearer");
-  assert.deepEqual(document.paths["/api/auth/me"].get.security, [{ bearerAuth: [] }, { cookieAuth: [] }]);
+  assert.deepEqual(document.paths["/api/auth/me"].get.security, [
+    { bearerAuth: [] },
+    { cookieAuth: [] },
+  ]);
 });
 test("database unavailable observations cannot masquerade as healthy empty aggregates", () => {
   const observedAt = new Date().toISOString();
-  assert.deepEqual(databaseMetricsSchema.parse({ status: "unavailable", observedAt, outbox: { pending: 0 } }),
-    { status: "unavailable", observedAt });
+  assert.deepEqual(
+    databaseMetricsSchema.parse({ status: "unavailable", observedAt, outbox: { pending: 0 } }),
+    { status: "unavailable", observedAt },
+  );
   assert.equal(databaseMetricsSchema.safeParse({ status: "available", observedAt }).success, false);
 });

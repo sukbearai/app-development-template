@@ -8,21 +8,21 @@
 
 `docs/mvp.md:15` 定义初始管理角色，`:21-29` 的创建业务对象、审核、后台执行、归档仍是要求替换的示例步骤；`:50-52` 明确当前是管理骨架。`docs/requirements.md:3-14` 也是待填写模板，不能据此认定业务需求已落实。`docs/technical-design.md:88` 将 Redis sessions 列为基础设施用途，但实际 session 在 PostgreSQL，不应误迁为已实现的 Redis session 架构。
 
-| 能力 | 当前实现与证据 | 边界 |
-| --- | --- | --- |
-| 账号密码 | `apps/web/lib/auth-service.ts:67-100` 查询用户、验证启用状态及密码、写会话、记登录审计、返回个人角色权限 | 无注册、MFA、SSO/OIDC、密码找回、密码重置 API；新用户密码最少 8 个 trim 后字符，但种子管理员例外 |
-| 密码存储 | `apps/web/lib/password.ts:7-20` 随机盐 16 bytes、scrypt 64-byte key、timingSafeEqual | 保留 `plain:` 明文兼容；没有自动升级旧 hash |
-| Session | `auth-service.ts:18-64` 随机 24-byte id + 24-byte secret，token=`id.secret`，数据库只存 secret SHA-256；检验撤销、固定过期、密钥和用户 enabled | 每次使用 touch lastUsedAt，但不滑动续期；无会话列表、全端登出、过期行清理入口 |
-| Cookie/Bearer | `request-auth.ts:18-25,42-64` 优先 Authorization，其次 Cookie；HttpOnly、SameSite=Lax、Path=/、可配置 Secure | Bearer 实际用相同 session token；没有独立服务身份认证。`SERVICE_TOKEN` 只在生产配置检查中出现，未接入这些 HTTP 路由 |
-| RBAC | `auth-service.ts:50-53,194-205` 用户角色并集、页面/API 独立守卫、资源 owner helper | 无租户/组织/项目范围或 ABAC；inactive 角色没有被过滤；owner helper 当前仅测试调用，没有生产资源路由消费 |
-| 数据模型 | `apps/web/db/schema.ts:3-48` users/roles/permissions/user_roles/role_permissions/user_sessions，账号唯一、关联外键和复合主键 | status 是 text、映射层强制断言 union；不是数据库 enum/check 约束 |
-| 登录节流 | `rate-limit.ts:26-66` 内存固定窗及最大 5000 keys 清理；可选 Redis INCR/EXPIRE；成功删除计数 | 默认 20 次/60s；键为 account + 原样 X-Forwarded-For；无可信代理解析、全局/IP 合并限额；Redis INCR 与 EXPIRE 非原子 |
-| CSRF | `api-security.ts:4-6` 与 `request-auth.ts:27-39` 对带 session Cookie 且无 Authorization 的写请求校验 Origin | 无 Cookie 的登录/telemetry 不检查 Origin；允许请求 URL origin 或 forwarded host/proto 组合，需要部署端明确可信代理边界 |
-| 输入合同 | `packages/shared/src/index.ts:3-75,96-100` Zod schemas，`validation.ts:4-12` 输出 400 + issues | 无字段最大长度；PATCH 全 optional，空对象合法；未定义账号/角色 ID 字符规则、关系 ID 去重和存在性友好错误 |
-| 响应与 trace | `api-response.ts:17-61` `{traceId,data,meta}` / `{traceId,error:{code,message,details}}`；优先请求 x-trace-id | 未知异常原文回给客户端并多数映射为 400；readJson 解析失败返回 `{}`；未强制验证输出 Zod schema |
-| 日志审计 | `logger.ts:6-45,57-80` 结构化访问日志、按字段名递归脱敏；`auth-service.ts:89,145,159,175,190` 成功登录及管理写入审计 | 登录 trace 硬编码 `login`，与请求 trace 断开；失败认证/注销不写业务审计；业务写入与 audit 分属事务 |
-| 客户端请求 | `components/api-client.ts:16-57` same-origin credentials、JSON/FormData、错误 message、解包 data | 泛型强制断言无 runtime schema 验证；丢失 trace/status/code/details，未统一处理 401 或响应超时 |
-| React Query | `components/api-query.ts:26` 提供 useApiQuery、AbortSignal；`query-provider.tsx:6-19` QueryClient retry=1 | 当前管理页是服务端直读 + router.refresh，搜索未见 useApiQuery 生产调用，不能认定管理台已采用查询缓存架构 |
+| 能力          | 当前实现与证据                                                                                                                                 | 边界                                                                                                                   |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| 账号密码      | `apps/web/lib/auth-service.ts:67-100` 查询用户、验证启用状态及密码、写会话、记登录审计、返回个人角色权限                                       | 无注册、MFA、SSO/OIDC、密码找回、密码重置 API；新用户密码最少 8 个 trim 后字符，但种子管理员例外                       |
+| 密码存储      | `apps/web/lib/password.ts:7-20` 随机盐 16 bytes、scrypt 64-byte key、timingSafeEqual                                                           | 保留 `plain:` 明文兼容；没有自动升级旧 hash                                                                            |
+| Session       | `auth-service.ts:18-64` 随机 24-byte id + 24-byte secret，token=`id.secret`，数据库只存 secret SHA-256；检验撤销、固定过期、密钥和用户 enabled | 每次使用 touch lastUsedAt，但不滑动续期；无会话列表、全端登出、过期行清理入口                                          |
+| Cookie/Bearer | `request-auth.ts:18-25,42-64` 优先 Authorization，其次 Cookie；HttpOnly、SameSite=Lax、Path=/、可配置 Secure                                   | Bearer 实际用相同 session token；没有独立服务身份认证。`SERVICE_TOKEN` 只在生产配置检查中出现，未接入这些 HTTP 路由    |
+| RBAC          | `auth-service.ts:50-53,194-205` 用户角色并集、页面/API 独立守卫、资源 owner helper                                                             | 无租户/组织/项目范围或 ABAC；inactive 角色没有被过滤；owner helper 当前仅测试调用，没有生产资源路由消费                |
+| 数据模型      | `apps/web/db/schema.ts:3-48` users/roles/permissions/user_roles/role_permissions/user_sessions，账号唯一、关联外键和复合主键                   | status 是 text、映射层强制断言 union；不是数据库 enum/check 约束                                                       |
+| 登录节流      | `rate-limit.ts:26-66` 内存固定窗及最大 5000 keys 清理；可选 Redis INCR/EXPIRE；成功删除计数                                                    | 默认 20 次/60s；键为 account + 原样 X-Forwarded-For；无可信代理解析、全局/IP 合并限额；Redis INCR 与 EXPIRE 非原子     |
+| CSRF          | `api-security.ts:4-6` 与 `request-auth.ts:27-39` 对带 session Cookie 且无 Authorization 的写请求校验 Origin                                    | 无 Cookie 的登录/telemetry 不检查 Origin；允许请求 URL origin 或 forwarded host/proto 组合，需要部署端明确可信代理边界 |
+| 输入合同      | `packages/shared/src/index.ts:3-75,96-100` Zod schemas，`validation.ts:4-12` 输出 400 + issues                                                 | 无字段最大长度；PATCH 全 optional，空对象合法；未定义账号/角色 ID 字符规则、关系 ID 去重和存在性友好错误               |
+| 响应与 trace  | `api-response.ts:17-61` `{traceId,data,meta}` / `{traceId,error:{code,message,details}}`；优先请求 x-trace-id                                  | 未知异常原文回给客户端并多数映射为 400；readJson 解析失败返回 `{}`；未强制验证输出 Zod schema                          |
+| 日志审计      | `logger.ts:6-45,57-80` 结构化访问日志、按字段名递归脱敏；`auth-service.ts:89,145,159,175,190` 成功登录及管理写入审计                           | 登录 trace 硬编码 `login`，与请求 trace 断开；失败认证/注销不写业务审计；业务写入与 audit 分属事务                     |
+| 客户端请求    | `components/api-client.ts:16-57` same-origin credentials、JSON/FormData、错误 message、解包 data                                               | 泛型强制断言无 runtime schema 验证；丢失 trace/status/code/details，未统一处理 401 或响应超时                          |
+| React Query   | `components/api-query.ts:26` 提供 useApiQuery、AbortSignal；`query-provider.tsx:6-19` QueryClient retry=1                                      | 当前管理页是服务端直读 + router.refresh，搜索未见 useApiQuery 生产调用，不能认定管理台已采用查询缓存架构               |
 
 ## 请求链路
 
@@ -35,17 +35,17 @@
 
 共 9 个页面文件，加根 layout 和 admin layout。管理页全部需要 admin.read。
 
-| 路径 | 页面能力与证据 |
-| --- | --- |
-| `/` | `app/page.tsx:6-13,24-47` 模板名、管理端和 Health 链接；Session Active 只看 Cookie 存在、未验证有效性；Verification Ready 为固定文字 |
-| `/login` | `app/login/page.tsx:11-35` 有效 session 跳 /admin；`login-form.tsx:9-13,26-34` 接受 next，提交登录后跳转 |
-| `/admin` | `app/admin/page.tsx:12-31` 用户/审计/埋点/文件/outbox 汇总与图表；`:43-70` 基线说明 |
-| `/admin/users` | `app/admin/users/page.tsx:9-25,42-54` 查全部用户/角色/权限、创建账号、切换状态；API 支持的 displayName/roleIds 修改没有编辑表单 |
-| `/admin/roles` | `app/admin/roles/page.tsx:9-23,41-57` 创建角色、权限选择、切换 active/inactive；API 支持的名称/权限集合修改没有编辑表单 |
-| `/admin/permissions` | `app/admin/permissions/page.tsx:8-15,28-39` 权限目录与使用角色，只读，新增权限走迁移 |
-| `/admin/files` | `app/admin/files/page.tsx:10-25,42-49` 最近文件元数据和上传，上传额外要 file.upload；无下载、删除或对象详情 API |
-| `/admin/audit` | `app/admin/audit/page.tsx:9-16,31-37` 最近 100 条动作/对象/操作者/trace/时间，无筛选分页 |
-| `/admin/outbox` | `app/admin/outbox/page.tsx:16-24,39-46` 最近事件 topic/status/attempts/nextAttemptAt/trace，无 retry 操作，无 async-health 专页 |
+| 路径                 | 页面能力与证据                                                                                                                       |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                  | `app/page.tsx:6-13,24-47` 模板名、管理端和 Health 链接；Session Active 只看 Cookie 存在、未验证有效性；Verification Ready 为固定文字 |
+| `/login`             | `app/login/page.tsx:11-35` 有效 session 跳 /admin；`login-form.tsx:9-13,26-34` 接受 next，提交登录后跳转                             |
+| `/admin`             | `app/admin/page.tsx:12-31` 用户/审计/埋点/文件/outbox 汇总与图表；`:43-70` 基线说明                                                  |
+| `/admin/users`       | `app/admin/users/page.tsx:9-25,42-54` 查全部用户/角色/权限、创建账号、切换状态；API 支持的 displayName/roleIds 修改没有编辑表单      |
+| `/admin/roles`       | `app/admin/roles/page.tsx:9-23,41-57` 创建角色、权限选择、切换 active/inactive；API 支持的名称/权限集合修改没有编辑表单              |
+| `/admin/permissions` | `app/admin/permissions/page.tsx:8-15,28-39` 权限目录与使用角色，只读，新增权限走迁移                                                 |
+| `/admin/files`       | `app/admin/files/page.tsx:10-25,42-49` 最近文件元数据和上传，上传额外要 file.upload；无下载、删除或对象详情 API                      |
+| `/admin/audit`       | `app/admin/audit/page.tsx:9-16,31-37` 最近 100 条动作/对象/操作者/trace/时间，无筛选分页                                             |
+| `/admin/outbox`      | `app/admin/outbox/page.tsx:16-24,39-46` 最近事件 topic/status/attempts/nextAttemptAt/trace，无 retry 操作，无 async-health 专页      |
 
 `components/admin/admin-shell.tsx:28-35,43-59,88-117` 有统一顶栏、响应式侧栏、当前路由高亮和退出入口。所有菜单都绑定同一 admin.read，所谓权限感知菜单目前粒度较粗。files/audit/outbox repository 各取最近 100 条；users/roles 是全量查询，未分页，见 `repository.ts:68-113,215-216,264-265,298`。
 
@@ -53,23 +53,23 @@
 
 13 个显式 route.ts，15 个操作；另有 catch-all 对 GET/POST/PUT/PATCH/DELETE 回 ROUTE_NOT_FOUND。下表证据均在 `apps/web/app/api`。
 
-| 操作 | 认证/校验与返回 | 证据 |
-| --- | --- | --- |
-| POST `/api/auth/login` | origin helper、LoginRequest、限流；200 token/session/user/roles/permissions + Cookie | `auth/login/route.ts:10-23` |
-| GET `/api/auth/me` | session；200 当前会话、用户、个人角色权限 | `auth/me/route.ts:6-13` |
-| POST `/api/auth/logout` | origin helper；200 `{ok:true}` + 清 Cookie；当前未验证 session secret | `auth/logout/route.ts:7-15` |
-| GET `/api/system/health` | 公开；200/503 成功包中的 HealthStatus | `system/health/route.ts:5-10` |
-| GET `/api/admin/users` | admin.read；users/roles/permissions 全目录 | `admin/users/route.ts:8-17` |
-| POST `/api/admin/users` | origin + admin.write + CreateUserRequest；201 User | `admin/users/route.ts:20-30` |
-| PATCH `/api/admin/users/{id}` | origin + admin.write + UpdateUserRequest；200 User | `admin/users/[id]/route.ts:8-19` |
-| GET `/api/admin/roles` | admin.read；Role[] | `admin/roles/route.ts:8-17` |
-| POST `/api/admin/roles` | origin + admin.write + CreateRoleRequest；201 Role | `admin/roles/route.ts:20-30` |
-| PATCH `/api/admin/roles/{id}` | origin + admin.write + UpdateRoleRequest；200 Role | `admin/roles/[id]/route.ts:8-19` |
-| GET `/api/admin/audit-logs` | admin.read；AuditEvent[] | `admin/audit-logs/route.ts:6-15` |
-| GET `/api/admin/outbox-events` | admin.read；OutboxEvent[] | `admin/outbox-events/route.ts:6-15` |
+| 操作                                  | 认证/校验与返回                                                                                        | 证据                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| POST `/api/auth/login`                | origin helper、LoginRequest、限流；200 token/session/user/roles/permissions + Cookie                   | `auth/login/route.ts:10-23`                |
+| GET `/api/auth/me`                    | session；200 当前会话、用户、个人角色权限                                                              | `auth/me/route.ts:6-13`                    |
+| POST `/api/auth/logout`               | origin helper；200 `{ok:true}` + 清 Cookie；当前未验证 session secret                                  | `auth/logout/route.ts:7-15`                |
+| GET `/api/system/health`              | 公开；200/503 成功包中的 HealthStatus                                                                  | `system/health/route.ts:5-10`              |
+| GET `/api/admin/users`                | admin.read；users/roles/permissions 全目录                                                             | `admin/users/route.ts:8-17`                |
+| POST `/api/admin/users`               | origin + admin.write + CreateUserRequest；201 User                                                     | `admin/users/route.ts:20-30`               |
+| PATCH `/api/admin/users/{id}`         | origin + admin.write + UpdateUserRequest；200 User                                                     | `admin/users/[id]/route.ts:8-19`           |
+| GET `/api/admin/roles`                | admin.read；Role[]                                                                                     | `admin/roles/route.ts:8-17`                |
+| POST `/api/admin/roles`               | origin + admin.write + CreateRoleRequest；201 Role                                                     | `admin/roles/route.ts:20-30`               |
+| PATCH `/api/admin/roles/{id}`         | origin + admin.write + UpdateRoleRequest；200 Role                                                     | `admin/roles/[id]/route.ts:8-19`           |
+| GET `/api/admin/audit-logs`           | admin.read；AuditEvent[]                                                                               | `admin/audit-logs/route.ts:6-15`           |
+| GET `/api/admin/outbox-events`        | admin.read；OutboxEvent[]                                                                              | `admin/outbox-events/route.ts:6-15`        |
 | GET `/api/admin/async-runtime-health` | admin.read；runtime plan、topic backlog、task counts、alerts 的快照，状态 blocked/degraded 仍 HTTP 200 | `admin/async-runtime-health/route.ts:6-15` |
-| POST `/api/uploads` | origin + file.upload；Content-Length 预检，formData 内存解析，再 File/size 校验；200 FileAsset | `uploads/route.ts:12-25` |
-| POST `/api/telemetry` | 无身份要求；origin helper + TelemetryRequest；201 TelemetryEvent，同时 outbox | `telemetry/route.ts:8-18` |
+| POST `/api/uploads`                   | origin + file.upload；Content-Length 预检，formData 内存解析，再 File/size 校验；200 FileAsset         | `uploads/route.ts:12-25`                   |
+| POST `/api/telemetry`                 | 无身份要求；origin helper + TelemetryRequest；201 TelemetryEvent，同时 outbox                          | `telemetry/route.ts:8-18`                  |
 
 没有用户/角色 DELETE、权限 CRUD、文件读写列表 API、账号自服务 API。`system.read` 虽在 `db/migrations/0001_core.sql:93-97` 种子权限中，公开 health 路由不校验该权限。
 

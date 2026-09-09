@@ -3,10 +3,7 @@ import { env } from "./env";
 export const sessionCookieName = env.SESSION_COOKIE_NAME;
 
 export function bearerToken(request: Request) {
-  return (
-    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
-    undefined
-  );
+  return request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") || undefined;
 }
 
 export function cookieValue(request: Request, name: string) {
@@ -20,16 +17,11 @@ export function cookieValue(request: Request, name: string) {
 
 export function authToken(request: Request) {
   const cookieToken = cookieValue(request, sessionCookieName);
-  return (
-    bearerToken(request) ||
-    (cookieToken ? decodeCookie(cookieToken) : undefined)
-  );
+  return bearerToken(request) || (cookieToken ? decodeCookie(cookieToken) : undefined);
 }
 
 export function isCookieAuthenticatedRequest(request: Request) {
-  return (
-    !bearerToken(request) && Boolean(cookieValue(request, sessionCookieName))
-  );
+  return !bearerToken(request) && Boolean(cookieValue(request, sessionCookieName));
 }
 
 export function verifyRequestOrigin(request: Request) {

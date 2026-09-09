@@ -21,10 +21,7 @@ import { assertRequestRateLimit } from "./rate-limit";
 import { ApiError } from "./api-response";
 import { env } from "./env";
 import { hashPassword, verifyPassword } from "./password";
-import {
-  withTransaction,
-  type TransactionContext,
-} from "@pstack/database/client";
+import { withTransaction, type TransactionContext } from "@pstack/database/client";
 import { recordAudit } from "./product-service";
 import * as repo from "@pstack/database/repository";
 
@@ -107,9 +104,7 @@ export async function requireWritePermission(
   await repo.lockIdentity(tx);
   const actor = await sessionActor(token, tx);
   if (!actor) throw new ApiError(401, "UNAUTHENTICATED", "请先登录");
-  if (
-    !permissionsForUser(actor.user, await repo.getRoles(tx)).has(permissionId)
-  )
+  if (!permissionsForUser(actor.user, await repo.getRoles(tx)).has(permissionId))
     throw new ApiError(403, "FORBIDDEN", "无权限执行该操作", {
       permission: permissionId,
     });
@@ -122,11 +117,7 @@ export async function login(input: { account?: string; password?: string }) {
   const user = accountRecord?.user;
   const passwordHash = accountRecord?.passwordHash || "";
   const passwordMatches = await verifyPassword(password, passwordHash);
-  if (
-    !user ||
-    user.status !== "enabled" ||
-    !passwordMatches
-  ) {
+  if (!user || user.status !== "enabled" || !passwordMatches) {
     throw new ApiError(401, "INVALID_CREDENTIALS", "账号或密码错误");
   }
   const generated = generateSessionToken();
@@ -142,10 +133,7 @@ export async function login(input: { account?: string; password?: string }) {
   await withTransaction(async (tx) => {
     await repo.lockIdentity(tx);
     const current = await repo.getUserByAccount(account, tx);
-    if (
-      current?.user.status !== "enabled" ||
-      current.passwordHash !== passwordHash
-    )
+    if (current?.user.status !== "enabled" || current.passwordHash !== passwordHash)
       throw new ApiError(401, "INVALID_CREDENTIALS", "账号或密码错误");
     await repo.saveSession(session, tx);
     await recordAudit(
@@ -170,9 +158,7 @@ export async function login(input: { account?: string; password?: string }) {
     roles: currentRoles.filter(
       (role) => role.status === "active" && user.roleIds.includes(role.id),
     ),
-    permissions: currentPermissions.filter((permission) =>
-      userPermissionIds.has(permission.id),
-    ),
+    permissions: currentPermissions.filter((permission) => userPermissionIds.has(permission.id)),
   };
 }
 
@@ -189,9 +175,7 @@ export async function getCurrentUser(token?: string) {
     roles: currentRoles.filter(
       (role) => role.status === "active" && user.roleIds.includes(role.id),
     ),
-    permissions: currentPermissions.filter((permission) =>
-      userPermissionIds.has(permission.id),
-    ),
+    permissions: currentPermissions.filter((permission) => userPermissionIds.has(permission.id)),
   };
 }
 
@@ -269,8 +253,7 @@ export async function updateManagedUser(
       },
       tx,
     );
-    if (updated.status === "disabled")
-      await repo.revokeUserSessions(userId, tx);
+    if (updated.status === "disabled") await repo.revokeUserSessions(userId, tx);
     await assertAdministratorRemains(tx);
     await recordAudit(
       {
@@ -293,9 +276,7 @@ export async function createManagedRole(
 ) {
   return identityTransaction(async (tx) => {
     const actorId = (await requireWritePermission(token, "admin.write", tx)).id;
-    const existing = (await repo.getRoles(tx)).some(
-      (item) => item.id === input.id,
-    );
+    const existing = (await repo.getRoles(tx)).some((item) => item.id === input.id);
     if (existing) {
       throw new ApiError(409, "ROLE_EXISTS", "角色已存在");
     }
@@ -361,10 +342,7 @@ export async function updateManagedRole(
   });
 }
 
-export async function requirePermission(
-  token: string | undefined,
-  permissionId: string,
-) {
+export async function requirePermission(token: string | undefined, permissionId: string) {
   const actor = await sessionActorAsync(token);
   if (!actor?.user) throw new ApiError(401, "UNAUTHENTICATED", "请先登录");
   const currentRoles = await listRoles();
@@ -391,8 +369,7 @@ export async function logout(token?: string) {
   await withTransaction(async (tx) => {
     await repo.lockIdentity(tx);
     const session = await repo.getSession(parsed.id, tx);
-    if (!session || !verifySessionSecret(parsed.secret, session.secretHash))
-      return;
+    if (!session || !verifySessionSecret(parsed.secret, session.secretHash)) return;
     await repo.revokeSession(session.id, tx);
     await recordAudit(
       {
@@ -416,32 +393,22 @@ async function assertAdministratorRemains(tx: TransactionContext) {
     !users.some(
       (user) =>
         user.status === "enabled" &&
-        required.every((permission) =>
-          permissionsForUser(user, roles).has(permission),
-        ),
+        required.every((permission) => permissionsForUser(user, roles).has(permission)),
     )
   ) {
-    throw new ApiError(
-      409,
-      "LAST_ADMINISTRATOR",
-      "必须保留至少一名可管理用户和角色的管理员",
-    );
+    throw new ApiError(409, "LAST_ADMINISTRATOR", "必须保留至少一名可管理用户和角色的管理员");
   }
 }
 
-async function identityTransaction<T>(
-  operation: (tx: TransactionContext) => Promise<T>,
-) {
+async function identityTransaction<T>(operation: (tx: TransactionContext) => Promise<T>) {
   try {
     return await withTransaction(operation);
   } catch (error) {
     const cause = error instanceof Error && error.cause ? error.cause : error;
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Driver catch values have no common schema; only exact PostgreSQL codes below become domain errors.
     if (cause && typeof cause === "object" && "code" in cause) {
-      if (cause.code === "23505")
-        throw new ApiError(409, "IDENTITY_EXISTS", "账号或角色已存在");
-      if (cause.code === "23503")
-        throw new ApiError(400, "INVALID_REFERENCE", "角色或权限不存在");
+      if (cause.code === "23505") throw new ApiError(409, "IDENTITY_EXISTS", "账号或角色已存在");
+      if (cause.code === "23503") throw new ApiError(400, "INVALID_REFERENCE", "角色或权限不存在");
     }
     throw error;
   }
@@ -457,10 +424,7 @@ export async function changePassword(
   if (!initial) throw new ApiError(401, "UNAUTHENTICATED", "请先登录");
   await assertRequestRateLimit(`password-change:${initial.user.id}`);
   const previous = await repo.getUserCredentialsById(initial.user.id);
-  if (
-    !previous ||
-    !(await verifyPassword(parsed.currentPassword, previous.passwordHash))
-  )
+  if (!previous || !(await verifyPassword(parsed.currentPassword, previous.passwordHash)))
     throw new ApiError(403, "INVALID_CURRENT_PASSWORD", "当前密码错误");
   const passwordHash = await hashPassword(parsed.newPassword);
   return withTransaction(async (tx) => {
@@ -472,7 +436,12 @@ export async function changePassword(
     if (current?.passwordHash !== previous.passwordHash)
       throw new ApiError(409, "CREDENTIALS_CHANGED", "密码已变更，请重新登录");
     await replacePassword(
-      actor.user.id, passwordHash, actor.user.id, "auth.password.change", traceId, tx,
+      actor.user.id,
+      passwordHash,
+      actor.user.id,
+      "auth.password.change",
+      traceId,
+      tx,
     );
     return { reauthenticate: true };
   });
@@ -499,9 +468,7 @@ export async function resetManagedUserPassword(
     if (!current) throw new ApiError(404, "USER_NOT_FOUND", "用户不存在");
     if (current.passwordHash !== previous.passwordHash)
       throw new ApiError(409, "CREDENTIALS_CHANGED", "密码已变更，请刷新后重试");
-    await replacePassword(
-      userId, passwordHash, actor.id, "admin.user.password.reset", traceId, tx,
-    );
+    await replacePassword(userId, passwordHash, actor.id, "admin.user.password.reset", traceId, tx);
     return { updated: true };
   });
 }

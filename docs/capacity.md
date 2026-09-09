@@ -12,11 +12,11 @@ node scripts/verify-app.mjs --production --capacity --concurrency 4 --requests 2
 
 `--capacity` requires `--production` and excludes `--ui`. Unknown arguments fail before resources are created.
 
-| Argument | Default | Range |
-| --- | --- | --- |
-| `--concurrency` | 4 | 1–64 |
-| `--requests` | 24 per operation | 1–1,000 |
-| `--upload-bytes` | 262,144 | 1–10,485,760 |
+| Argument         | Default          | Range        |
+| ---------------- | ---------------- | ------------ |
+| `--concurrency`  | 4                | 1–64         |
+| `--requests`     | 24 per operation | 1–1,000      |
+| `--upload-bytes` | 262,144          | 1–10,485,760 |
 
 Requested upload bytes across the run cannot exceed 1 GiB. HTTP requests have 15-second deadlines, including response bodies, and the complete workload has a five-minute deadline. Interruptions stop new requests and abort active ones. These limits bound local resource use; they are not service thresholds.
 

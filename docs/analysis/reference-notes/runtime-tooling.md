@@ -8,15 +8,15 @@
 
 ## 工程结构与现有能力
 
-| 范围 | 已实现能力 | 证据 |
-| --- | --- | --- |
-| pnpm monorepo | apps/web、packages/shared、services/worker 三个 workspace；web 拥有路由、数据库、服务和测试，shared 拥有 Zod 契约，worker 拥有后台代码 | `pnpm-workspace.yaml:1`；`docs/technical-design.md:5`；`AGENTS.md:5` |
-| Web 构建 | Next.js 16.2.7、React 19.2.3；根 build/start 只构建/启动 web | `apps/web/package.json:7`；`apps/web/package.json:34`；`package.json:9` |
-| Worker 执行 | tsx 直接运行 TypeScript；health/readiness/alerts/outbox-once/outbox-loop/async-runtime CLI | `services/worker/package.json:7`；`services/worker/src/index.ts:124` |
-| 配置 | 发布驱动枚举校验、正整数参数、Kafka brokers/group、重试和幂等 TTL 参数；可跳过 env 文件供测试隔离 | `services/worker/src/env.ts:42`；`services/worker/src/env.ts:59`；`services/worker/src/env.ts:83` |
-| 诊断 | 结构化日志及字段脱敏；outbox backlog、dead-letter 和 stale lock 查询；管理员按 topic 和任务状态聚合健康信息 | `services/worker/src/logger.ts:1`；`services/worker/src/outbox-readiness.ts:95`；`apps/web/lib/async-runtime-health-service.ts:142` |
-| 迁移与备份 | Drizzle SQL/journal/snapshot 检查；数据库 dump、manifest、校验与显式 confirm 恢复入口 | `docs/technical-design.md:91`；`scripts/db-backup.mjs:173`；`scripts/db-backup.mjs:211` |
-| Agent 工程入口 | dev-local.sh、pr:verify、三个 repo skill、loops 工作状态目录 | `docs/agent-harness.md:16`；`loops/README.md:14` |
+| 范围           | 已实现能力                                                                                                                             | 证据                                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| pnpm monorepo  | apps/web、packages/shared、services/worker 三个 workspace；web 拥有路由、数据库、服务和测试，shared 拥有 Zod 契约，worker 拥有后台代码 | `pnpm-workspace.yaml:1`；`docs/technical-design.md:5`；`AGENTS.md:5`                                                                |
+| Web 构建       | Next.js 16.2.7、React 19.2.3；根 build/start 只构建/启动 web                                                                           | `apps/web/package.json:7`；`apps/web/package.json:34`；`package.json:9`                                                             |
+| Worker 执行    | tsx 直接运行 TypeScript；health/readiness/alerts/outbox-once/outbox-loop/async-runtime CLI                                             | `services/worker/package.json:7`；`services/worker/src/index.ts:124`                                                                |
+| 配置           | 发布驱动枚举校验、正整数参数、Kafka brokers/group、重试和幂等 TTL 参数；可跳过 env 文件供测试隔离                                      | `services/worker/src/env.ts:42`；`services/worker/src/env.ts:59`；`services/worker/src/env.ts:83`                                   |
+| 诊断           | 结构化日志及字段脱敏；outbox backlog、dead-letter 和 stale lock 查询；管理员按 topic 和任务状态聚合健康信息                            | `services/worker/src/logger.ts:1`；`services/worker/src/outbox-readiness.ts:95`；`apps/web/lib/async-runtime-health-service.ts:142` |
+| 迁移与备份     | Drizzle SQL/journal/snapshot 检查；数据库 dump、manifest、校验与显式 confirm 恢复入口                                                  | `docs/technical-design.md:91`；`scripts/db-backup.mjs:173`；`scripts/db-backup.mjs:211`                                             |
+| Agent 工程入口 | dev-local.sh、pr:verify、三个 repo skill、loops 工作状态目录                                                                           | `docs/agent-harness.md:16`；`loops/README.md:14`                                                                                    |
 
 ## 真实后台链路
 
@@ -46,23 +46,23 @@
 
 ## 应当明确记录的不足
 
-| 问题 | 触发及结果 | 证据 |
-| --- | --- | --- |
-| dry-run 修改真实状态 | publishOutboxEvent 在 dry-run 直接返回，调用方仍执行 markPublished；Compose 默认 dry-run，启动 worker 会把已有 outbox 当作发布完成 | `services/worker/src/outbox.ts:170`、`:213`；`deploy/compose/docker-compose.yml:110` |
-| stale processing 不恢复 | 认领只看 pending/failed；崩溃遗留 processing 只被 readiness 查询告警，无重新认领、租约续期、恢复命令 | `services/worker/src/outbox.ts:110`；`services/worker/src/outbox-readiness.ts:112` |
-| consumer 并发幂等不足 | hasCompleted 与 start 分离，start 对 key 无条件 upsert processing；并发相同 key 可同时执行。lockedBy/lockedUntil 没形成数据库租约或 fencing | `services/worker/src/async-consumer.ts:247`、`:288`、`:451` |
-| 完成证据不原子 | succeed 先更新幂等表，再另起事务写 task/event。后者失败时可能存在已完成幂等和未完成任务。start/fail 也分成两次写入 | `services/worker/src/async-consumer.ts:451`、`:477`、`:496` |
-| offset 失败可改写成功 | handler、store.succeed、commitOffset 同一个 try；若显式 commitOffset 实现抛错，会走 store.fail，把已经执行成功的任务变回可重试或 dead_letter | `services/worker/src/async-consumer.ts:297`、`:314` |
-| committed 语义分层混杂 | createAsyncConsumerOptions 默认 commitOffset 是 no-op，helper 返回 committed=true；runner 再负责真实 commit。直接调用 helper 的“committed”不证明 Kafka 已提交 | `services/worker/src/index.ts:102`；`services/worker/src/async-consumer.ts:539`、`:625` |
-| 重试再次投递与重启未闭合 | 未提交结果的 nextRetryAt 在未来时，等待后退出 batch；已到期或无等待时间时，runner 的 onRetryableFailure 拒绝等待结果并停止 consumer，没有自动重启 consumer 的 supervisor。代码未显式 seek 到失败 offset 或当场重试同一消息；未来时间分支的同会话重投和后续 batch 不越过失败 offset 没有真实 Kafka 集成证明 | `services/worker/src/async-consumer.ts:543`、`:635`、`:638` |
-| poison message 无隔离 | JSON 解析/必要字段失败发生在 handler try 之前，不持久化 malformed DLQ；可令 consumer crash 并反复遇到同一坏消息 | `services/worker/src/async-consumer.ts:229`、`:297` |
-| 长 handler 与退出能力不足 | heartbeat 只在提交或等待重试时调用，执行 handler 时无周期 heartbeat；worker 没有 SIGTERM/SIGINT drain/停止认领机制，无限 loop 无 AbortSignal | `services/worker/src/async-consumer.ts:621`、`:632`；`services/worker/src/async-runtime.ts:79` |
-| 取消不等于运行中取消 | 只在执行前读取 canceled 状态；没有 handler AbortSignal、条件完成更新或取消与完成竞态保护 | `services/worker/src/async-consumer.ts:259`、`:298`、`:363` |
-| TTL 与 key 边界较弱 | 幂等查询仅看未过期 key；过期后可重执，key 不含 consumer group，request_hash 写了 eventId 却不比较冲突 payload | `services/worker/src/async-consumer.ts:149`、`:417`、`:453` |
-| 健康并不证明活跃 | worker health 只返回固定 ok，Compose healthcheck 新开进程执行该函数；无法证明主循环前进、Kafka 可写或数据库可访问 | `services/worker/src/index.ts:21`；`deploy/compose/docker-compose.yml:125` |
-| 观测计数不精确 | readyToRetry=pending+failed 未过滤到期；staleLocks.count 是 LIMIT 20 的列表长度；admin 健康把所有 outbox/task 拉到内存聚合 | `services/worker/src/outbox-readiness.ts:118`、`:139`；`apps/web/lib/repository.ts:362` |
-| env 优先级可覆盖部署值 | worker 将 .env/.env.local/.env.test 文件 override=true，可能覆盖显式进程环境；repoRoot 又依赖 cwd 为 services/worker | `services/worker/src/env.ts:42` |
-| 遗留伪发布函数 | repo.publishOutboxBatch 仅 SELECT 后 UPDATE published，没有 Kafka send/锁；markOutboxPublished 调它。全库搜索未见生产路由调用，属于可删的危险遗留能力 | `apps/web/lib/repository.ts:320`；`apps/web/lib/product-service.ts:98` |
+| 问题                      | 触发及结果                                                                                                                                                                                                                                                                                                 | 证据                                                                                           |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| dry-run 修改真实状态      | publishOutboxEvent 在 dry-run 直接返回，调用方仍执行 markPublished；Compose 默认 dry-run，启动 worker 会把已有 outbox 当作发布完成                                                                                                                                                                         | `services/worker/src/outbox.ts:170`、`:213`；`deploy/compose/docker-compose.yml:110`           |
+| stale processing 不恢复   | 认领只看 pending/failed；崩溃遗留 processing 只被 readiness 查询告警，无重新认领、租约续期、恢复命令                                                                                                                                                                                                       | `services/worker/src/outbox.ts:110`；`services/worker/src/outbox-readiness.ts:112`             |
+| consumer 并发幂等不足     | hasCompleted 与 start 分离，start 对 key 无条件 upsert processing；并发相同 key 可同时执行。lockedBy/lockedUntil 没形成数据库租约或 fencing                                                                                                                                                                | `services/worker/src/async-consumer.ts:247`、`:288`、`:451`                                    |
+| 完成证据不原子            | succeed 先更新幂等表，再另起事务写 task/event。后者失败时可能存在已完成幂等和未完成任务。start/fail 也分成两次写入                                                                                                                                                                                         | `services/worker/src/async-consumer.ts:451`、`:477`、`:496`                                    |
+| offset 失败可改写成功     | handler、store.succeed、commitOffset 同一个 try；若显式 commitOffset 实现抛错，会走 store.fail，把已经执行成功的任务变回可重试或 dead_letter                                                                                                                                                               | `services/worker/src/async-consumer.ts:297`、`:314`                                            |
+| committed 语义分层混杂    | createAsyncConsumerOptions 默认 commitOffset 是 no-op，helper 返回 committed=true；runner 再负责真实 commit。直接调用 helper 的“committed”不证明 Kafka 已提交                                                                                                                                              | `services/worker/src/index.ts:102`；`services/worker/src/async-consumer.ts:539`、`:625`        |
+| 重试再次投递与重启未闭合  | 未提交结果的 nextRetryAt 在未来时，等待后退出 batch；已到期或无等待时间时，runner 的 onRetryableFailure 拒绝等待结果并停止 consumer，没有自动重启 consumer 的 supervisor。代码未显式 seek 到失败 offset 或当场重试同一消息；未来时间分支的同会话重投和后续 batch 不越过失败 offset 没有真实 Kafka 集成证明 | `services/worker/src/async-consumer.ts:543`、`:635`、`:638`                                    |
+| poison message 无隔离     | JSON 解析/必要字段失败发生在 handler try 之前，不持久化 malformed DLQ；可令 consumer crash 并反复遇到同一坏消息                                                                                                                                                                                            | `services/worker/src/async-consumer.ts:229`、`:297`                                            |
+| 长 handler 与退出能力不足 | heartbeat 只在提交或等待重试时调用，执行 handler 时无周期 heartbeat；worker 没有 SIGTERM/SIGINT drain/停止认领机制，无限 loop 无 AbortSignal                                                                                                                                                               | `services/worker/src/async-consumer.ts:621`、`:632`；`services/worker/src/async-runtime.ts:79` |
+| 取消不等于运行中取消      | 只在执行前读取 canceled 状态；没有 handler AbortSignal、条件完成更新或取消与完成竞态保护                                                                                                                                                                                                                   | `services/worker/src/async-consumer.ts:259`、`:298`、`:363`                                    |
+| TTL 与 key 边界较弱       | 幂等查询仅看未过期 key；过期后可重执，key 不含 consumer group，request_hash 写了 eventId 却不比较冲突 payload                                                                                                                                                                                              | `services/worker/src/async-consumer.ts:149`、`:417`、`:453`                                    |
+| 健康并不证明活跃          | worker health 只返回固定 ok，Compose healthcheck 新开进程执行该函数；无法证明主循环前进、Kafka 可写或数据库可访问                                                                                                                                                                                          | `services/worker/src/index.ts:21`；`deploy/compose/docker-compose.yml:125`                     |
+| 观测计数不精确            | readyToRetry=pending+failed 未过滤到期；staleLocks.count 是 LIMIT 20 的列表长度；admin 健康把所有 outbox/task 拉到内存聚合                                                                                                                                                                                 | `services/worker/src/outbox-readiness.ts:118`、`:139`；`apps/web/lib/repository.ts:362`        |
+| env 优先级可覆盖部署值    | worker 将 .env/.env.local/.env.test 文件 override=true，可能覆盖显式进程环境；repoRoot 又依赖 cwd 为 services/worker                                                                                                                                                                                       | `services/worker/src/env.ts:42`                                                                |
+| 遗留伪发布函数            | repo.publishOutboxBatch 仅 SELECT 后 UPDATE published，没有 Kafka send/锁；markOutboxPublished 调它。全库搜索未见生产路由调用，属于可删的危险遗留能力                                                                                                                                                      | `apps/web/lib/repository.ts:320`；`apps/web/lib/product-service.ts:98`                         |
 
 上述重试重投条目是未被测试证明的运行风险，其他条目直接来自所列控制流。没有把未经运行的推断描述为已经复现。
 
@@ -99,13 +99,13 @@ GitHub CI 只有 PostgreSQL service，install、db:migrate、pnpm verify，没�
 
 pstack-x 当前使用 vinext 1.0.0-beta.9、Vite 8 和 pnpm 10.33.4，build/start 已是 vinext；已有 verify-pstack-x skill 的身份检查、独占 server、Chromium 交互和 evidence 工作流。证据：pstack-x `package.json:1`、`.agents/skills/verify-pstack-x/SKILL.md:9`。因此不能直接复制 Next.js 命令和默认 tmux 复用策略。
 
-| 处理方式 | 内容 |
-| --- | --- |
-| 保留并适配 | workspace 边界、shared Zod 契约、显式 API 路由登记与生成文档、Drizzle 迁移完整性、任务与事件观测字段、结构化日志和脱敏、备份 manifest、docs/loops 职责分工、按修改范围给出可审计命令报告 |
-| 保留目标，重新实现 | 事务 outbox 写入、consumer 条件抢占和 fencing、幂等/任务/事件原子持久化、独立 offset 确认、崩溃重试/过期锁恢复、毒消息隔离、运行中取消及优雅退出。明确至少一次投递，以领域幂等保护副作用 |
-| 替换 | Next build/start/dev 为 vinext；完整镜像布局按 vinext 输出验证；Kafka 容器 listener；dry-run 状态语义；worker health 为当前进程心跳/循环进度及依赖 readiness；pr-verify 分类器和 clean-tree --full 行为 |
-| 沿用 pstack-x 当前更强入口 | 保留已有独占启动、checkout/lock/PID/port 身份验证、无复用现存 server 的 Chromium 证据流程，向其扩展新业务 feature map；不要退回纯端口/tmux 识别 |
-| 按需引入 | Kafka、Redis、MinIO、ClickHouse、独立 worker。先明确产品是否存在对应业务边界；后台能力接通前不把 async-runtime 当完整任务系统验收 |
-| 删除或不带入 | 未调用的 markOutboxPublished/publishOutboxBatch 伪发布路径、旧绝对机器路径、模板 maintenance 历史记录、固定 container_name/通用 tmux session 等多项目冲突默认值 |
+| 处理方式                   | 内容                                                                                                                                                                                                    |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 保留并适配                 | workspace 边界、shared Zod 契约、显式 API 路由登记与生成文档、Drizzle 迁移完整性、任务与事件观测字段、结构化日志和脱敏、备份 manifest、docs/loops 职责分工、按修改范围给出可审计命令报告                |
+| 保留目标，重新实现         | 事务 outbox 写入、consumer 条件抢占和 fencing、幂等/任务/事件原子持久化、独立 offset 确认、崩溃重试/过期锁恢复、毒消息隔离、运行中取消及优雅退出。明确至少一次投递，以领域幂等保护副作用                |
+| 替换                       | Next build/start/dev 为 vinext；完整镜像布局按 vinext 输出验证；Kafka 容器 listener；dry-run 状态语义；worker health 为当前进程心跳/循环进度及依赖 readiness；pr-verify 分类器和 clean-tree --full 行为 |
+| 沿用 pstack-x 当前更强入口 | 保留已有独占启动、checkout/lock/PID/port 身份验证、无复用现存 server 的 Chromium 证据流程，向其扩展新业务 feature map；不要退回纯端口/tmux 识别                                                         |
+| 按需引入                   | Kafka、Redis、MinIO、ClickHouse、独立 worker。先明确产品是否存在对应业务边界；后台能力接通前不把 async-runtime 当完整任务系统验收                                                                       |
+| 删除或不带入               | 未调用的 markOutboxPublished/publishOutboxBatch 伪发布路径、旧绝对机器路径、模板 maintenance 历史记录、固定 container_name/通用 tmux session 等多项目冲突默认值                                         |
 
 若要把后台能力列为首批可验收项，最低补充证据应包含：真实 PostgreSQL+Kafka 发布消费闭环；同 key 并发仅一次有效副作用；发布后写库失败与进程崩溃恢复；offset 提交失败不抹成功；延迟重试不越过失败 offset；毒消息可追踪；SIGTERM drain；真实构建产物启动。它们是后续迁移验收需求，本轮未执行。

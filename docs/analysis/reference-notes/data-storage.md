@@ -18,22 +18,22 @@ Web repository 集中处理用户、角色、权限、session、audit、telemetr
 
 共 13 张业务表，另有 Drizzle 迁移账本。完整表定义在 `apps/web/db/schema.ts`。
 
-| 实体 | 主要字段及约束 | 证据 |
-| --- | --- | --- |
-| `app_users` | text ID 主键；account 唯一；displayName、passwordHash、status；createdAt/updatedAt。status 默认 enabled | `apps/web/db/schema.ts:3` |
-| `app_roles` | text ID 主键；name、status、createdAt。status 默认 active | `apps/web/db/schema.ts:13` |
-| `app_permissions` | text ID 主键；name | `apps/web/db/schema.ts:20` |
-| `app_user_roles` | userId/roleId 联合主键，分别外键到 users/roles | `apps/web/db/schema.ts:25` |
-| `app_role_permissions` | roleId/permissionId 联合主键，分别外键到 roles/permissions | `apps/web/db/schema.ts:32` |
-| `app_user_sessions` | ID、userId 外键、secretHash、expiresAt、createdAt、lastUsedAt、revokedAt；userId 索引 | `apps/web/db/schema.ts:39` |
-| `app_audit_logs` | ID、actorId、action、targetType/targetId、traceId、JSONB metadata、createdAt；traceId 索引 | `apps/web/db/schema.ts:51` |
-| `app_telemetry_events` | ID、event、route、traceId、JSONB payload、occurredAt；traceId 索引 | `apps/web/db/schema.ts:64` |
-| `app_file_assets` | ID、fileName、mimeType、bigint sizeBytes 映射 JS number、storageKey、uploadedBy、uploadedAt | `apps/web/db/schema.ts:75` |
-| `app_outbox_events` | ID、topic、eventType、JSONB payload、status、attempts/maxAttempts、nextAttemptAt、lockedBy/lockedAt、publishedAt、errorCode/lastError、traceId、createdAt/updatedAt；status+nextAttemptAt、status+lockedAt 索引 | `apps/web/db/schema.ts:85` |
-| `app_idempotency_keys` | key 全局主键；scope、requestHash、JSONB responseData、status、createdAt/expiresAt；scope、expiresAt 索引 | `apps/web/db/schema.ts:107` |
-| `app_tasks` | ID、taskType、status、progress、traceId、objectType/objectId、errorCode/message、createdAt/updatedAt；status、trace、object、type+status 索引 | `apps/web/db/schema.ts:120` |
-| `app_task_events` | ID、taskId、traceId、eventType、status、message、JSONB payload、createdAt；taskId+createdAt、traceId 索引 | `apps/web/db/schema.ts:139` |
-| Drizzle 账本 | 默认 `drizzle.drizzle_migrations`，schema 可由 `APP_TEMPLATE_MIGRATIONS_SCHEMA` 指定 | `apps/web/drizzle.config.ts:39` |
+| 实体                   | 主要字段及约束                                                                                                                                                                                                  | 证据                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `app_users`            | text ID 主键；account 唯一；displayName、passwordHash、status；createdAt/updatedAt。status 默认 enabled                                                                                                         | `apps/web/db/schema.ts:3`       |
+| `app_roles`            | text ID 主键；name、status、createdAt。status 默认 active                                                                                                                                                       | `apps/web/db/schema.ts:13`      |
+| `app_permissions`      | text ID 主键；name                                                                                                                                                                                              | `apps/web/db/schema.ts:20`      |
+| `app_user_roles`       | userId/roleId 联合主键，分别外键到 users/roles                                                                                                                                                                  | `apps/web/db/schema.ts:25`      |
+| `app_role_permissions` | roleId/permissionId 联合主键，分别外键到 roles/permissions                                                                                                                                                      | `apps/web/db/schema.ts:32`      |
+| `app_user_sessions`    | ID、userId 外键、secretHash、expiresAt、createdAt、lastUsedAt、revokedAt；userId 索引                                                                                                                           | `apps/web/db/schema.ts:39`      |
+| `app_audit_logs`       | ID、actorId、action、targetType/targetId、traceId、JSONB metadata、createdAt；traceId 索引                                                                                                                      | `apps/web/db/schema.ts:51`      |
+| `app_telemetry_events` | ID、event、route、traceId、JSONB payload、occurredAt；traceId 索引                                                                                                                                              | `apps/web/db/schema.ts:64`      |
+| `app_file_assets`      | ID、fileName、mimeType、bigint sizeBytes 映射 JS number、storageKey、uploadedBy、uploadedAt                                                                                                                     | `apps/web/db/schema.ts:75`      |
+| `app_outbox_events`    | ID、topic、eventType、JSONB payload、status、attempts/maxAttempts、nextAttemptAt、lockedBy/lockedAt、publishedAt、errorCode/lastError、traceId、createdAt/updatedAt；status+nextAttemptAt、status+lockedAt 索引 | `apps/web/db/schema.ts:85`      |
+| `app_idempotency_keys` | key 全局主键；scope、requestHash、JSONB responseData、status、createdAt/expiresAt；scope、expiresAt 索引                                                                                                        | `apps/web/db/schema.ts:107`     |
+| `app_tasks`            | ID、taskType、status、progress、traceId、objectType/objectId、errorCode/message、createdAt/updatedAt；status、trace、object、type+status 索引                                                                   | `apps/web/db/schema.ts:120`     |
+| `app_task_events`      | ID、taskId、traceId、eventType、status、message、JSONB payload、createdAt；taskId+createdAt、traceId 索引                                                                                                       | `apps/web/db/schema.ts:139`     |
+| Drizzle 账本           | 默认 `drizzle.drizzle_migrations`，schema 可由 `APP_TEMPLATE_MIGRATIONS_SCHEMA` 指定                                                                                                                            | `apps/web/drizzle.config.ts:39` |
 
 数据库层只有 RBAC 关联和 session 建了外键。audit.actorId、file.uploadedBy、taskEvent.taskId、task.objectId 均为普通 text，未声明引用关系。各类 status、progress、attempts 在数据库没有枚举或 CHECK 限制；repository 多处直接把字符串断言为共享契约的状态类型。不能把 TypeScript 声明等同于现存数据合法性校验。见 `apps/web/db/schema.ts:51`、`apps/web/db/schema.ts:75`、`apps/web/db/schema.ts:85`、`apps/web/db/schema.ts:120`、`apps/web/lib/repository.ts:31`、`apps/web/lib/repository.ts:298`。
 
@@ -45,10 +45,10 @@ Web repository 集中处理用户、角色、权限、session、audit、telemetr
 
 现有迁移如下。
 
-| 文件 | 变更 |
-| --- | --- |
-| `0001_core.sql` | 10 张基础表、索引、4 项权限、管理员角色、管理员账号和角色关联。见 `apps/web/db/migrations/0001_core.sql:1`、`:93` |
-| `0002_async_task_runtime.sql` | idempotency、tasks、task_events 3 张表和索引。见 `apps/web/db/migrations/0002_async_task_runtime.sql:1` |
+| 文件                            | 变更                                                                                                                      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `0001_core.sql`                 | 10 张基础表、索引、4 项权限、管理员角色、管理员账号和角色关联。见 `apps/web/db/migrations/0001_core.sql:1`、`:93`         |
+| `0002_async_task_runtime.sql`   | idempotency、tasks、task_events 3 张表和索引。见 `apps/web/db/migrations/0002_async_task_runtime.sql:1`                   |
 | `0003_outbox_runtime_state.sql` | outbox 补 maxAttempts、锁信息、publishedAt、错误字段和锁索引。见 `apps/web/db/migrations/0003_outbox_runtime_state.sql:1` |
 
 `0001` 写入 `admin / plain:admin`，不是生产可沿用的管理员口令策略。当前 `verifyPassword` 仍接受 plain 前缀，未按生产模式禁用。见 `apps/web/db/migrations/0001_core.sql:108`、`apps/web/lib/password.ts:13`。实际项目应按文档更换初始化账号与哈希，不直接复制种子。
@@ -70,15 +70,15 @@ Web repository 集中处理用户、角色、权限、session、audit、telemetr
 
 ## 事务与一致性边界
 
-| 操作 | 已有原子范围 | 范围外的步骤及含义 |
-| --- | --- | --- |
-| 创建/更新用户 | users + user_roles 同一个 Drizzle transaction | 只覆盖 repository 内两表写入。见 `apps/web/lib/repository.ts:116`、`:134` |
-| 创建/更新角色 | roles + role_permissions 同一个 transaction | 关联采用 delete 后重建，事务保护中间状态。见 `apps/web/lib/repository.ts:150`、`:160` |
-| Session、audit、file、telemetry、outbox | 各自单条 insert/update | 不自动参与调用方的统一事务。见 `apps/web/lib/repository.ts:178`、`:202`、`:229`、`:252`、`:277` |
-| 记录 telemetry | 先 telemetry insert，再独立 outbox insert | 第二步失败时已留下 telemetry，重试可能重复。见 `apps/web/lib/product-service.ts:22` |
-| 上传 | 对象 PUT → file metadata → audit → outbox | 无对象删除补偿、共同数据库事务、上传幂等键或失败协调记录。对象成功而 DB 失败会留下孤立对象；后续 audit/outbox 失败可能向用户报错但文件已入库。见 `apps/web/lib/product-service.ts:42` |
-| Worker 领取 outbox | BEGIN + `FOR UPDATE SKIP LOCKED` + processing/lock 更新 + COMMIT | Kafka send 和 DB markPublished 在领取提交后执行，属于至少一次发布边界。send 成功但标记失败可能重发。见 `services/worker/src/outbox.ts:105`、`:195`、`:210` |
-| Task 状态和事件 | `writeTask` 把 tasks upsert + task_events insert 放在同一事务；事件 ID 按 taskId/eventType/attemptCount 确定 | idempotency start/succeed/fail 先独立写，再调用 writeTask，不与 tasks/events 原子提交。见 `services/worker/src/async-consumer.ts:354`、`:451`、`:477`、`:496` |
+| 操作                                    | 已有原子范围                                                                                                 | 范围外的步骤及含义                                                                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 创建/更新用户                           | users + user_roles 同一个 Drizzle transaction                                                                | 只覆盖 repository 内两表写入。见 `apps/web/lib/repository.ts:116`、`:134`                                                                                                             |
+| 创建/更新角色                           | roles + role_permissions 同一个 transaction                                                                  | 关联采用 delete 后重建，事务保护中间状态。见 `apps/web/lib/repository.ts:150`、`:160`                                                                                                 |
+| Session、audit、file、telemetry、outbox | 各自单条 insert/update                                                                                       | 不自动参与调用方的统一事务。见 `apps/web/lib/repository.ts:178`、`:202`、`:229`、`:252`、`:277`                                                                                       |
+| 记录 telemetry                          | 先 telemetry insert，再独立 outbox insert                                                                    | 第二步失败时已留下 telemetry，重试可能重复。见 `apps/web/lib/product-service.ts:22`                                                                                                   |
+| 上传                                    | 对象 PUT → file metadata → audit → outbox                                                                    | 无对象删除补偿、共同数据库事务、上传幂等键或失败协调记录。对象成功而 DB 失败会留下孤立对象；后续 audit/outbox 失败可能向用户报错但文件已入库。见 `apps/web/lib/product-service.ts:42` |
+| Worker 领取 outbox                      | BEGIN + `FOR UPDATE SKIP LOCKED` + processing/lock 更新 + COMMIT                                             | Kafka send 和 DB markPublished 在领取提交后执行，属于至少一次发布边界。send 成功但标记失败可能重发。见 `services/worker/src/outbox.ts:105`、`:195`、`:210`                            |
+| Task 状态和事件                         | `writeTask` 把 tasks upsert + task_events insert 放在同一事务；事件 ID 按 taskId/eventType/attemptCount 确定 | idempotency start/succeed/fail 先独立写，再调用 writeTask，不与 tasks/events 原子提交。见 `services/worker/src/async-consumer.ts:354`、`:451`、`:477`、`:496`                         |
 
 Worker 的幂等表主键是 key，scope 不是联合键；start 冲突时无条件改为 processing，request_hash 实际写 sourceEventId，未在此 SQL 路径比较同 key 是否对应同一 payload。它提供重复检测基础，不是跨消费者抢占与业务副作用事务的完整方案。见 `services/worker/src/async-consumer.ts:417`、`:451`。
 
@@ -106,12 +106,12 @@ S3 adapter 为手写 AWS SigV4 的实际 HTTP PUT：完整内容 SHA256、region
 
 根层 `scripts/db-backup.mjs` 提供 create/verify/restore。使用本机 pg_dump/pg_restore；仅在程序不存在 ENOENT 时退回 `postgres:17-alpine` 工具容器，将 localhost/127.0.0.1 替换为 host.docker.internal。见 `scripts/db-backup.mjs:77`。
 
-| 能力 | 实际行为与边界 |
-| --- | --- |
-| create | `pg_dump --format=custom --no-owner --no-privileges --schema <schema>`；schema 默认 public；写 `.dump` 和 manifest。见 `scripts/db-backup.mjs:192` |
+| 能力     | 实际行为与边界                                                                                                                                                                                                                                                                      |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| create   | `pg_dump --format=custom --no-owner --no-privileges --schema <schema>`；schema 默认 public；写 `.dump` 和 manifest。见 `scripts/db-backup.mjs:192`                                                                                                                                  |
 | manifest | id、schema、format、createdAt、latestMigration、dumpFile/Bytes/Sha256、tableCount、estimatedRows、totalBytes、逐表统计。最新迁移取本地 journal，表统计来自 dump 后另一次 DB 查询。行数是 reltuples 估计值，不是 snapshot 精确 count。见 `scripts/db-backup.mjs:132`、`:144`、`:170` |
-| verify | 调 pg_restore --list，再读取 manifest 和计算 SHA256；只有 manifest.dumpSha256 存在且不匹配时才失败，缺失 checksum 字段也会输出 checksum ok。见 `scripts/db-backup.mjs:211` |
-| restore | 必须显式 --confirm；执行 `pg_restore --clean --if-exists --no-owner --no-privileges --dbname`；成功后只 SELECT app_outbox_events LIMIT 1。无自动调用 verify、无 single-transaction、无 schema 参数约束恢复对象、无应用停写或回滚协调。见 `scripts/db-backup.mjs:224`、`:244` |
+| verify   | 调 pg_restore --list，再读取 manifest 和计算 SHA256；只有 manifest.dumpSha256 存在且不匹配时才失败，缺失 checksum 字段也会输出 checksum ok。见 `scripts/db-backup.mjs:211`                                                                                                          |
+| restore  | 必须显式 --confirm；执行 `pg_restore --clean --if-exists --no-owner --no-privileges --dbname`；成功后只 SELECT app_outbox_events LIMIT 1。无自动调用 verify、无 single-transaction、无 schema 参数约束恢复对象、无应用停写或回滚协调。见 `scripts/db-backup.mjs:224`、`:244`        |
 
 默认 public-only dump 不含默认放在 drizzle schema 的迁移账本。恢复到空库后业务表可能已在，而迁移账本缺失，再执行一次性建表迁移会冲突；恢复覆盖旧库时又可能留下与数据不对应的旧账本。此边界由 `scripts/db-backup.mjs:55`、`:203` 与 `apps/web/drizzle.config.ts:39` 共同确定。
 
@@ -119,13 +119,13 @@ manifest 没有记录数据库实测应用的迁移版本、数据库版本、�
 
 ## 基础设施真实接入与占位
 
-| 基础设施 | 真实接入 | 当前默认与限制 |
-| --- | --- | --- |
-| PostgreSQL | Web repository、worker 原生 SQL、Drizzle migrate、备份均是真实客户端 | compose 为 postgres:17-alpine，named volume；Web health 只检查 DATABASE_URL 是否存在，不执行 DB 查询。见 `deploy/compose/docker-compose.yml:2`、`apps/web/lib/health-service.ts:9` |
-| Redis | 登录限流实际通过 TCP RESP 发 INCR/EXPIRE/DEL | 默认 memory；数据库 session 不在 Redis。客户端逐连接发送命令，非成熟 RESP 流解析器、无 TLS/ACL 用户名路径；INCR/EXPIRE 是两次独立操作。见 `apps/web/lib/rate-limit.ts:48`、`apps/web/lib/redis-client.ts:20` |
-| Kafka | kafkajs producer 实际发送 outbox；async-runtime 可创建配置的 topics | 默认 dry-run；async-runtime 当前只启动 outbox loop，没有注册业务 consumer。consumer/store 是可接入组件。compose 单节点 plaintext，advertised listener 为 localhost，对容器内 worker 的 broker metadata 可达性需实测。见 `services/worker/src/outbox.ts:96`、`services/worker/src/async-runtime.ts:91`、`deploy/compose/docker-compose.yml:33` |
-| MinIO/S3 | 已有真实 signed PUT adapter | 默认 local，compose 仅 MinIO server/volume/health，没有创建 app-files bucket 的 init service。见 `apps/web/lib/storage.ts:30`、`deploy/compose/docker-compose.yml:58` |
-| ClickHouse | compose 容器、volume、健康检查和 CLICKHOUSE_URL 示例 | 仓库业务源码未发现 ClickHouse client/schema/写入或查询调用；audit/telemetry 实际仍写 PostgreSQL。见 `deploy/compose/docker-compose.yml:76`、`.env.example:50`、`apps/web/lib/repository.ts:202`、`:229` |
+| 基础设施   | 真实接入                                                             | 当前默认与限制                                                                                                                                                                                                                                                                                                                                |
+| ---------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PostgreSQL | Web repository、worker 原生 SQL、Drizzle migrate、备份均是真实客户端 | compose 为 postgres:17-alpine，named volume；Web health 只检查 DATABASE_URL 是否存在，不执行 DB 查询。见 `deploy/compose/docker-compose.yml:2`、`apps/web/lib/health-service.ts:9`                                                                                                                                                            |
+| Redis      | 登录限流实际通过 TCP RESP 发 INCR/EXPIRE/DEL                         | 默认 memory；数据库 session 不在 Redis。客户端逐连接发送命令，非成熟 RESP 流解析器、无 TLS/ACL 用户名路径；INCR/EXPIRE 是两次独立操作。见 `apps/web/lib/rate-limit.ts:48`、`apps/web/lib/redis-client.ts:20`                                                                                                                                  |
+| Kafka      | kafkajs producer 实际发送 outbox；async-runtime 可创建配置的 topics  | 默认 dry-run；async-runtime 当前只启动 outbox loop，没有注册业务 consumer。consumer/store 是可接入组件。compose 单节点 plaintext，advertised listener 为 localhost，对容器内 worker 的 broker metadata 可达性需实测。见 `services/worker/src/outbox.ts:96`、`services/worker/src/async-runtime.ts:91`、`deploy/compose/docker-compose.yml:33` |
+| MinIO/S3   | 已有真实 signed PUT adapter                                          | 默认 local，compose 仅 MinIO server/volume/health，没有创建 app-files bucket 的 init service。见 `apps/web/lib/storage.ts:30`、`deploy/compose/docker-compose.yml:58`                                                                                                                                                                         |
+| ClickHouse | compose 容器、volume、健康检查和 CLICKHOUSE_URL 示例                 | 仓库业务源码未发现 ClickHouse client/schema/写入或查询调用；audit/telemetry 实际仍写 PostgreSQL。见 `deploy/compose/docker-compose.yml:76`、`.env.example:50`、`apps/web/lib/repository.ts:202`、`:229`                                                                                                                                       |
 
 Redis/Kafka/S3 的 Web infrastructure health 都只是 TCP connect，不能证明认证、bucket 权限、Kafka metadata/topic、Redis命令成功。ClickHouse 不参与该 Web health。见 `apps/web/lib/infrastructure.ts:45`、`:56`、`:69`、`:79`。
 
@@ -135,18 +135,18 @@ compose 包含 PostgreSQL、Redis AOF、Kafka、MinIO、ClickHouse 五个 named 
 
 ## 测试证据与未覆盖项
 
-| 测试/门禁 | 仓库已有断言 | 不能由此推出 |
-| --- | --- | --- |
-| migration:check | SQL/journal/snapshot/hash/局部 DDL 规则；本次实际运行通过 | 真库升级、schema 语义一致、旧版本数据兼容、恢复可用 |
-| db:integration | public 11 表 + admin 存在及 hash 非空 | 全 13 表完整结构、RBAC 权限正确、CRUD、迁移账本、事务回滚。见 `apps/web/scripts/db-integration.mjs:15` |
-| Web unit/integration | setup 默认删除 DATABASE_URL、强制 memory/local、隔离临时上传目录 | 大多数 test:integration 也不等于 PostgreSQL 集成。见 `apps/web/tests/setup-env.mjs:5` |
-| product/admin tests | 断言无 DATABASE_URL 必须报错 | repository 真库持久化/事务行为。见 `apps/web/tests/unit/product-service.test.mjs:5`、`apps/web/tests/unit/admin-service.test.mjs:5` |
-| upload memory tests | helper 对超限 File size/Content-Length 抛 413 | multipart 流式限制、缺 Content-Length、并发内存、S3 PUT 或回滚。见 `apps/web/tests/unit/security.test.mjs:83` |
-| production config tests | missing/placeholder token、所选 driver 缺依赖配置、CLI 非零退出 | 数据库/Redis/S3/Kafka 真正可用。见 `apps/web/tests/unit/production-config.test.mjs:36` |
-| health integration | status/service/time、configured/missing 与基础设施状态字段 | DB 查询、读写能力。见 `apps/web/tests/integration/health-service.test.mjs:5` |
-| worker tests | envelope、offset、retry、幂等调用顺序、readiness 等 helper/store stub | PostgreSQL 并发锁、失败窗口、真实 Kafka/存储恢复。见 `services/worker/tests/worker.test.mjs:163`、`:190`、`:236` |
-| E2E smoke | 起 Next dev，health 后登录、me、users/RBAC数组、outbox数组、未知路由 | 上传、S3、Redis限流、备份恢复、consumer。见 `apps/web/scripts/e2e.mjs:31`、`apps/web/scripts/smoke.mjs:53` |
-| CI | 提供 PostgreSQL 17，先 db:migrate 再 verify | CI 无 Redis/Kafka/MinIO/ClickHouse services，无 backup restore 演练。见 `.github/workflows/verify.yml:12`、`:35` |
+| 测试/门禁               | 仓库已有断言                                                          | 不能由此推出                                                                                                                        |
+| ----------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| migration:check         | SQL/journal/snapshot/hash/局部 DDL 规则；本次实际运行通过             | 真库升级、schema 语义一致、旧版本数据兼容、恢复可用                                                                                 |
+| db:integration          | public 11 表 + admin 存在及 hash 非空                                 | 全 13 表完整结构、RBAC 权限正确、CRUD、迁移账本、事务回滚。见 `apps/web/scripts/db-integration.mjs:15`                              |
+| Web unit/integration    | setup 默认删除 DATABASE_URL、强制 memory/local、隔离临时上传目录      | 大多数 test:integration 也不等于 PostgreSQL 集成。见 `apps/web/tests/setup-env.mjs:5`                                               |
+| product/admin tests     | 断言无 DATABASE_URL 必须报错                                          | repository 真库持久化/事务行为。见 `apps/web/tests/unit/product-service.test.mjs:5`、`apps/web/tests/unit/admin-service.test.mjs:5` |
+| upload memory tests     | helper 对超限 File size/Content-Length 抛 413                         | multipart 流式限制、缺 Content-Length、并发内存、S3 PUT 或回滚。见 `apps/web/tests/unit/security.test.mjs:83`                       |
+| production config tests | missing/placeholder token、所选 driver 缺依赖配置、CLI 非零退出       | 数据库/Redis/S3/Kafka 真正可用。见 `apps/web/tests/unit/production-config.test.mjs:36`                                              |
+| health integration      | status/service/time、configured/missing 与基础设施状态字段            | DB 查询、读写能力。见 `apps/web/tests/integration/health-service.test.mjs:5`                                                        |
+| worker tests            | envelope、offset、retry、幂等调用顺序、readiness 等 helper/store stub | PostgreSQL 并发锁、失败窗口、真实 Kafka/存储恢复。见 `services/worker/tests/worker.test.mjs:163`、`:190`、`:236`                    |
+| E2E smoke               | 起 Next dev，health 后登录、me、users/RBAC数组、outbox数组、未知路由  | 上传、S3、Redis限流、备份恢复、consumer。见 `apps/web/scripts/e2e.mjs:31`、`apps/web/scripts/smoke.mjs:53`                          |
+| CI                      | 提供 PostgreSQL 17，先 db:migrate 再 verify                           | CI 无 Redis/Kafka/MinIO/ClickHouse services，无 backup restore 演练。见 `.github/workflows/verify.yml:12`、`:35`                    |
 
 源码检索未找到直接覆盖 `s3-client`、`storage.ts` 实际对象读写、cleanup TTL/危险 root、db-backup create/verify/restore 的专门测试。现有 smoke 也没有上传请求。不能用总测试通过代替这些路径的证据。
 

@@ -46,9 +46,14 @@ export function retryDelayMs(attempt: number, baseMs = 1000, maxMs = 300000) {
 }
 
 const outboxRowSchema = z.object({
-  id: z.string(), topic: z.string(), event_type: z.string(), trace_id: z.string(),
-  payload: z.unknown(), attempts: z.number().int().nonnegative(),
-  max_attempts: z.number().int().positive(), lease_generation: z.number().int().positive(),
+  id: z.string(),
+  topic: z.string(),
+  event_type: z.string(),
+  trace_id: z.string(),
+  payload: z.unknown(),
+  attempts: z.number().int().nonnegative(),
+  max_attempts: z.number().int().positive(),
+  lease_generation: z.number().int().positive(),
 });
 type OutboxRow = z.infer<typeof outboxRowSchema>;
 function toOutboxEvent(row: OutboxRow): OutboxEvent {
@@ -87,10 +92,7 @@ function asyncTaskPayload(event: OutboxEvent) {
   return payload;
 }
 
-export function outboxKafkaMessageValue(
-  event: OutboxEvent,
-  occurredAt = new Date().toISOString(),
-) {
+export function outboxKafkaMessageValue(event: OutboxEvent, occurredAt = new Date().toISOString()) {
   const asyncPayload = asyncTaskPayload(event);
   if (asyncPayload) {
     return JSON.stringify({
@@ -211,18 +213,13 @@ export async function processOutboxOnce(
   const env = loadWorkerEnv({ allowMissingPublisher: options.dryRun === true });
   const resolved = {
     batchSize: options.batchSize ?? env.outboxBatchSize,
-    workerId:
-      options.workerId ?? process.env.WORKER_ID ?? `worker-${process.pid}`,
+    workerId: options.workerId ?? process.env.WORKER_ID ?? `worker-${process.pid}`,
     dryRun: options.dryRun ?? env.outboxPublisher === "dry-run",
     retryBaseMs: options.retryBaseMs ?? env.outboxRetryBaseMs,
     retryMaxMs: options.retryMaxMs ?? env.outboxRetryMaxMs,
     leaseMs: options.leaseMs ?? 60000,
   };
-  if (
-    !options.pool &&
-    options.databaseUrl &&
-    options.databaseUrl !== env.databaseUrl
-  ) {
+  if (!options.pool && options.databaseUrl && options.databaseUrl !== env.databaseUrl) {
     throw new Error("Inject a pool for a database other than DATABASE_URL");
   }
   const pool = options.pool ?? getPool();
@@ -282,8 +279,7 @@ export async function processOutboxOnce(
       }
       // A database acknowledgement failure leaves processing for lease recovery.
       // Kafka may already have accepted the event, so delivery is at least once.
-      if (await markPublished(pool, event, resolved.workerId))
-        result.published++;
+      if (await markPublished(pool, event, resolved.workerId)) result.published++;
       else result.staleOwner++;
     }
     return result;

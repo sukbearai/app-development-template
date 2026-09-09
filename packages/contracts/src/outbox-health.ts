@@ -98,16 +98,13 @@ export function evaluateOutboxBacklog(
   return alerts;
 }
 
-export function evaluateAsyncQuarantine(
-  counts: AsyncQuarantineCounts,
-): OutboxHealthAlert[] {
+export function evaluateAsyncQuarantine(counts: AsyncQuarantineCounts): OutboxHealthAlert[] {
   const alerts: OutboxHealthAlert[] = [];
   if (counts.messageQuarantine > 0) {
     alerts.push({
       severity: "critical",
       reason: "async_message_quarantine",
-      message:
-        "Isolated async message records are retained and require investigation.",
+      message: "Isolated async message records are retained and require investigation.",
       metric: "messageQuarantine",
       value: counts.messageQuarantine,
       threshold: 1,
@@ -117,8 +114,7 @@ export function evaluateAsyncQuarantine(
     alerts.push({
       severity: "critical",
       reason: "async_recovery_quarantine",
-      message:
-        "Isolated async recovery records are retained and require investigation.",
+      message: "Isolated async recovery records are retained and require investigation.",
       metric: "recoveryQuarantine",
       value: counts.recoveryQuarantine,
       threshold: 1,

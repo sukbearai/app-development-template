@@ -2,10 +2,18 @@ import Link from "next/link";
 import { filePageQuerySchema } from "@pstack/contracts";
 import { cookies } from "next/headers";
 import { listRoles, requirePermission } from "@pstack/server/auth-service";
+import { env } from "@pstack/server/env";
 import { listFiles } from "@pstack/server/product-service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { UploadAssetForm } from "@/components/admin/admin-actions";
-import { EmptyState, PageHeader, PermissionNotice, Section, formatBytes, formatDateTime } from "@/components/admin/admin-ui";
+import { UploadAssetForm } from "@/components/admin/upload-asset-form";
+import {
+  EmptyState,
+  PageHeader,
+  PermissionNotice,
+  Section,
+  formatBytes,
+  formatDateTime,
+} from "@/components/admin/admin-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -18,28 +26,45 @@ export default async function AdminFilesPage({ searchParams }: FilesPageProps) {
   const token = cookieStore.get(sessionCookieName)?.value;
   const actor = await requirePermission(token, "admin.read");
   const parsed = filePageQuerySchema.safeParse(await searchParams);
-  if (!parsed.success) return <>
-    <PageHeader title="文件资产" description="分页参数无效，请返回最新文件重试。" />
-    <Link href="/admin/files">最新文件</Link>
-  </>;
+  if (!parsed.success)
+    return (
+      <>
+        <PageHeader title="文件资产" description="分页参数无效，请返回最新文件重试。" />
+        <Link href="/admin/files">最新文件</Link>
+      </>
+    );
   const [roles, result] = await Promise.all([listRoles(), listFiles(token, parsed.data)]);
   const files = result.items;
-  const nextSearch = result.nextCursor ? new URLSearchParams({ cursor: JSON.stringify(result.nextCursor), limit: String(parsed.data.limit) }) : null;
-  const canUpload = roles.some((role) => role.status === "active" && actor.roleIds.includes(role.id) && role.permissionIds.includes("file.upload"));
+  const nextSearch = result.nextCursor
+    ? new URLSearchParams({
+        cursor: JSON.stringify(result.nextCursor),
+        limit: String(parsed.data.limit),
+      })
+    : null;
+  const canUpload = roles.some(
+    (role) =>
+      role.status === "active" &&
+      actor.roleIds.includes(role.id) &&
+      role.permissionIds.includes("file.upload"),
+  );
 
   return (
     <>
-      <PageHeader title="文件资产" eyebrow="Object Storage" description="管理已上传的文件和上传记录。" />
+      <PageHeader
+        title="文件资产"
+        eyebrow="Object Storage"
+        description="管理已上传的文件和上传记录。"
+      />
       {canUpload ? (
         <Section title="上传文件" description="选择需要保存的文件。">
-          <UploadAssetForm />
+          <UploadAssetForm maxBytes={env.UPLOAD_MAX_BYTES} />
         </Section>
       ) : (
         <PermissionNotice message="当前账号没有 file.upload 权限。" />
       )}
       <Section title="资产列表" description={`本页 ${files.length} 个文件。`}>
         {files.length ? (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -59,7 +84,9 @@ export default async function AdminFilesPage({ searchParams }: FilesPageProps) {
                     <td>{formatBytes(file.sizeBytes)}</td>
                     <td>{file.uploadedBy || "-"}</td>
                     <td>{formatDateTime(file.uploadedAt)}</td>
-                    <td><code>{file.storageKey}</code></td>
+                    <td>
+                      <code>{file.storageKey}</code>
+                    </td>
                   </tr>
                 ))}
               </tbody>

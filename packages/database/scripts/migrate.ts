@@ -4,13 +4,9 @@ import path from "node:path";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { getPool, closeDatabase } from "../src/client";
-import {
-  assertDatabaseSchema,
-  assertDatabaseSnapshot,
-} from "../src/schema-check";
+import { assertDatabaseSchema, assertDatabaseSnapshot } from "../src/schema-check";
 import { checkMigrations, migrationFolder } from "./migration-check.mjs";
-const hash = (value: string | Buffer) =>
-  createHash("sha256").update(value).digest("hex");
+const hash = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 export async function migrateDatabase() {
   const journal = await checkMigrations();
   const connection = await getPool().connect();
@@ -20,9 +16,7 @@ export async function migrateDatabase() {
       "select to_regclass('drizzle.drizzle_migrations') as ledger, to_regclass('public.app_users') as users",
     );
     if (!table.rows[0].ledger && table.rows[0].users)
-      throw new Error(
-        "Existing application database has no recognized migration ledger",
-      );
+      throw new Error("Existing application database has no recognized migration ledger");
     const applied = table.rows[0].ledger
       ? (
           await connection.query(
@@ -31,28 +25,18 @@ export async function migrateDatabase() {
         ).rows
       : [];
     const firstHash = hash(
-      await readFile(
-        path.join(migrationFolder, `${journal.entries[0].tag}.sql`),
-      ),
+      await readFile(path.join(migrationFolder, `${journal.entries[0].tag}.sql`)),
     );
     if (applied.length && applied[0].hash !== firstHash) {
       const historicalFolder = path.resolve(migrationFolder, "..");
       const legacy = JSON.parse(
-        await readFile(
-          path.join(historicalFolder, "meta/_journal.json"),
-          "utf8",
-        ),
+        await readFile(path.join(historicalFolder, "meta/_journal.json"), "utf8"),
       );
       const integrity = JSON.parse(
-        await readFile(
-          path.join(historicalFolder, "migration-integrity.json"),
-          "utf8",
-        ),
+        await readFile(path.join(historicalFolder, "migration-integrity.json"), "utf8"),
       );
       if (applied.length < legacy.entries.length)
-        throw new Error(
-          "Legacy database must complete its original migration history first",
-        );
+        throw new Error("Legacy database must complete its original migration history first");
       for (let i = 0; i < legacy.entries.length; i++) {
         const entry = legacy.entries[i];
         const file = `${entry.tag}.sql`;
@@ -69,10 +53,7 @@ export async function migrateDatabase() {
         "utf8",
       );
       const manifest = JSON.parse(
-        await readFile(
-          path.join(historicalFolder, "legacy-upgrade/integrity.json"),
-          "utf8",
-        ),
+        await readFile(path.join(historicalFolder, "legacy-upgrade/integrity.json"), "utf8"),
       );
       if (hash(upgrade) !== manifest["0004_safe_template.sql"])
         throw new Error("Legacy upgrade checksum differs");
@@ -84,10 +65,7 @@ export async function migrateDatabase() {
         await assertDatabaseSnapshot(
           connection,
           JSON.parse(
-            await readFile(
-              path.join(historicalFolder, "meta/0003_snapshot.json"),
-              "utf8",
-            ),
+            await readFile(path.join(historicalFolder, "meta/0003_snapshot.json"), "utf8"),
           ),
         );
         await connection.query("begin");
@@ -105,8 +83,7 @@ export async function migrateDatabase() {
         }
       } else if (
         applied[legacy.entries.length].hash !== hash(upgrade) ||
-        Number(applied[legacy.entries.length].created_at) !==
-          journal.entries[0].when
+        Number(applied[legacy.entries.length].created_at) !== journal.entries[0].when
       )
         throw new Error("Legacy upgrade history differs");
       const subsequent = applied.slice(legacy.entries.length + 1);
@@ -115,9 +92,7 @@ export async function migrateDatabase() {
         if (
           !entry ||
           subsequent[i].hash !==
-            hash(
-              await readFile(path.join(migrationFolder, `${entry.tag}.sql`)),
-            ) ||
+            hash(await readFile(path.join(migrationFolder, `${entry.tag}.sql`))) ||
           Number(subsequent[i].created_at) !== entry.when
         )
           throw new Error("Applied migration checksum differs");
@@ -137,22 +112,16 @@ export async function migrateDatabase() {
       );
     } else {
       if (table.rows[0].users && !applied.length)
-        throw new Error(
-          "Application tables exist without applied template history",
-        );
+        throw new Error("Application tables exist without applied template history");
       for (let index = 0; index < applied.length; index++) {
         const entry = journal.entries[index];
         if (
           !entry ||
           applied[index].hash !==
-            hash(
-              await readFile(path.join(migrationFolder, `${entry.tag}.sql`)),
-            ) ||
+            hash(await readFile(path.join(migrationFolder, `${entry.tag}.sql`))) ||
           Number(applied[index].created_at) !== entry.when
         )
-          throw new Error(
-            "Applied migration checksum does not match template history",
-          );
+          throw new Error("Applied migration checksum does not match template history");
       }
       if (applied.length)
         await assertDatabaseSnapshot(

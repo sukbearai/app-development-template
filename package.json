@@ -25,14 +25,14 @@
     "storage:cleanup": "node scripts/with-env.mjs pnpm --filter @pstack/server storage:cleanup",
     "migration:check": "node scripts/with-env.mjs pnpm --filter @pstack/database migration:check",
     "contract:check": "pnpm --filter @pstack/web contract:check",
-    "test:unit": "pnpm --filter @pstack/contracts test:unit && pnpm --filter @pstack/kafka test:unit && pnpm --filter @pstack/database test:unit && pnpm --filter @pstack/server test:unit && pnpm --filter @pstack/web test:unit && pnpm --filter @pstack/worker test:unit",
+    "test:unit": "pnpm --filter @pstack/contracts test:unit && pnpm --filter @pstack/kafka test:unit && pnpm --filter @pstack/database test:unit && pnpm --filter @pstack/server test:unit && pnpm --filter @pstack/web test:unit && pnpm --filter @pstack/worker test:unit && pnpm test:sdk",
     "test:integration": "pnpm --filter @pstack/database test:integration && pnpm --filter @pstack/server test:integration && pnpm --filter @pstack/worker test:integration",
     "test:e2e": "node scripts/verify-app.mjs",
     "test:ui": "node scripts/verify-app.mjs --ui",
     "pr:verify": "node scripts/pr-verify.mjs",
     "smoke": "pnpm --filter @pstack/web smoke",
     "test": "pnpm test:unit && pnpm test:integration",
-    "verify": "pnpm lint && pnpm duplication:check && pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm version:check && pnpm docs:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security",
+    "verify": "pnpm format:check && pnpm sdk:check && pnpm lint && pnpm duplication:check && pnpm boundary:check && pnpm typecheck && pnpm contract:check && pnpm migration:check && pnpm version:check && pnpm docs:check && pnpm test:tools && pnpm test:unit && pnpm test:integration && pnpm test:ui:production && pnpm test:ui && pnpm test:app-backup && pnpm test:async-recovery && pnpm test:kafka-security && pnpm storybook:test && pnpm storybook:smoke && pnpm test:tracing-collector",
     "local:init": "node scripts/local.mjs init",
     "local:up": "node scripts/local.mjs up",
     "local:down": "node scripts/local.mjs down",
@@ -68,7 +68,17 @@
     "test:cold-start": "node scripts/cold-start.mjs",
     "release:manifest": "node scripts/release-manifest.mjs",
     "release:plan": "node scripts/release-deploy.mjs plan",
-    "release:publish": "node scripts/release-publish.mjs"
+    "release:publish": "node scripts/release-publish.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "sdk:generate": "pnpm api:docs && node scripts/generate-sdk.mjs",
+    "sdk:check": "pnpm contract:check && node scripts/generate-sdk.mjs --check",
+    "test:sdk": "pnpm --filter @pstack/sdk test:unit",
+    "storybook": "pnpm --filter @pstack/web storybook",
+    "storybook:build": "pnpm --filter @pstack/web storybook:build",
+    "storybook:test": "pnpm --filter @pstack/web storybook:test",
+    "storybook:smoke": "pnpm storybook:build && pnpm --filter @pstack/web storybook:smoke",
+    "test:tracing-collector": "pnpm --filter @pstack/server test:tracing-collector"
   },
   "packageManager": "pnpm@10.33.4",
   "engines": {
@@ -84,6 +94,9 @@
     "jscpd": "5.1.2",
     "oxlint": "1.78.0",
     "release-please": "17.3.0",
-    "zod": "4.4.3"
+    "zod": "4.4.3",
+    "prettier": "3.9.6",
+    "openapi-typescript": "7.13.0",
+    "@axe-core/playwright": "4.11.1"
   }
 }

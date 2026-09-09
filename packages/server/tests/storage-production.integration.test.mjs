@@ -7,13 +7,8 @@ import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import {
-  S3Client,
-  CreateBucketCommand,
-  HeadObjectCommand,
-} from "@aws-sdk/client-s3";
-const docker = (...args) =>
-  execFileSync("docker", args, { encoding: "utf8" }).trim();
+import { S3Client, CreateBucketCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+const docker = (...args) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const deferred = () => {
   let resolve;
@@ -27,9 +22,7 @@ test(
     const suffix = randomUUID(),
       pgName = `pstack-prod-pg-${suffix}`,
       s3Name = `pstack-prod-s3-${suffix}`;
-    const storageParent = await mkdtemp(
-      path.join(os.tmpdir(), "pstack-durable-"),
-    );
+    const storageParent = await mkdtemp(path.join(os.tmpdir(), "pstack-durable-"));
     const directory = path.join(storageParent, "new-parent", "new-root");
     let database, s3, storageClient, proxy;
     let hold;
@@ -68,10 +61,7 @@ test(
       proxy = http.createServer(async (req, res) => {
         const body = [];
         for await (const chunk of req) body.push(chunk);
-        const active =
-          req.method === "PUT" && req.url.includes("upload_")
-            ? hold
-            : undefined;
+        const active = req.method === "PUT" && req.url.includes("upload_") ? hold : undefined;
         if (active?.before) {
           active.started.resolve();
           await active.release.promise;
@@ -138,9 +128,7 @@ test(
       });
       for (let n = 0; n < 40; n++) {
         try {
-          await s3.send(
-            new CreateBucketCommand({ Bucket: "production-files" }),
-          );
+          await s3.send(new CreateBucketCommand({ Bucket: "production-files" }));
           break;
         } catch (error) {
           if (n === 39) throw error;
@@ -152,9 +140,7 @@ test(
         storage = await import("../src/storage.ts");
       storageClient = await import("../src/s3-client.ts");
       const repo = await import("@pstack/database/repository");
-      const { bootstrapAdministrator } = await import(
-        "../src/bootstrap-admin.ts"
-      );
+      const { bootstrapAdministrator } = await import("../src/bootstrap-admin.ts");
       const credentials = {
         account: "production-admin",
         password: "production-strong-password",
@@ -211,10 +197,7 @@ test(
               ...parentSyncs,
               `unlink ${path.join(directory, `${key}.tmp`)}`,
             ]);
-            assert.equal(
-              await readFile(path.join(directory, key), "utf8"),
-              "durable bytes",
-            );
+            assert.equal(await readFile(path.join(directory, key), "utf8"), "durable bytes");
             assert.deepEqual(await readdir(directory), [key]);
             operations.length = 0;
             await storage.deleteObject(key, "local");
@@ -242,16 +225,10 @@ test(
             file: new File(["slow bytes"], "slow.txt"),
             traceId: "slow",
           });
-          const rejection = assert.rejects(
-            upload,
-            (error) => error.status === 401,
-          );
+          const rejection = assert.rejects(upload, (error) => error.status === 401);
           await hold.started.promise;
-          const [intent] = (
-            await query(
-              "select * from app_upload_intents where state='writing'",
-            )
-          ).rows;
+          const [intent] = (await query("select * from app_upload_intents where state='writing'"))
+            .rows;
           assert.equal(await product.reconcileUploadIntent(intent.id), "busy");
           await Promise.race([
             auth.logout(token),
@@ -262,16 +239,10 @@ test(
           hold.release.resolve();
           hold = undefined;
           await rejection;
+          assert.equal((await query("select count(*) from app_file_assets")).rows[0].count, "0");
           assert.equal(
-            (await query("select count(*) from app_file_assets")).rows[0].count,
-            "0",
-          );
-          assert.equal(
-            (
-              await query("select state from app_upload_intents where id=$1", [
-                intent.id,
-              ])
-            ).rows[0].state,
+            (await query("select state from app_upload_intents where id=$1", [intent.id])).rows[0]
+              .state,
             "deleted",
           );
           await assert.rejects(
@@ -296,19 +267,13 @@ test(
           });
           const rejection = assert.rejects(upload, /no longer writable/);
           await hold.started.promise;
-          const [intent] = (
-            await query(
-              "select * from app_upload_intents where state='writing'",
-            )
-          ).rows;
+          const [intent] = (await query("select * from app_upload_intents where state='writing'"))
+            .rows;
           await query(
             "update app_upload_intents set lease_until=now()-interval '1 second' where id=$1",
             [intent.id],
           );
-          assert.equal(
-            await product.reconcileUploadIntent(intent.id),
-            "upload_outcome_unknown",
-          );
+          assert.equal(await product.reconcileUploadIntent(intent.id), "upload_outcome_unknown");
           assert.equal(
             (
               await s3.send(
@@ -324,11 +289,8 @@ test(
           hold = undefined;
           await rejection;
           assert.equal(
-            (
-              await query("select state from app_upload_intents where id=$1", [
-                intent.id,
-              ])
-            ).rows[0].state,
+            (await query("select state from app_upload_intents where id=$1", [intent.id])).rows[0]
+              .state,
             "deleted",
           );
           const key = `upload_${randomUUID()}`;
@@ -340,10 +302,7 @@ test(
             "insert into app_upload_intents(id,storage_key,provider,storage_location,state,blocked_reason) values($1,$1,'s3',$2,'blocked','upload_outcome_unknown')",
             [key, storage.storageLocation("s3")],
           );
-          assert.equal(
-            await product.reconcileUploadIntent(key),
-            "upload_outcome_unknown",
-          );
+          assert.equal(await product.reconcileUploadIntent(key), "upload_outcome_unknown");
           assert.equal(
             await product.resolveBlockedUpload(key, {
               writerStopped: true,
@@ -365,18 +324,14 @@ test(
           });
           const rejection = assert.rejects(upload);
           await hold.started.promise;
-          const [intent] = (
-            await query(
-              "select * from app_upload_intents where state='writing'",
-            )
-          ).rows;
+          const [intent] = (await query("select * from app_upload_intents where state='writing'"))
+            .rows;
           await rejection;
           assert.equal(
             (
-              await query(
-                "select state,blocked_reason from app_upload_intents where id=$1",
-                [intent.id],
-              )
+              await query("select state,blocked_reason from app_upload_intents where id=$1", [
+                intent.id,
+              ])
             ).rows[0].blocked_reason,
             "upload_outcome_unknown",
           );
@@ -401,10 +356,7 @@ test(
               await pause(100);
             }
           }
-          assert.equal(
-            await product.reconcileUploadIntent(intent.id),
-            "upload_outcome_unknown",
-          );
+          assert.equal(await product.reconcileUploadIntent(intent.id), "upload_outcome_unknown");
           assert.equal(
             await product.resolveBlockedUpload(intent.id, {
               writerStopped: true,
@@ -438,10 +390,7 @@ test(
             [key, storage.storageLocation("local")],
           );
           const result = await product.reconcileUploads();
-          assert.equal(
-            result.filter((row) => row.state === "storage_changed").length,
-            105,
-          );
+          assert.equal(result.filter((row) => row.state === "storage_changed").length, 105);
           assert.equal(result.find((row) => row.id === key).state, "deleted");
           assert.equal(
             (
@@ -485,67 +434,47 @@ test(
           assert.equal(preview.telemetry, 2);
           assert.equal(preview.idempotency, 1);
           assert.equal(preview.taskEvents, 1);
-          assert.deepEqual(
-            await repo.runRetention({ ...options, dryRun: false }),
-            preview,
-          );
+          assert.deepEqual(await repo.runRetention({ ...options, dryRun: false }), preview);
           const [receipt] = (
-            await query(
-              "select * from app_async_receipts where idempotency_key='compact'",
-            )
+            await query("select * from app_async_receipts where idempotency_key='compact'")
           ).rows;
           assert.equal(receipt.payload_hash, v2Hash);
           assert.deepEqual(receipt.result, {});
           assert.equal(
-            (
-              await query(
-                "select response_data from app_idempotency_keys where key='compact'",
-              )
-            ).rows[0].response_data,
+            (await query("select response_data from app_idempotency_keys where key='compact'"))
+              .rows[0].response_data,
             null,
           );
           assert.notEqual(
-            (
-              await query(
-                "select response_data from app_idempotency_keys where key='unexpired'",
-              )
-            ).rows[0].response_data,
+            (await query("select response_data from app_idempotency_keys where key='unexpired'"))
+              .rows[0].response_data,
             null,
           );
-          const retained = (await query("select key,request_hash,response_data from app_idempotency_keys where key in ('legacy','unknown','malformed-v2') order by key")).rows;
+          const retained = (
+            await query(
+              "select key,request_hash,response_data from app_idempotency_keys where key in ('legacy','unknown','malformed-v2') order by key",
+            )
+          ).rows;
           assert.equal(retained.length, 3);
           assert.equal(retained.find((row) => row.key === "legacy").request_hash, legacyHash);
           for (const row of retained) assert.deepEqual(row.response_data, { large: true });
           assert.equal(
-            (
-              await query(
-                "select count(*) from app_task_events where id='old-retry'",
-              )
-            ).rows[0].count,
+            (await query("select count(*) from app_task_events where id='old-retry'")).rows[0]
+              .count,
             "1",
           );
-          assert.equal(
-            (await repo.runRetention({ ...options, dryRun: false })).telemetry,
-            1,
-          );
+          assert.equal((await repo.runRetention({ ...options, dryRun: false })).telemetry, 1);
         },
       );
-      await t.test(
-        "health returns aggregated buckets with real counts",
-        async () => {
-          const rows = await repo.getAsyncRuntimeHealthRows();
-          assert.equal(
-            rows.tasks.find((row) => row.status === "succeeded").count,
-            1,
-          );
-          assert.equal(rows.tasks.length, 2);
-          assert.ok(
-            rows.outboxEvents.length <
-              (await query("select count(*) from app_outbox_events")).rows[0]
-                .count,
-          );
-        },
-      );
+      await t.test("health returns aggregated buckets with real counts", async () => {
+        const rows = await repo.getAsyncRuntimeHealthRows();
+        assert.equal(rows.tasks.find((row) => row.status === "succeeded").count, 1);
+        assert.equal(rows.tasks.length, 2);
+        assert.ok(
+          rows.outboxEvents.length <
+            (await query("select count(*) from app_outbox_events")).rows[0].count,
+        );
+      });
     } finally {
       hold?.release.resolve();
       storageClient?.closeS3();

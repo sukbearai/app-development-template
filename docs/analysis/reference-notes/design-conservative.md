@@ -19,22 +19,24 @@ core 启动隔离 PostgreSQL；迁移显式执行，管理员通过交互秘密�
 增加一个操作只需定义契约、实现服务、挂载路由。浏览器 `api.users.create(input, { signal })`；服务端页面直接调用同一服务，两处均授权。
 
 ```ts
-type Result<A, E> =
-  | { ok: true; value: A }
-  | { ok: false; error: E }
+type Result<A, E> = { ok: true; value: A } | { ok: false; error: E };
 type RequestContext = {
-  actor: Principal; traceId: string; signal: AbortSignal
-}
+  actor: Principal;
+  traceId: string;
+  signal: AbortSignal;
+};
 interface Users {
-  create(input: CreateUser, ctx: RequestContext):
-    Promise<Result<User, Forbidden | Conflict | InvalidInput>>
+  create(
+    input: CreateUser,
+    ctx: RequestContext,
+  ): Promise<Result<User, Forbidden | Conflict | InvalidInput>>;
 }
 interface UnitOfWork {
-  run<A>(f: (tx: Transaction) => Promise<A>): Promise<A>
+  run<A>(f: (tx: Transaction) => Promise<A>): Promise<A>;
 }
 interface AppRuntime {
-  users: Users
-  close(): Promise<void>
+  users: Users;
+  close(): Promise<void>;
 }
 ```
 
@@ -50,14 +52,14 @@ HTTP schema 与数据库 schema 各管协议和持久化，显式映射二者。
 
 ## 能力逐项落点
 
-| 参考能力 | 迁移安排 |
-| --- | --- |
-| 9 个页面、15 个 HTTP 操作及兜底 404 | 全部列入验收清单，保留登录、管理概览、用户、角色、权限、文件、审计、outbox；包括 me/logout、health、async-health、上传和 telemetry |
-| 密码、Session、Cookie/Bearer、RBAC、CSRF、限流 | identity 服务及入口策略；保留页面/API 双授权，不声称已有租户、MFA、SSO |
-| 文件、审计、telemetry、统计 | PostgreSQL 保存事实；文件适配 local/S3，增加可靠协调状态；React Query 仅在实际页面需要缓存时启用 |
-| outbox、幂等、任务、事件、重试、死信、健康 CLI | async 配置提供完整发布消费闭环；原有未接线 consumer 不计为已交付 |
-| PostgreSQL、Redis、Kafka、MinIO、ClickHouse | PostgreSQL 为基础；Redis 限流、Kafka、S3 可选，ClickHouse 保留扩展说明，因无业务调用不启动默认容器 |
-| 备份恢复、Compose、CI、agent 工作流 | 保留入口并修复证据缺口；docs 存稳定约定，loops 存状态，沿用独占服务器的浏览器验证技能 |
+| 参考能力                                       | 迁移安排                                                                                                                           |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 9 个页面、15 个 HTTP 操作及兜底 404            | 全部列入验收清单，保留登录、管理概览、用户、角色、权限、文件、审计、outbox；包括 me/logout、health、async-health、上传和 telemetry |
+| 密码、Session、Cookie/Bearer、RBAC、CSRF、限流 | identity 服务及入口策略；保留页面/API 双授权，不声称已有租户、MFA、SSO                                                             |
+| 文件、审计、telemetry、统计                    | PostgreSQL 保存事实；文件适配 local/S3，增加可靠协调状态；React Query 仅在实际页面需要缓存时启用                                   |
+| outbox、幂等、任务、事件、重试、死信、健康 CLI | async 配置提供完整发布消费闭环；原有未接线 consumer 不计为已交付                                                                   |
+| PostgreSQL、Redis、Kafka、MinIO、ClickHouse    | PostgreSQL 为基础；Redis 限流、Kafka、S3 可选，ClickHouse 保留扩展说明，因无业务调用不启动默认容器                                 |
+| 备份恢复、Compose、CI、agent 工作流            | 保留入口并修复证据缺口；docs 存稳定约定，loops 存状态，沿用独占服务器的浏览器验证技能                                              |
 
 ## 谁负责事务与资源
 

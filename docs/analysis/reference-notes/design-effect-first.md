@@ -6,12 +6,12 @@
 
 ```ts
 // 调用点一：显式 vinext route，框架 params 不传给 Effect Context
-export const POST = (request: Request) => web.handler(request)
+export const POST = (request: Request) => web.handler(request);
 // web 由 HttpApiBuilder + HttpRouter.toWebHandler 构建一次；拥有 dispose
 
 // 调用点二：worker 的业务完成与 offset 确认分开
-const receipt = yield* Tasks.complete(envelope)
-yield* Kafka.confirm(receipt.source) // 失败只重试确认，不回写业务失败
+const receipt = yield * Tasks.complete(envelope);
+yield * Kafka.confirm(receipt.source); // 失败只重试确认，不回写业务失败
 ```
 
 浏览器保留 fetch、React Query、表单和 skeleton；共享 Schema 可输出 Standard Schema，但不默认把 HttpApi runtime client 放入浏览器。
@@ -39,14 +39,11 @@ type TaskState =
   | { kind: "running"; lease: Lease }
   | { kind: "done"; receipt: Receipt }
   | { kind: "dead"; reason: Failure }
-  | { kind: "canceled"; canceledAt: Date }
+  | { kind: "canceled"; canceledAt: Date };
 // ID、Lease、请求与输出类型均由 Schema 派生
-authorize: (request: Request, action: Permission) =>
-  Effect<Actor, AuthError, Identity>
-upload: (actor: Actor, input: UploadInput) =>
-  Effect<FileAsset, UploadError, Files>
-complete: (event: TaskEnvelope) =>
-  Effect<Receipt, TaskError, Tasks>
+authorize: (request: Request, action: Permission) => Effect<Actor, AuthError, Identity>;
+upload: (actor: Actor, input: UploadInput) => Effect<FileAsset, UploadError, Files>;
+complete: (event: TaskEnvelope) => Effect<Receipt, TaskError, Tasks>;
 // Context.Service 定义上述能力，Layer 提供实现；领域代码不 runPromise
 ```
 
@@ -68,14 +65,14 @@ Kafka 发布保持至少一次语义，租约、fencing、毒消息、过期锁�
 
 ## 功能覆盖与验收
 
-| 旧模板能力 | 保留或重建及验收谓词 |
-| --- | --- |
-| 登录、登出、session、scrypt、用户角色权限 CRUD、归属与同源检查、限流 | 改为 Identity 服务；真实 cookie/bearer、撤销、越权、跨站及 Redis/内存路径结果一致 |
-| 管理端首页、导航、图表、用户、角色、权限、文件、审计、outbox、查询与加载状态 | 页面保留；构建产物上的 Chromium 全路径通过，数据取自服务器 |
-| 上传 local/S3、大小限制、清理、审计、telemetry | 驱动与 traceId 保留；真实 PUT、超限、失败协调、保留期有证据 |
-| outbox、任务/事件/幂等、健康、readiness、alerts | 重建缺陷实现；并发、重启、租约失效、offset 失败、取消与 SIGTERM 不损坏成功事实；dry-run 不写 published |
-| 13 表、迁移种子、备份校验恢复、配置日志 | 空库与升级库结构一致；备份包含账本、缺 checksum 拒绝；生产配置与脱敏规则通过 |
-| Compose、Docker、CI、smoke/UI、门禁、skills/loops | 全部适配 vinext；真实构建启动、干净树 full gate 和进程身份验证通过 |
+| 旧模板能力                                                                   | 保留或重建及验收谓词                                                                                   |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| 登录、登出、session、scrypt、用户角色权限 CRUD、归属与同源检查、限流         | 改为 Identity 服务；真实 cookie/bearer、撤销、越权、跨站及 Redis/内存路径结果一致                      |
+| 管理端首页、导航、图表、用户、角色、权限、文件、审计、outbox、查询与加载状态 | 页面保留；构建产物上的 Chromium 全路径通过，数据取自服务器                                             |
+| 上传 local/S3、大小限制、清理、审计、telemetry                               | 驱动与 traceId 保留；真实 PUT、超限、失败协调、保留期有证据                                            |
+| outbox、任务/事件/幂等、健康、readiness、alerts                              | 重建缺陷实现；并发、重启、租约失效、offset 失败、取消与 SIGTERM 不损坏成功事实；dry-run 不写 published |
+| 13 表、迁移种子、备份校验恢复、配置日志                                      | 空库与升级库结构一致；备份包含账本、缺 checksum 拒绝；生产配置与脱敏规则通过                           |
+| Compose、Docker、CI、smoke/UI、门禁、skills/loops                            | 全部适配 vinext；真实构建启动、干净树 full gate 和进程身份验证通过                                     |
 
 Redis、Kafka、MinIO 保留真实接入；ClickHouse 保留可选部署配置，不新增未实现的分析业务。现有明文种子、伪发布、只查端口的 readiness 等缺口单列修复，不作为应保留行为。
 

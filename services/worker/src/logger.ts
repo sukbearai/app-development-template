@@ -71,20 +71,29 @@ function errorDiagnostics(error: Error) {
     const message = typeof rawMessage === "string" ? rawMessage : "";
     diagnostics.push({
       path,
-      message: safeErrorMessages.find((safe) => message === safe || message.startsWith(`${safe}:`)) ?? "Error details omitted",
+      message:
+        safeErrorMessages.find((safe) => message === safe || message.startsWith(`${safe}:`)) ??
+        "Error details omitted",
     });
     children(cause, path, depth);
   }
 
   function children(value: Error, path: string, depth: number) {
     const prefix = path ? `${path}.` : "";
-    const errors: unknown = value instanceof AggregateError ? Object.getOwnPropertyDescriptor(value, "errors")?.value : undefined;
+    const errors: unknown =
+      value instanceof AggregateError
+        ? Object.getOwnPropertyDescriptor(value, "errors")?.value
+        : undefined;
     if (Array.isArray(errors)) {
       const length: unknown = Object.getOwnPropertyDescriptor(errors, "length")?.value;
       // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Array proxies can expose untrusted descriptors; iteration uses only a numeric length.
       if (typeof length === "number") {
         for (let index = 0; index < length; index++) {
-          visit(Object.getOwnPropertyDescriptor(errors, index)?.value, `${prefix}errors[${index}]`, depth + 1);
+          visit(
+            Object.getOwnPropertyDescriptor(errors, index)?.value,
+            `${prefix}errors[${index}]`,
+            depth + 1,
+          );
           if (diagnostics.length >= 16 || depth >= 4) {
             truncated ||= index + 1 < length;
             break;
@@ -96,8 +105,11 @@ function errorDiagnostics(error: Error) {
     if (cause && "value" in cause) visit(cause.value, `${prefix}cause`, depth + 1);
   }
 
-  try { children(error, "", 0); }
-  catch { truncated = true; }
+  try {
+    children(error, "", 0);
+  } catch {
+    truncated = true;
+  }
 
   if (truncated) diagnostics.push({ path: "", message: "Error diagnostics truncated" });
   return diagnostics.length ? diagnostics : undefined;
@@ -110,7 +122,10 @@ function normalizeError(error: unknown) {
     name: error.name,
     message: error.message,
     diagnostics: errorDiagnostics(error),
-    stack: loadWorkerEnv({ allowMissingPublisher: true }).nodeEnv === "production" ? undefined : error.stack,
+    stack:
+      loadWorkerEnv({ allowMissingPublisher: true }).nodeEnv === "production"
+        ? undefined
+        : error.stack,
   };
 }
 
@@ -134,11 +149,15 @@ export function log(level: LogLevel, message: string, fields?: LogFields) {
     message,
     time: new Date().toISOString(),
     service: loadWorkerEnv({ allowMissingPublisher: true }).appName,
-    ...Object.fromEntries(Object.entries(fields || {}).filter(([key]) => key !== "error").map(([key, value]) => [
-      key, sensitiveFieldPattern.test(key) ? "[REDACTED]" : redact(value),
-    ])),
-    error:
-      fields && "error" in fields ? normalizeError(fields.error) : undefined,
+    ...Object.fromEntries(
+      Object.entries(fields || {})
+        .filter(([key]) => key !== "error")
+        .map(([key, value]) => [
+          key,
+          sensitiveFieldPattern.test(key) ? "[REDACTED]" : redact(value),
+        ]),
+    ),
+    error: fields && "error" in fields ? normalizeError(fields.error) : undefined,
   };
   const line = JSON.stringify(entry);
   if (level === "error") {

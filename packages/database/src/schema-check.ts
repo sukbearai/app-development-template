@@ -7,9 +7,8 @@ import { z } from "zod";
 const dialect = new PgDialect();
 function expression(value: string) {
   const tokens =
-    value.match(
-      /'(?:''|[^'])*'|"(?:""|[^"])*"|::|[A-Za-z_][A-Za-z_0-9]*|\d+(?:\.\d+)?|[^\s]/g,
-    ) || [];
+    value.match(/'(?:''|[^'])*'|"(?:""|[^"])*"|::|[A-Za-z_][A-Za-z_0-9]*|\d+(?:\.\d+)?|[^\s]/g) ||
+    [];
   const result: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -76,13 +75,15 @@ function checkExpression(value: string) {
 function sameColumns(left: string[], right: string[]) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
-const actions = new Map(Object.entries({
-  a: "no action",
-  r: "restrict",
-  c: "cascade",
-  n: "set null",
-  d: "set default",
-}));
+const actions = new Map(
+  Object.entries({
+    a: "no action",
+    r: "restrict",
+    c: "cascade",
+    n: "set null",
+    d: "set default",
+  }),
+);
 
 const names = z.array(z.string());
 const keySchema = z.object({ name: z.string(), columns: names });
@@ -155,11 +156,11 @@ function currentTables(): SnapshotTable[] {
                   ? undefined
                   : is(column.default, SQL)
                     ? dialect.sqlToQuery(column.default).sql
-                    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Drizzle column defaults include SQL, strings and JSON; each needs different SQL quoting.
-                    : typeof column.default === "string"
+                    : // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Drizzle column defaults include SQL, strings and JSON; each needs different SQL quoting.
+                      typeof column.default === "string"
                       ? `'${column.default.replaceAll("'", "''")}'`
-                      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Object and null defaults use JSON encoding before SQL comparison.
-                      : typeof column.default === "object"
+                      : // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Object and null defaults use JSON encoding before SQL comparison.
+                        typeof column.default === "object"
                         ? `'${JSON.stringify(column.default)}'`
                         : String(column.default),
             },
@@ -177,9 +178,7 @@ function currentTables(): SnapshotTable[] {
         uniqueConstraints: Object.fromEntries(
           [
             ...config.uniqueConstraints.map((key) => ({
-              name:
-                key.getName() ||
-                key.columns.map((column) => column.name).join("_"),
+              name: key.getName() || key.columns.map((column) => column.name).join("_"),
               columns: key.columns.map((column) => column.name),
             })),
             ...config.columns
@@ -199,9 +198,7 @@ function currentTables(): SnapshotTable[] {
                 name: key.getName(),
                 tableTo: getTableConfig(reference.foreignTable).name,
                 columnsFrom: reference.columns.map((column) => column.name),
-                columnsTo: reference.foreignColumns.map(
-                  (column) => column.name,
-                ),
+                columnsTo: reference.foreignColumns.map((column) => column.name),
                 onUpdate: key.onUpdate || "no action",
                 onDelete: key.onDelete || "no action",
               },
@@ -221,9 +218,7 @@ function currentTables(): SnapshotTable[] {
               name: index.name,
               isUnique: index.unique,
               method: index.method,
-              where: index.where
-                ? dialect.sqlToQuery(index.where).sql
-                : undefined,
+              where: index.where ? dialect.sqlToQuery(index.where).sql : undefined,
               columns: index.columns.map((column) => {
                 if (is(column, SQL))
                   return {
@@ -250,20 +245,12 @@ export async function assertDatabaseSnapshot(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The snapshot schema validates the migration file at this boundary.
   snapshot: unknown,
 ) {
-  return assertTables(
-    connection,
-    Object.values(snapshotSchema.parse(snapshot).tables),
-  );
+  return assertTables(connection, Object.values(snapshotSchema.parse(snapshot).tables));
 }
-export async function assertDatabaseSchema(
-  connection: Pick<PoolClient, "query">,
-) {
+export async function assertDatabaseSchema(connection: Pick<PoolClient, "query">) {
   return assertTables(connection, currentTables());
 }
-async function assertTables(
-  connection: Pick<PoolClient, "query">,
-  tables: SnapshotTable[],
-) {
+async function assertTables(connection: Pick<PoolClient, "query">, tables: SnapshotTable[]) {
   const result = await connection.query<{
     table_name: string;
     column_name: string;
@@ -307,21 +294,14 @@ async function assertTables(
     array(select pg_get_indexdef(i.indexrelid,n,true) from generate_series(1,i.indnkeyatts) n) as columns,
     array(select i.indoption[n-1]::integer from generate_series(1,i.indnkeyatts) n) as key_options,(i.indnatts-i.indnkeyatts) as included
     from pg_index i join pg_class rel on rel.oid=i.indrelid join pg_class idx on idx.oid=i.indexrelid join pg_namespace ns on ns.oid=rel.relnamespace join pg_am am on am.oid=idx.relam where ns.nspname='public'`);
-  const columns = new Map(
-    result.rows.map((row) => [`${row.table_name}.${row.column_name}`, row]),
-  );
+  const columns = new Map(result.rows.map((row) => [`${row.table_name}.${row.column_name}`, row]));
   for (const config of tables) {
-    const actualConstraints = constraints.rows.filter(
-      (row) => row.table_name === config.name,
-    );
+    const actualConstraints = constraints.rows.filter((row) => row.table_name === config.name);
     function requireKey(kind: "p" | "u", names: string[]) {
       if (
         !actualConstraints.some(
           (row) =>
-            row.kind === kind &&
-            row.valid &&
-            !row.deferrable &&
-            sameColumns(row.columns, names),
+            row.kind === kind && row.valid && !row.deferrable && sameColumns(row.columns, names),
         )
       )
         throw new Error(
@@ -329,29 +309,19 @@ async function assertTables(
         );
     }
     const expectedColumns = new Set(Object.keys(config.columns));
-    for (const row of result.rows.filter(
-      (row) => row.table_name === config.name,
-    )) {
+    for (const row of result.rows.filter((row) => row.table_name === config.name)) {
       if (!expectedColumns.has(row.column_name))
-        throw new Error(
-          `Database schema has unexpected column ${config.name}.${row.column_name}`,
-        );
+        throw new Error(`Database schema has unexpected column ${config.name}.${row.column_name}`);
     }
     const expectedConstraintCount =
-      Object.values(config.columns).filter((column) => column.primaryKey)
-        .length +
+      Object.values(config.columns).filter((column) => column.primaryKey).length +
       Object.keys(config.compositePrimaryKeys).length +
       Object.keys(config.uniqueConstraints).length +
       Object.keys(config.foreignKeys).length +
       Object.keys(config.checkConstraints).length;
     // PostgreSQL 18 represents NOT NULL separately; column nullability is checked below.
-    if (
-      actualConstraints.filter((row) => row.kind !== "n").length >
-      expectedConstraintCount
-    )
-      throw new Error(
-        `Database schema has unexpected constraint on ${config.name}`,
-      );
+    if (actualConstraints.filter((row) => row.kind !== "n").length > expectedConstraintCount)
+      throw new Error(`Database schema has unexpected constraint on ${config.name}`);
     const constraintIndexes = new Set(
       actualConstraints
         .filter((row) => row.kind === "p" || row.kind === "u")
@@ -361,21 +331,15 @@ async function assertTables(
       (row) => row.table_name === config.name && row.unique,
     )) {
       if (!constraintIndexes.has(index.name) && !config.indexes[index.name])
-        throw new Error(
-          `Database schema has unexpected unique index ${config.name}.${index.name}`,
-        );
+        throw new Error(`Database schema has unexpected unique index ${config.name}.${index.name}`);
     }
     for (const column of Object.values(config.columns)) {
       const key = `${config.name}.${column.name}`;
       const actual = columns.get(key);
       if (!actual) throw new Error(`Database schema is missing ${key}`);
-      if (
-        actual.data_type !== column.type ||
-        (actual.is_nullable === "NO") !== column.notNull
-      )
+      if (actual.data_type !== column.type || (actual.is_nullable === "NO") !== column.notNull)
         throw new Error(`Database schema differs at ${key}`);
-      const expectedDefault =
-        column.default === undefined ? null : String(column.default);
+      const expectedDefault = column.default === undefined ? null : String(column.default);
       if (
         (expectedDefault === null) !== (actual.column_default === null) ||
         (expectedDefault !== null &&
@@ -385,10 +349,8 @@ async function assertTables(
         throw new Error(`Database schema differs at ${key}: default`);
       if (column.primaryKey) requireKey("p", [column.name]);
     }
-    for (const key of Object.values(config.compositePrimaryKeys))
-      requireKey("p", key.columns);
-    for (const key of Object.values(config.uniqueConstraints))
-      requireKey("u", key.columns);
+    for (const key of Object.values(config.compositePrimaryKeys)) requireKey("p", key.columns);
+    for (const key of Object.values(config.uniqueConstraints)) requireKey("u", key.columns);
     for (const foreign of Object.values(config.foreignKeys)) {
       if (
         !actualConstraints.some(
@@ -404,30 +366,24 @@ async function assertTables(
             actions.get(row.delete_action) === (foreign.onDelete || "no action"),
         )
       )
-        throw new Error(
-          `Database schema differs at ${config.name}: foreign key ${foreign.name}`,
-        );
+        throw new Error(`Database schema differs at ${config.name}: foreign key ${foreign.name}`);
     }
     for (const check of Object.values(config.checkConstraints)) {
-      const actual = actualConstraints.find(
-        (row) => row.kind === "c" && row.name === check.name,
-      );
+      const actual = actualConstraints.find((row) => row.kind === "c" && row.name === check.name);
       if (
         !actual?.valid ||
         checkExpression(actual.definition.replace(/^CHECK\s*/i, "")) !==
           checkExpression(check.value)
       )
-        throw new Error(
-          `Database schema differs at ${config.name}: check ${check.name}`,
-        );
+        throw new Error(`Database schema differs at ${config.name}: check ${check.name}`);
     }
     for (const index of Object.values(config.indexes)) {
       const actual = indexes.rows.find(
         (row) => row.table_name === config.name && row.name === index.name,
       );
       const expectedColumns = index.columns.map((column) => expression(column.expression));
-      const expectedOptions = index.columns.map((column) =>
-        (column.asc ? 0 : 1) | (column.nulls === "first" ? 2 : 0),
+      const expectedOptions = index.columns.map(
+        (column) => (column.asc ? 0 : 1) | (column.nulls === "first" ? 2 : 0),
       );
       if (
         !actual?.valid ||
@@ -436,12 +392,9 @@ async function assertTables(
         actual.included !== 0 ||
         JSON.stringify(actual.key_options) !== JSON.stringify(expectedOptions) ||
         !sameColumns(actual.columns.map(expression), expectedColumns) ||
-        checkExpression(actual.predicate || "") !==
-          checkExpression(index.where || "")
+        checkExpression(actual.predicate || "") !== checkExpression(index.where || "")
       )
-        throw new Error(
-          `Database schema differs at ${config.name}: index ${index.name}`,
-        );
+        throw new Error(`Database schema differs at ${config.name}: index ${index.name}`);
     }
   }
 }

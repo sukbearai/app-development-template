@@ -16,10 +16,25 @@ export default async function AdminPage() {
   const summary = await adminSummary();
   const metrics = [
     { label: "用户", value: summary.users, hint: "RBAC 账号", icon: <UsersRound size={18} /> },
-    { label: "审计", value: summary.auditEvents, hint: "操作追踪", icon: <ClipboardList size={18} /> },
-    { label: "埋点", value: summary.telemetryEvents, hint: "前端事件", icon: <Activity size={18} /> },
+    {
+      label: "审计",
+      value: summary.auditEvents,
+      hint: "操作追踪",
+      icon: <ClipboardList size={18} />,
+    },
+    {
+      label: "埋点",
+      value: summary.telemetryEvents,
+      hint: "前端事件",
+      icon: <Activity size={18} />,
+    },
     { label: "文件", value: summary.files, hint: "上传资产", icon: <FileUp size={18} /> },
-    { label: "待发布事件", value: summary.outboxPending, hint: "Outbox backlog", icon: <Archive size={18} /> },
+    {
+      label: "待发布事件",
+      value: summary.outboxPending,
+      hint: "Outbox backlog",
+      icon: <Archive size={18} />,
+    },
   ] as const;
   const enabledUsers = users.filter((user) => user.status === "enabled").length;
   const chartData = [
@@ -38,7 +53,9 @@ export default async function AdminPage() {
         description="模板默认提供认证、权限、审计、文件和 outbox 管理骨架，新业务可以在此基础上增加领域页面。"
       />
       <StatGrid>
-        {metrics.map((metric) => <StatCard key={metric.label} {...metric} />)}
+        {metrics.map((metric) => (
+          <StatCard key={metric.label} {...metric} />
+        ))}
       </StatGrid>
       <Section title="生产化基线" description="这些能力来自当前模板代码路径，不依赖静态演示数据。">
         <div className="admin-checklist">
@@ -57,16 +74,25 @@ export default async function AdminPage() {
               {summary.outboxPending > 0 ? "待处理" : "正常"}
             </StatusBadge>
             <strong>Outbox</strong>
-            <span>{summary.outboxPending > 0 ? `${summary.outboxPending} 条事件等待发布` : "当前没有待发布事件"}</span>
+            <span>
+              {summary.outboxPending > 0
+                ? `${summary.outboxPending} 条事件等待发布`
+                : "当前没有待发布事件"}
+            </span>
           </div>
           <div>
-            <StatusBadge tone={enabledUsers > 0 ? "success" : "warning"}>{enabledUsers} 个启用账号</StatusBadge>
+            <StatusBadge tone={enabledUsers > 0 ? "success" : "warning"}>
+              {enabledUsers} 个启用账号
+            </StatusBadge>
             <strong>账号状态</strong>
             <span>用户列表来自 PostgreSQL-backed repository。</span>
           </div>
         </div>
       </Section>
-      <Section title="资源分布" description="图表依赖与管理端骨架一起可用，数据来自当前后台汇总接口。">
+      <Section
+        title="资源分布"
+        description="图表依赖与管理端骨架一起可用，数据来自当前后台汇总接口。"
+      >
         <AdminResourceChart data={chartData} />
       </Section>
     </>

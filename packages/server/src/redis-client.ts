@@ -45,20 +45,17 @@ export async function redisCommand(url: string, parts: string[]) {
 export async function redisDel(url: string, key: string) {
   return redisCommand(url, ["DEL", key]);
 }
-export async function redisWindowCount(
-  url: string,
-  key: string,
-  windowMs: number,
-) {
-  const value = await (await clientFor(url))
+export async function redisWindowCount(url: string, key: string, windowMs: number) {
+  const value = await (
+    await clientFor(url)
+  )
     .withAbortSignal(AbortSignal.timeout(3000))
     .eval(
       "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('PEXPIRE',KEYS[1],ARGV[1]) end; return {n,redis.call('PTTL',KEYS[1])}",
       { keys: [key], arguments: [String(windowMs)] },
     );
   const parsed = z.tuple([z.number(), z.number()]).rest(z.unknown()).safeParse(value);
-  if (!parsed.success)
-    throw new Error("Invalid rate limit response");
+  if (!parsed.success) throw new Error("Invalid rate limit response");
   return { count: parsed.data[0], ttlMs: parsed.data[1] };
 }
 export async function closeRedis() {

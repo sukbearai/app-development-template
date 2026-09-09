@@ -2,7 +2,14 @@ import { cookies } from "next/headers";
 import { requirePermission } from "@pstack/server/auth-service";
 import { listOutboxEvents } from "@pstack/server/product-service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { EmptyState, PageHeader, Section, StatusBadge, formatDateTime } from "@/components/admin/admin-ui";
+import { RuntimeHealth } from "@/components/admin/runtime-health";
+import {
+  EmptyState,
+  PageHeader,
+  Section,
+  StatusBadge,
+  formatDateTime,
+} from "@/components/admin/admin-ui";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +27,15 @@ export default async function AdminOutboxPage() {
 
   return (
     <>
-      <PageHeader title="Outbox 事件" eyebrow="Async Runtime" description="事件先写入 PostgreSQL，再由 worker 发布到 Kafka 或执行 dry-run。" />
+      <PageHeader
+        title="Outbox 事件"
+        eyebrow="Async Runtime"
+        description="事件先写入 PostgreSQL，再由 worker 发布到 Kafka 或执行 dry-run。"
+      />
+      <RuntimeHealth />
       <Section title="事件队列" description={`${events.length} 条最近事件。`}>
         {events.length ? (
-          <div className="table-wrap">
+          <div className="table-wrap" tabIndex={0}>
             <table className="data-table">
               <thead>
                 <tr>
@@ -38,12 +50,20 @@ export default async function AdminOutboxPage() {
               <tbody>
                 {events.map((event) => (
                   <tr key={event.id}>
-                    <td><code>{event.eventType}</code></td>
+                    <td>
+                      <code>{event.eventType}</code>
+                    </td>
                     <td>{event.topic}</td>
-                    <td><StatusBadge tone={outboxTone(event.status)}>{event.status}</StatusBadge></td>
-                    <td>{event.attempts}/{event.maxAttempts}</td>
+                    <td>
+                      <StatusBadge tone={outboxTone(event.status)}>{event.status}</StatusBadge>
+                    </td>
+                    <td>
+                      {event.attempts}/{event.maxAttempts}
+                    </td>
                     <td>{formatDateTime(event.nextAttemptAt)}</td>
-                    <td><code>{event.traceId}</code></td>
+                    <td>
+                      <code>{event.traceId}</code>
+                    </td>
                   </tr>
                 ))}
               </tbody>

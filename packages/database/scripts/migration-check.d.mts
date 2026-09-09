@@ -8,9 +8,7 @@ export type MigrationJournal = {
     breakpoints: boolean;
   }>;
 };
-export function checkMigrations(options?: {
-  update?: boolean;
-}): Promise<MigrationJournal>;
+export function checkMigrations(options?: { update?: boolean }): Promise<MigrationJournal>;
 
 export function assertMigrationSafety(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- assertMigrationSafety validates the untrusted journal file.

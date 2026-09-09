@@ -15,19 +15,19 @@
 
 “直接采用”指选定 Effect 后可直接使用的机制，不表示本次已引入，也不表示建议马上替换全部模板实现。
 
-| 范围 | 决策 | 对模板的具体处理 | 证据 |
-| --- | --- | --- | --- |
-| session、密码、RBAC、资源归属 | 保留 | 保留业务规则、存储和审计；可改成 Effect service，但不能用 `HttpApiSecurity` 代替 | `template/apps/web/lib/auth-service.ts:18`、`:55`、`:67`、`:194`、`:203`、`:208`；`effect/packages/effect/src/unstable/httpapi/HttpApiBuilder.ts:526` |
-| Cookie 写入同源检查 | 保留 | API 与页面授权仍是两个入口；Cookie 写操作继续执行同源检查 | `template/apps/web/lib/api-authz.ts:17`；`template/apps/web/lib/request-auth.ts:27` |
-| `Effect<A,E,R>`、命名错误、服务接口 | 直接采用 | 在新服务模块显式声明成功、预期错误和依赖；边界映射 HTTP，业务不依赖 `NextResponse` | `effect/packages/effect/src/Effect.ts:117`；`effect/LLMS.md:137` |
-| `Context.Service`、Layer、Scope | 直接采用 | 基础设施由 Layer 构建与释放，测试替换实现，不在每个 handler 创建连接池 | `effect/packages/effect/src/Context.ts:201`；`effect/packages/effect/src/Layer.ts:54`、`:1014`；`effect/packages/effect/src/Scope.ts:382` |
-| ManagedRuntime 集成 | 直接采用 | 首先保留 Next/vinext route，服务端共享一个有明确生命周期的 runtime，入口调用 `runPromise`/`runPromiseExit` | `effect/packages/effect/src/ManagedRuntime.ts:98`、`:185`、`:196`、`:285` |
-| 契约单一来源 | 借鉴 | 消除现有 Zod 与手写 OpenAPI schema 的重复维护；采用哪种 schema 前先确定 HTTP 迁移范围 | `template/packages/shared/src/index.ts:8`、`:230`；`effect/packages/effect/src/unstable/httpapi/OpenApi.ts:283` |
-| Effect Schema 与 Standard Schema | 直接采用，限新契约 | 已采用 Effect Schema 的新模块可导出 Standard Schema；现有 Zod 先保持单一权威 | `effect/packages/effect/src/Schema.ts:1326` |
-| HttpApi + typed client + OpenAPI | 暂缓全量迁移 | 先用一个真实业务小组证明协议、错误包裹、认证和部署，再决定是否成为模板默认方案 | `effect/packages/effect/package.json:40`；`effect/packages/effect/src/unstable/httpapi/HttpApiBuilder.ts:63` |
-| Config/ConfigProvider | 借鉴，Effect 模块直接采用 | 统一解析与依赖配置，但保留 production、驱动条件和弱口令规则；显式区分服务端和公开配置 | `effect/packages/effect/src/Config.ts:877`、`:1315`、`:1487`；`template/apps/web/lib/production-config.ts:27` |
-| 日志与 tracing | 借鉴，Effect 模块直接采用 | 用日志上下文贯穿调用，保持 traceId 和敏感字段规则；勿将格式化 logger 当成自动隐私过滤器 | `effect/packages/effect/src/Logger.ts:594`、`:965`、`:1027`；`template/apps/web/lib/logger.ts:6`、`:28`、`:57` |
-| 测试 | 保留并扩展 | 现有 `tsx --test`、集成与浏览器测试保留；新增 Effect 服务用测试 Layer/TestClock；只有采用 HttpApi 后才引入 HttpApiTest | `template/packages/shared/package.json:11`；`effect/ai-docs/src/09_testing/10_effect-tests.ts:30`；`effect/packages/effect/src/unstable/httpapi/HttpApiTest.ts:42` |
+| 范围                                | 决策                      | 对模板的具体处理                                                                                                       | 证据                                                                                                                                                               |
+| ----------------------------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| session、密码、RBAC、资源归属       | 保留                      | 保留业务规则、存储和审计；可改成 Effect service，但不能用 `HttpApiSecurity` 代替                                       | `template/apps/web/lib/auth-service.ts:18`、`:55`、`:67`、`:194`、`:203`、`:208`；`effect/packages/effect/src/unstable/httpapi/HttpApiBuilder.ts:526`              |
+| Cookie 写入同源检查                 | 保留                      | API 与页面授权仍是两个入口；Cookie 写操作继续执行同源检查                                                              | `template/apps/web/lib/api-authz.ts:17`；`template/apps/web/lib/request-auth.ts:27`                                                                                |
+| `Effect<A,E,R>`、命名错误、服务接口 | 直接采用                  | 在新服务模块显式声明成功、预期错误和依赖；边界映射 HTTP，业务不依赖 `NextResponse`                                     | `effect/packages/effect/src/Effect.ts:117`；`effect/LLMS.md:137`                                                                                                   |
+| `Context.Service`、Layer、Scope     | 直接采用                  | 基础设施由 Layer 构建与释放，测试替换实现，不在每个 handler 创建连接池                                                 | `effect/packages/effect/src/Context.ts:201`；`effect/packages/effect/src/Layer.ts:54`、`:1014`；`effect/packages/effect/src/Scope.ts:382`                          |
+| ManagedRuntime 集成                 | 直接采用                  | 首先保留 Next/vinext route，服务端共享一个有明确生命周期的 runtime，入口调用 `runPromise`/`runPromiseExit`             | `effect/packages/effect/src/ManagedRuntime.ts:98`、`:185`、`:196`、`:285`                                                                                          |
+| 契约单一来源                        | 借鉴                      | 消除现有 Zod 与手写 OpenAPI schema 的重复维护；采用哪种 schema 前先确定 HTTP 迁移范围                                  | `template/packages/shared/src/index.ts:8`、`:230`；`effect/packages/effect/src/unstable/httpapi/OpenApi.ts:283`                                                    |
+| Effect Schema 与 Standard Schema    | 直接采用，限新契约        | 已采用 Effect Schema 的新模块可导出 Standard Schema；现有 Zod 先保持单一权威                                           | `effect/packages/effect/src/Schema.ts:1326`                                                                                                                        |
+| HttpApi + typed client + OpenAPI    | 暂缓全量迁移              | 先用一个真实业务小组证明协议、错误包裹、认证和部署，再决定是否成为模板默认方案                                         | `effect/packages/effect/package.json:40`；`effect/packages/effect/src/unstable/httpapi/HttpApiBuilder.ts:63`                                                       |
+| Config/ConfigProvider               | 借鉴，Effect 模块直接采用 | 统一解析与依赖配置，但保留 production、驱动条件和弱口令规则；显式区分服务端和公开配置                                  | `effect/packages/effect/src/Config.ts:877`、`:1315`、`:1487`；`template/apps/web/lib/production-config.ts:27`                                                      |
+| 日志与 tracing                      | 借鉴，Effect 模块直接采用 | 用日志上下文贯穿调用，保持 traceId 和敏感字段规则；勿将格式化 logger 当成自动隐私过滤器                                | `effect/packages/effect/src/Logger.ts:594`、`:965`、`:1027`；`template/apps/web/lib/logger.ts:6`、`:28`、`:57`                                                     |
+| 测试                                | 保留并扩展                | 现有 `tsx --test`、集成与浏览器测试保留；新增 Effect 服务用测试 Layer/TestClock；只有采用 HttpApi 后才引入 HttpApiTest | `template/packages/shared/package.json:11`；`effect/ai-docs/src/09_testing/10_effect-tests.ts:30`；`effect/packages/effect/src/unstable/httpapi/HttpApiTest.ts:42` |
 
 ## 当前 v4 API 的准确含义
 

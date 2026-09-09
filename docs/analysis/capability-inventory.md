@@ -176,79 +176,79 @@ python3 docs/analysis/scripts/inventory.py --template /Users/fayon/workspace/git
 
 包名：`@app-template/web`。
 
-| 命令 | 实际执行 |
-| --- | --- |
-| `dev` | `next dev --hostname 0.0.0.0` |
-| `build` | `next build` |
-| `start` | `next start` |
-| `db:generate` | `drizzle-kit generate` |
-| `db:migrate` | `drizzle-kit migrate` |
-| `lint` | `tsc -p tsconfig.check.json --noEmit` |
-| `typecheck` | `tsc -p tsconfig.check.json --noEmit` |
-| `api:docs` | `node scripts/generate-openapi.mjs` |
-| `config:check` | `tsx scripts/config-check.mjs` |
-| `storage:cleanup` | `node scripts/cleanup-local-storage.mjs` |
-| `migration:check` | `node scripts/migration-check.mjs` |
-| `contract:check` | `node scripts/contract-check.mjs && node scripts/migration-check.mjs` |
-| `db:integration` | `node scripts/db-integration.mjs` |
-| `bootstrap:local` | `node scripts/bootstrap-local.mjs` |
-| `test:unit` | `NODE_OPTIONS='--import ./tests/setup-env.mjs' tsx --test tests/unit/**/*.test.mjs` |
+| 命令               | 实际执行                                                                                   |
+| ------------------ | ------------------------------------------------------------------------------------------ |
+| `dev`              | `next dev --hostname 0.0.0.0`                                                              |
+| `build`            | `next build`                                                                               |
+| `start`            | `next start`                                                                               |
+| `db:generate`      | `drizzle-kit generate`                                                                     |
+| `db:migrate`       | `drizzle-kit migrate`                                                                      |
+| `lint`             | `tsc -p tsconfig.check.json --noEmit`                                                      |
+| `typecheck`        | `tsc -p tsconfig.check.json --noEmit`                                                      |
+| `api:docs`         | `node scripts/generate-openapi.mjs`                                                        |
+| `config:check`     | `tsx scripts/config-check.mjs`                                                             |
+| `storage:cleanup`  | `node scripts/cleanup-local-storage.mjs`                                                   |
+| `migration:check`  | `node scripts/migration-check.mjs`                                                         |
+| `contract:check`   | `node scripts/contract-check.mjs && node scripts/migration-check.mjs`                      |
+| `db:integration`   | `node scripts/db-integration.mjs`                                                          |
+| `bootstrap:local`  | `node scripts/bootstrap-local.mjs`                                                         |
+| `test:unit`        | `NODE_OPTIONS='--import ./tests/setup-env.mjs' tsx --test tests/unit/**/*.test.mjs`        |
 | `test:integration` | `NODE_OPTIONS='--import ./tests/setup-env.mjs' tsx --test tests/integration/**/*.test.mjs` |
-| `test:e2e` | `node scripts/e2e.mjs` |
-| `test:ui` | `node scripts/ui-flow.mjs` |
-| `pr:verify` | `node ../../scripts/pr-verify.mjs` |
-| `smoke` | `node scripts/smoke.mjs` |
-| `test` | `pnpm test:unit && pnpm test:integration` |
+| `test:e2e`         | `node scripts/e2e.mjs`                                                                     |
+| `test:ui`          | `node scripts/ui-flow.mjs`                                                                 |
+| `pr:verify`        | `node ../../scripts/pr-verify.mjs`                                                         |
+| `smoke`            | `node scripts/smoke.mjs`                                                                   |
+| `test`             | `pnpm test:unit && pnpm test:integration`                                                  |
 
 ### package.json
 
 包名：`app-template-monorepo`。
 
-| 命令 | 实际执行 |
-| --- | --- |
-| `dev` | `pnpm --filter @app-template/web dev` |
-| `build` | `pnpm --filter @app-template/web build` |
-| `start` | `pnpm --filter @app-template/web start` |
-| `backup:create` | `node scripts/db-backup.mjs create` |
-| `backup:verify` | `node scripts/db-backup.mjs verify` |
-| `backup:restore` | `node scripts/db-backup.mjs restore` |
-| `db:generate` | `pnpm --filter @app-template/web db:generate` |
-| `db:migrate` | `pnpm --filter @app-template/web db:migrate` |
-| `db:integration` | `pnpm --filter @app-template/web db:integration` |
-| `bootstrap:local` | `pnpm --filter @app-template/web bootstrap:local` |
-| `lint` | `pnpm --filter @app-template/web lint` |
-| `typecheck` | `pnpm -r --if-present typecheck` |
-| `api:docs` | `pnpm --filter @app-template/web api:docs` |
-| `config:check` | `pnpm --filter @app-template/web config:check` |
-| `storage:cleanup` | `pnpm --filter @app-template/web storage:cleanup` |
-| `migration:check` | `pnpm --filter @app-template/web migration:check` |
-| `contract:check` | `pnpm --filter @app-template/web contract:check` |
-| `test:unit` | `pnpm --filter @app-template/shared test:unit && pnpm --filter @app-template/web test:unit && pnpm --filter @app-template/worker test:unit` |
-| `test:integration` | `pnpm --filter @app-template/web test:integration` |
-| `test:e2e` | `pnpm --filter @app-template/web test:e2e` |
-| `test:ui` | `pnpm --filter @app-template/web test:ui` |
-| `pr:verify` | `node scripts/pr-verify.mjs` |
-| `smoke` | `pnpm --filter @app-template/web smoke` |
-| `test` | `pnpm test:unit && pnpm test:integration` |
-| `verify` | `pnpm typecheck && pnpm contract:check && pnpm test && pnpm build && pnpm test:e2e` |
+| 命令               | 实际执行                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dev`              | `pnpm --filter @app-template/web dev`                                                                                                       |
+| `build`            | `pnpm --filter @app-template/web build`                                                                                                     |
+| `start`            | `pnpm --filter @app-template/web start`                                                                                                     |
+| `backup:create`    | `node scripts/db-backup.mjs create`                                                                                                         |
+| `backup:verify`    | `node scripts/db-backup.mjs verify`                                                                                                         |
+| `backup:restore`   | `node scripts/db-backup.mjs restore`                                                                                                        |
+| `db:generate`      | `pnpm --filter @app-template/web db:generate`                                                                                               |
+| `db:migrate`       | `pnpm --filter @app-template/web db:migrate`                                                                                                |
+| `db:integration`   | `pnpm --filter @app-template/web db:integration`                                                                                            |
+| `bootstrap:local`  | `pnpm --filter @app-template/web bootstrap:local`                                                                                           |
+| `lint`             | `pnpm --filter @app-template/web lint`                                                                                                      |
+| `typecheck`        | `pnpm -r --if-present typecheck`                                                                                                            |
+| `api:docs`         | `pnpm --filter @app-template/web api:docs`                                                                                                  |
+| `config:check`     | `pnpm --filter @app-template/web config:check`                                                                                              |
+| `storage:cleanup`  | `pnpm --filter @app-template/web storage:cleanup`                                                                                           |
+| `migration:check`  | `pnpm --filter @app-template/web migration:check`                                                                                           |
+| `contract:check`   | `pnpm --filter @app-template/web contract:check`                                                                                            |
+| `test:unit`        | `pnpm --filter @app-template/shared test:unit && pnpm --filter @app-template/web test:unit && pnpm --filter @app-template/worker test:unit` |
+| `test:integration` | `pnpm --filter @app-template/web test:integration`                                                                                          |
+| `test:e2e`         | `pnpm --filter @app-template/web test:e2e`                                                                                                  |
+| `test:ui`          | `pnpm --filter @app-template/web test:ui`                                                                                                   |
+| `pr:verify`        | `node scripts/pr-verify.mjs`                                                                                                                |
+| `smoke`            | `pnpm --filter @app-template/web smoke`                                                                                                     |
+| `test`             | `pnpm test:unit && pnpm test:integration`                                                                                                   |
+| `verify`           | `pnpm typecheck && pnpm contract:check && pnpm test && pnpm build && pnpm test:e2e`                                                         |
 
 ### packages/shared/package.json
 
 包名：`@app-template/shared`。
 
-| 命令 | 实际执行 |
-| --- | --- |
-| `typecheck` | `tsc -p tsconfig.json --noEmit` |
+| 命令        | 实际执行                         |
+| ----------- | -------------------------------- |
+| `typecheck` | `tsc -p tsconfig.json --noEmit`  |
 | `test:unit` | `tsx --test tests/**/*.test.mjs` |
 
 ### services/worker/package.json
 
 包名：`@app-template/worker`。
 
-| 命令 | 实际执行 |
-| --- | --- |
-| `dev` | `tsx src/index.ts` |
-| `typecheck` | `tsc -p tsconfig.json --noEmit` |
+| 命令        | 实际执行                         |
+| ----------- | -------------------------------- |
+| `dev`       | `tsx src/index.ts`               |
+| `typecheck` | `tsc -p tsconfig.json --noEmit`  |
 | `test:unit` | `tsx --test tests/**/*.test.mjs` |
 
 ## 全部页面

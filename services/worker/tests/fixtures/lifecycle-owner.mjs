@@ -14,7 +14,9 @@ if (mode === "consumer-no-join") {
   Kafka.prototype.consumer = function (...args) {
     const consumer = allocate.apply(this, args);
     // KafkaJS can resolve run while a failed group join schedules a restart.
-    consumer.run = async () => { process.stdout.write("run returned without group join\n"); };
+    consumer.run = async () => {
+      process.stdout.write("run returned without group join\n");
+    };
     return consumer;
   };
 }
@@ -40,18 +42,24 @@ if (mode === "cleanup-hang" || mode === "falsy-hang" || mode === "cleanup-reject
   await pool.end();
 }
 if (mode === "cleanup-reject-live") {
-  pool.end = async () => { throw new Error("Fixture disconnect rejection with checked-out client"); };
+  pool.end = async () => {
+    throw new Error("Fixture disconnect rejection with checked-out client");
+  };
 }
 if (mode === "falsy-failure" || mode === "falsy-hang") {
-  pool.query = async () => { throw undefined; };
+  pool.query = async () => {
+    throw undefined;
+  };
 }
 try {
   if (mode === "consumer-no-join") await runAsyncRuntime([]);
   else await runOutboxLoop(["--iterations", "1"]);
 } catch (error) {
-  process.stdout.write(`${JSON.stringify({
-    errorCount: error.errors.length,
-    undefinedFailure: error.errors.includes(undefined),
-  })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({
+      errorCount: error.errors.length,
+      undefinedFailure: error.errors.includes(undefined),
+    })}\n`,
+  );
   process.exitCode = 1;
 }

@@ -3,5 +3,12 @@
   "compilerOptions": {
     "noEmit": true
   },
-  "include": ["app/**/*.ts", "app/**/*.tsx", "components/**/*.ts", "components/**/*.tsx", "lib/**/*.ts", "tests/e2e/**/*.ts"]
+  "include": [
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "lib/**/*.ts",
+    "tests/e2e/**/*.ts"
+  ]
 }

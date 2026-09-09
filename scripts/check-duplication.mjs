@@ -16,24 +16,35 @@ export function validateReport(report) {
   assert.ok(Array.isArray(report.duplicates), "jscpd report is missing duplicates");
   assert.equal(total.clones, report.duplicates.length, "jscpd clone count is inconsistent");
   for (const clone of report.duplicates) {
-    assert.ok(clone.isNew === true || clone.isNew === false, "jscpd clone has no baseline classification");
+    assert.ok(
+      clone.isNew === true || clone.isNew === false,
+      "jscpd clone has no baseline classification",
+    );
     for (const file of [clone.firstFile, clone.secondFile]) {
       assert.ok(path.isAbsolute(file.name), "jscpd report must use absolute source paths");
       assert.ok(Number.isInteger(file.start) && file.start > 0, "jscpd clone has no source line");
     }
   }
-  assert.equal(total.newClones, report.duplicates.filter((clone) => clone.isNew).length, "jscpd new clone count is inconsistent");
+  assert.equal(
+    total.newClones,
+    report.duplicates.filter((clone) => clone.isNew).length,
+    "jscpd new clone count is inconsistent",
+  );
   return total;
 }
 
 export async function checkDuplication({ cwd = root, update = false } = {}) {
-  if (update && process.env.CI) throw new Error("Baseline updates are disabled in CI; review accepted clones locally.");
+  if (update && process.env.CI)
+    throw new Error("Baseline updates are disabled in CI; review accepted clones locally.");
   const config = JSON.parse(await readFile(path.join(cwd, ".jscpd.json"), "utf8"));
   assert.equal(config.output, output, "Keep duplication reports in artifacts/quality/duplication");
   assert.deepEqual(config.reporters, ["json"], "The duplication gate requires the JSON reporter");
   assert.ok(Array.isArray(config.path) && config.path.length > 0, "No production roots configured");
   for (const directory of config.path) {
-    assert.ok((await stat(path.join(cwd, directory))).isDirectory(), `Missing production root: ${directory}`);
+    assert.ok(
+      (await stat(path.join(cwd, directory))).isDirectory(),
+      `Missing production root: ${directory}`,
+    );
   }
   const baseline = path.join(cwd, ".jscpd-baseline.json");
   const directory = path.join(cwd, output);
@@ -44,8 +55,11 @@ export async function checkDuplication({ cwd = root, update = false } = {}) {
   let original;
   if (update) {
     await rm(pending, { force: true });
-    try { await copyFile(baseline, pending); }
-    catch (error) { if (error.code !== "ENOENT") throw error; }
+    try {
+      await copyFile(baseline, pending);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
   } else {
     original = await readFile(baseline, "utf8");
   }
@@ -58,15 +72,24 @@ export async function checkDuplication({ cwd = root, update = false } = {}) {
   if (result.signal) throw new Error(`jscpd terminated by ${result.signal}`);
   const report = JSON.parse(await readFile(reportFile, "utf8"));
   const total = validateReport(report);
-  if (!update) assert.equal(await readFile(baseline, "utf8"), original, "jscpd modified the baseline during a check");
+  if (!update)
+    assert.equal(
+      await readFile(baseline, "utf8"),
+      original,
+      "jscpd modified the baseline during a check",
+    );
   if (result.status !== 0 || (!update && total.newClones > 0)) {
-    throw new Error(`Duplication check failed: ${total.newClones} new clones; inspect ${output}/jscpd-report.json and remove the duplication.`);
+    throw new Error(
+      `Duplication check failed: ${total.newClones} new clones; inspect ${output}/jscpd-report.json and remove the duplication.`,
+    );
   }
   if (update) {
     await copyFile(pending, baseline);
     await rm(pending);
   }
-  console.log(`Duplication ${update ? "baseline updated" : "check passed"}: ${total.sources} files, ${total.clones} clones, ${total.newClones} new.`);
+  console.log(
+    `Duplication ${update ? "baseline updated" : "check passed"}: ${total.sources} files, ${total.clones} clones, ${total.newClones} new.`,
+  );
   return total;
 }
 

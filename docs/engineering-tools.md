@@ -2,17 +2,17 @@
 
 以下命令使用项目已有 Node 22.12+ 和 pnpm 10.33.4。安装依赖使用冻结锁文件，随后执行 `pnpm hooks:install`。版本工具固定 release-please 17.3.0。
 
-| 命令 | 用途 | 写入范围 |
-| --- | --- | --- |
-| `pnpm version:check` | 核验工具配置、manifest、根版本和 CHANGELOG | 只读 |
-| `pnpm docs:check` | 检查文档链接、启动命令顺序和功能验证地图 | 只读 |
-| `pnpm pr:verify` | 源码门禁和按范围选择的验证 | 本地报告及测试自有资源 |
-| `pnpm pr:verify --release` | 完整发行验证，包括生产浏览器、容量、恢复和容器 | 本地报告及测试自有资源 |
-| `pnpm test:cold-start` | 全新隔离安装、启动和浏览器业务流程 | 临时检出、临时 Compose 资源及证据 |
-| `pnpm capacity:compare` | 对比重复容量测量与显式规则 | 只读输入，输出比较结果 |
-| `pnpm release:manifest` | 验证镜像、回执与证据后生成发布清单 | 指定清单文件 |
-| `pnpm release:plan` | 验证公开 Release 后生成固定 digest 的部署计划 | 只读 GitHub 与本地证据 |
-| `pnpm release:publish` | 验证候选，显式 apply 后发布 | 默认只读；apply 写 GHCR 与 GitHub |
+| 命令                       | 用途                                           | 写入范围                          |
+| -------------------------- | ---------------------------------------------- | --------------------------------- |
+| `pnpm version:check`       | 核验工具配置、manifest、根版本和 CHANGELOG     | 只读                              |
+| `pnpm docs:check`          | 检查文档链接、启动命令顺序和功能验证地图       | 只读                              |
+| `pnpm pr:verify`           | 源码门禁和按范围选择的验证                     | 本地报告及测试自有资源            |
+| `pnpm pr:verify --release` | 完整发行验证，包括生产浏览器、容量、恢复和容器 | 本地报告及测试自有资源            |
+| `pnpm test:cold-start`     | 全新隔离安装、启动和浏览器业务流程             | 临时检出、临时 Compose 资源及证据 |
+| `pnpm capacity:compare`    | 对比重复容量测量与显式规则                     | 只读输入，输出比较结果            |
+| `pnpm release:manifest`    | 验证镜像、回执与证据后生成发布清单             | 指定清单文件                      |
+| `pnpm release:plan`        | 验证公开 Release 后生成固定 digest 的部署计划  | 只读 GitHub 与本地证据            |
+| `pnpm release:publish`     | 验证候选，显式 apply 后发布                    | 默认只读；apply 写 GHCR 与 GitHub |
 
 各命令的参数和使用限制分别见[版本](versioning.md)、[发布](releasing.md)、[冷启动](cold-start.md)和[容量比较](capacity-comparison.md)。发布并不自动部署到服务器。
 
@@ -27,13 +27,13 @@ pnpm --silent pr:verify --json
 
 stdout 输出单个结果，进度和诊断写入 stderr。结果包含 `schemaVersion: 1`、`command`、`runId`、`status`、`errorCode`、`evidence` 和该命令特有的 `data`。`evidence` 可以是文件引用、输入文件引用列表或 null。不要将 `data` 当作所有命令共享的结构。
 
-| 状态 | 退出码 | 含义 |
-| --- | --- | --- |
-| `passed` | 0 | 本命令声明的检查通过 |
-| `failed` | 1 | 执行或验证失败 |
-| `invalid` | 2 | 参数或输入格式错误 |
-| `inconclusive` | 3 | 证据不足或测量不可比较 |
-| `interrupted` | 130 | 用户或宿主中断 |
+| 状态           | 退出码 | 含义                   |
+| -------------- | ------ | ---------------------- |
+| `passed`       | 0      | 本命令声明的检查通过   |
+| `failed`       | 1      | 执行或验证失败         |
+| `invalid`      | 2      | 参数或输入格式错误     |
+| `inconclusive` | 3      | 证据不足或测量不可比较 |
+| `interrupted`  | 130    | 用户或宿主中断         |
 
 版本一致性与工作流内部 `release-status` 是专用只读辅助命令，不使用上述结果封装。它们的失败仍返回非零。`passed` 仅代表相应命令的范围；例如部署计划成功不代表已经部署或生产验收通过。
 

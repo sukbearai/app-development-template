@@ -4,17 +4,17 @@
 
 ## 当前基线与执行结果
 
-| 检查 | 本次结果 | 证据范围 |
-| --- | --- | --- |
-| 旧模板 HEAD | `bf9dcdddb75f5946499d2c8a742b0c258c34f1d4`，工作区干净 | 与已有报告一致 |
-| Effect HEAD | `5a802043984727b0c5a291af39d1b9bbfa8d7b8b`，工作区干净 | 与已有报告一致 |
-| 重建 inventory 并运行 cmp | 与现存 inventory.json 逐字节一致 | 149 个文件、4 个 package、18 份 Markdown、9 页面、14 route 文件、15 业务操作、13 表、3 迁移 |
-| migration-check.mjs | 3 迁移、3 SQL hash、2 snapshot hash 通过 | 静态检查，不连接数据库 |
-| access-control-routes.test.mjs | 6/6 通过 | 源码守卫，不证明真实授权正确 |
-| identity-probe.mjs | 停用角色授权、错误 secret 撤销两项缺陷再次复现 | 原函数体、仓储替身 |
-| Effect 发布包探针 | 资源共享、dispose 释放、失败释放、HTTP 200/400 与 OpenAPI 生成通过 | 固定 rc.112 发布包、进程内 Request/Response |
-| Zod 发布包探针 | 字符串 false 被转成 true；登录 schema 可生成 JSON Schema | 固定 Zod 4.4.3、原 schema 隔离执行 |
-| redis-probe.mjs | 普通 INCR 成功；AUTH 和 SELECT 多响应被原客户端错误拒绝 | 原客户端、loopback TCP 响应替身 |
+| 检查                           | 本次结果                                                           | 证据范围                                                                                    |
+| ------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| 旧模板 HEAD                    | `bf9dcdddb75f5946499d2c8a742b0c258c34f1d4`，工作区干净             | 与已有报告一致                                                                              |
+| Effect HEAD                    | `5a802043984727b0c5a291af39d1b9bbfa8d7b8b`，工作区干净             | 与已有报告一致                                                                              |
+| 重建 inventory 并运行 cmp      | 与现存 inventory.json 逐字节一致                                   | 149 个文件、4 个 package、18 份 Markdown、9 页面、14 route 文件、15 业务操作、13 表、3 迁移 |
+| migration-check.mjs            | 3 迁移、3 SQL hash、2 snapshot hash 通过                           | 静态检查，不连接数据库                                                                      |
+| access-control-routes.test.mjs | 6/6 通过                                                           | 源码守卫，不证明真实授权正确                                                                |
+| identity-probe.mjs             | 停用角色授权、错误 secret 撤销两项缺陷再次复现                     | 原函数体、仓储替身                                                                          |
+| Effect 发布包探针              | 资源共享、dispose 释放、失败释放、HTTP 200/400 与 OpenAPI 生成通过 | 固定 rc.112 发布包、进程内 Request/Response                                                 |
+| Zod 发布包探针                 | 字符串 false 被转成 true；登录 schema 可生成 JSON Schema           | 固定 Zod 4.4.3、原 schema 隔离执行                                                          |
+| redis-probe.mjs                | 普通 INCR 成功；AUTH 和 SELECT 多响应被原客户端错误拒绝            | 原客户端、loopback TCP 响应替身                                                             |
 
 重跑入口见 [探针说明](scripts/README.md)。Effect 发布包不是本地源码构建，版本相同不证明字节相同。
 

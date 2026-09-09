@@ -4,8 +4,7 @@ import { env } from "./env";
 import { deleteS3Object, putS3Object } from "./s3-client";
 export type StorageProvider = "local" | "s3";
 function localPath(key: string) {
-  if (!/^upload_[a-f0-9-]+$/.test(key))
-    throw new Error("Invalid managed storage key");
+  if (!/^upload_[a-f0-9-]+$/.test(key)) throw new Error("Invalid managed storage key");
   return path.resolve(env.UPLOAD_STORAGE_DIR, key);
 }
 async function syncDirectory(directoryPath: string) {
@@ -55,9 +54,7 @@ export async function deleteObject(key: string, provider: StorageProvider) {
   await syncDirectory(path.dirname(localPath(key)));
 }
 
-export function storageLocation(
-  provider: StorageProvider = env.UPLOAD_STORAGE_DRIVER,
-) {
+export function storageLocation(provider: StorageProvider = env.UPLOAD_STORAGE_DRIVER) {
   return provider === "local"
     ? path.resolve(env.UPLOAD_STORAGE_DIR)
     : `${env.OBJECT_STORAGE_ENDPOINT}/${env.OBJECT_STORAGE_BUCKET}`;

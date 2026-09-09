@@ -1,12 +1,17 @@
+import { auditPageQuerySchema, readPageSearchParams } from "@pstack/contracts/admin-pages";
 import { getTraceId, ok } from "@pstack/server/api-response";
-import { requireApiPermission } from "@/lib/api-authz";
+import { authToken } from "@pstack/server/request-auth";
+import { parseInput } from "@pstack/server/validation";
 import { withAccessLog } from "@pstack/server/logger";
-import { listAuditEvents } from "@pstack/server/product-service";
+import { listAuditPage } from "@pstack/server/admin-directory-service";
 
 export async function GET(request: Request) {
   const traceId = getTraceId(request);
   return withAccessLog(request, traceId, async () => {
-    await requireApiPermission(request, "admin.read");
-    return ok(await listAuditEvents(), traceId);
+    const query = parseInput(
+      auditPageQuerySchema,
+      readPageSearchParams(new URL(request.url).searchParams),
+    );
+    return ok(await listAuditPage(authToken(request), query), traceId);
   });
 }

@@ -5,9 +5,7 @@ try {
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
   delete process.env.BOOTSTRAP_ADMIN_PASSWORD;
   if (!account || !password)
-    throw new Error(
-      "BOOTSTRAP_ADMIN_ACCOUNT and BOOTSTRAP_ADMIN_PASSWORD are required",
-    );
+    throw new Error("BOOTSTRAP_ADMIN_ACCOUNT and BOOTSTRAP_ADMIN_PASSWORD are required");
   const result = await bootstrapAdministrator(
     {
       account,

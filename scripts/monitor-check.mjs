@@ -3,7 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tsImport } from "tsx/esm/api";
 
-const { runtimeMetricsSchema } = await tsImport("../packages/contracts/src/runtime-metrics.ts", import.meta.url);
+const { runtimeMetricsSchema } = await tsImport(
+  "../packages/contracts/src/runtime-metrics.ts",
+  import.meta.url,
+);
 const { apiSuccessSchema } = await tsImport("../packages/contracts/src/http.ts", import.meta.url);
 const metricsResponseSchema = apiSuccessSchema(runtimeMetricsSchema);
 const responseLimit = 256 * 1024;
@@ -23,8 +26,14 @@ export function monitorConfig(env, argv = []) {
   if (argv.some((arg) => arg !== "--")) throw new Error("invalid_configuration");
   const url = new URL(env.METRICS_URL);
   const loopback = ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname);
-  if (!(url.protocol === "https:" || (url.protocol === "http:" && loopback)) ||
-      url.username || url.password || url.search || url.hash || url.pathname !== "/api/system/metrics") {
+  if (
+    !(url.protocol === "https:" || (url.protocol === "http:" && loopback)) ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    url.pathname !== "/api/system/metrics"
+  ) {
     throw new Error("invalid_configuration");
   }
   const token = env.METRICS_TOKEN || "";
@@ -67,16 +76,20 @@ export function evaluateMetrics(metrics, config, now = Date.now()) {
       [database.quarantine.message + database.quarantine.recovery, config.quarantine, "quarantine"],
       [database.uploads.blocked, config.blockedUploads, "uploads_blocked"],
     ];
-    for (const [value, threshold, reason] of conditions) if (value >= threshold) reasons.push(reason);
+    for (const [value, threshold, reason] of conditions)
+      if (value >= threshold) reasons.push(reason);
   }
   return result(reasons.length ? "alert" : "healthy", reasons);
 }
 
 async function readMetrics(response) {
-  if (response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
+  if (
+    response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json"
+  ) {
     throw new Error("invalid_response");
   }
-  if (Number(response.headers.get("content-length")) > responseLimit) throw new Error("invalid_response");
+  if (Number(response.headers.get("content-length")) > responseLimit)
+    throw new Error("invalid_response");
   if (!response.body) throw new Error("invalid_response");
   const reader = response.body.getReader();
   const chunks = [];
@@ -89,7 +102,9 @@ async function readMetrics(response) {
       if (size > responseLimit) throw new Error("invalid_response");
       chunks.push(value);
     }
-    const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)));
+    const parsed = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks)),
+    );
     return metricsResponseSchema.parse(parsed).data;
   } finally {
     await reader.cancel().catch(() => {});
@@ -103,16 +118,21 @@ export async function checkMonitor(config) {
   try {
     const response = await fetch(config.url, {
       headers: { authorization: `Bearer ${config.token}`, accept: "application/json" },
-      redirect: "error", signal: controller.signal,
+      redirect: "error",
+      signal: controller.signal,
     });
     if (!response.ok) return result("error", ["metrics_http_error"]);
     try {
       return evaluateMetrics(await readMetrics(response), config);
     } catch {
-      return result("error", [controller.signal.aborted ? "metrics_timeout" : "metrics_invalid_response"]);
+      return result("error", [
+        controller.signal.aborted ? "metrics_timeout" : "metrics_invalid_response",
+      ]);
     }
   } catch {
-    return result("error", [controller.signal.aborted ? "metrics_timeout" : "metrics_request_failed"]);
+    return result("error", [
+      controller.signal.aborted ? "metrics_timeout" : "metrics_request_failed",
+    ]);
   } finally {
     controller.abort();
     clearTimeout(timeout);

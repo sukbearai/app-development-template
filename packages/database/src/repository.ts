@@ -14,11 +14,7 @@ import type {
   TelemetryEvent,
   User,
 } from "@pstack/contracts";
-import {
-  getDatabase,
-  type DatabaseContext,
-  type TransactionContext,
-} from "./client";
+import { getDatabase, type DatabaseContext, type TransactionContext } from "./client";
 import {
   appUploadIntents,
   appAuditLogs,
@@ -34,9 +30,7 @@ import {
   appUserSessions,
 } from "./schema";
 function iso(value: Date | string) {
-  return value instanceof Date
-    ? value.toISOString()
-    : new Date(value).toISOString();
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Stored JSON columns are validated against the contracts object schema.
@@ -45,10 +39,7 @@ function jsonObject(value: unknown) {
   return parsed.success ? parsed.data : {};
 }
 
-function mapUser(
-  row: typeof appUsers.$inferSelect,
-  roleIds: string[] = [],
-): User {
+function mapUser(row: typeof appUsers.$inferSelect, roleIds: string[] = []): User {
   return {
     id: row.id,
     account: row.account,
@@ -59,10 +50,7 @@ function mapUser(
   };
 }
 
-function mapRole(
-  row: typeof appRoles.$inferSelect,
-  permissionIds: string[] = [],
-): Role {
+function mapRole(row: typeof appRoles.$inferSelect, permissionIds: string[] = []): Role {
   return {
     id: row.id,
     name: row.name,
@@ -93,25 +81,15 @@ export async function getUsers(context: DatabaseContext = getDatabase()) {
   ]);
   const roleIdsByUser = new Map<string, string[]>();
   for (const row of userRoleRows) {
-    roleIdsByUser.set(row.userId, [
-      ...(roleIdsByUser.get(row.userId) || []),
-      row.roleId,
-    ]);
+    roleIdsByUser.set(row.userId, [...(roleIdsByUser.get(row.userId) || []), row.roleId]);
   }
   return userRows.map((row) => mapUser(row, roleIdsByUser.get(row.id) || []));
 }
 
-export async function getUserByAccount(
-  account: string,
-  context: DatabaseContext = getDatabase(),
-) {
+export async function getUserByAccount(account: string, context: DatabaseContext = getDatabase()) {
   const database = context;
   const row = (
-    await database
-      .select()
-      .from(appUsers)
-      .where(eq(appUsers.account, account))
-      .limit(1)
+    await database.select().from(appUsers).where(eq(appUsers.account, account)).limit(1)
   )[0];
   if (!row) return undefined;
   const roleRows = await database
@@ -127,18 +105,9 @@ export async function getUserByAccount(
   };
 }
 
-export async function getUserById(
-  userId: string,
-  context: DatabaseContext = getDatabase(),
-) {
+export async function getUserById(userId: string, context: DatabaseContext = getDatabase()) {
   const database = context;
-  const row = (
-    await database
-      .select()
-      .from(appUsers)
-      .where(eq(appUsers.id, userId))
-      .limit(1)
-  )[0];
+  const row = (await database.select().from(appUsers).where(eq(appUsers.id, userId)).limit(1))[0];
   if (!row) return undefined;
   const roleRows = await database
     .select()
@@ -163,17 +132,12 @@ export async function getRoles(context: DatabaseContext = getDatabase()) {
       row.permissionId,
     ]);
   }
-  return roleRows.map((row) =>
-    mapRole(row, permissionIdsByRole.get(row.id) || []),
-  );
+  return roleRows.map((row) => mapRole(row, permissionIdsByRole.get(row.id) || []));
 }
 
 export async function getPermissions(context: DatabaseContext = getDatabase()) {
   const database = context;
-  const rows = await database
-    .select()
-    .from(appPermissions)
-    .orderBy(asc(appPermissions.id));
+  const rows = await database.select().from(appPermissions).orderBy(asc(appPermissions.id));
   return rows.map((row): Permission => ({ id: row.id, name: row.name }));
 }
 
@@ -217,8 +181,7 @@ export async function updateUser(
     const changes: Partial<typeof appUsers.$inferInsert> = {
       updatedAt: new Date(),
     };
-    if (input.displayName !== undefined)
-      changes.displayName = input.displayName;
+    if (input.displayName !== undefined) changes.displayName = input.displayName;
     if (input.status !== undefined) changes.status = input.status;
     await tx.update(appUsers).set(changes).where(eq(appUsers.id, input.id));
     if (input.roleIds) {
@@ -237,9 +200,7 @@ export async function createRole(input: Role, context: TransactionContext) {
   const database = context;
   {
     const tx = context;
-    await tx
-      .insert(appRoles)
-      .values({ id: input.id, name: input.name, status: input.status });
+    await tx.insert(appRoles).values({ id: input.id, name: input.name, status: input.status });
     if (input.permissionIds.length) {
       await tx
         .insert(appRolePermissions)
@@ -273,9 +234,7 @@ export async function updateRole(
       await tx.update(appRoles).set(changes).where(eq(appRoles.id, input.id));
     }
     if (input.permissionIds) {
-      await tx
-        .delete(appRolePermissions)
-        .where(eq(appRolePermissions.roleId, input.id));
+      await tx.delete(appRolePermissions).where(eq(appRolePermissions.roleId, input.id));
       if (input.permissionIds.length) {
         await tx
           .insert(appRolePermissions)
@@ -305,44 +264,34 @@ export async function saveSession(
   });
 }
 
-export async function getSession(
-  sessionId: string,
-  context: DatabaseContext = getDatabase(),
-) {
+export async function getSession(sessionId: string, context: DatabaseContext = getDatabase()) {
   const row = (
-    await context
-      .select()
-      .from(appUserSessions)
-      .where(eq(appUserSessions.id, sessionId))
-      .limit(1)
+    await context.select().from(appUserSessions).where(eq(appUserSessions.id, sessionId)).limit(1)
   )[0];
   return row ? mapSession(row) : undefined;
 }
 
-export async function touchSession(
-  sessionId: string,
-  context: TransactionContext,
-) {
+export async function touchSession(sessionId: string, context: TransactionContext) {
   await context
     .update(appUserSessions)
     .set({ lastUsedAt: new Date() })
     .where(eq(appUserSessions.id, sessionId));
 }
 
-export async function revokeSession(
-  sessionId: string,
-  context: TransactionContext,
-) {
+export async function revokeSession(sessionId: string, context: TransactionContext) {
   await context
     .update(appUserSessions)
     .set({ revokedAt: sql`now()` })
-    .where(and(eq(appUserSessions.id, sessionId), sql`${appUserSessions.revokedAt} is null`, sql`${appUserSessions.expiresAt} > now()`));
+    .where(
+      and(
+        eq(appUserSessions.id, sessionId),
+        sql`${appUserSessions.revokedAt} is null`,
+        sql`${appUserSessions.expiresAt} > now()`,
+      ),
+    );
 }
 
-export async function insertAuditEvent(
-  event: AuditEvent,
-  context: TransactionContext,
-) {
+export async function insertAuditEvent(event: AuditEvent, context: TransactionContext) {
   await context.insert(appAuditLogs).values({
     id: event.id,
     actorId: event.actorId,
@@ -355,30 +304,7 @@ export async function insertAuditEvent(
   });
 }
 
-export async function getAuditEvents(context: DatabaseContext = getDatabase()) {
-  const rows = await context
-    .select()
-    .from(appAuditLogs)
-    .orderBy(desc(appAuditLogs.createdAt))
-    .limit(100);
-  return rows.map(
-    (row): AuditEvent => ({
-      id: row.id,
-      actorId: row.actorId || undefined,
-      action: row.action,
-      targetType: row.targetType || undefined,
-      targetId: row.targetId || undefined,
-      traceId: row.traceId,
-      metadata: jsonObject(row.metadata),
-      createdAt: iso(row.createdAt),
-    }),
-  );
-}
-
-export async function insertTelemetryEvent(
-  event: TelemetryEvent,
-  context: TransactionContext,
-) {
+export async function insertTelemetryEvent(event: TelemetryEvent, context: TransactionContext) {
   await context.insert(appTelemetryEvents).values({
     id: event.id,
     event: event.event,
@@ -389,30 +315,23 @@ export async function insertTelemetryEvent(
   });
 }
 
-export async function getTelemetryEvents(
-  context: DatabaseContext = getDatabase(),
-) {
+export async function getTelemetryEvents(context: DatabaseContext = getDatabase()) {
   const rows = await context
     .select()
     .from(appTelemetryEvents)
     .orderBy(desc(appTelemetryEvents.occurredAt))
     .limit(100);
-  return rows.map(
-    (row): TelemetryEvent => ({
-      id: row.id,
-      event: row.event,
-      route: row.route || undefined,
-      traceId: row.traceId,
-      payload: jsonObject(row.payload),
-      occurredAt: iso(row.occurredAt),
-    }),
-  );
+  return rows.map((row): TelemetryEvent => ({
+    id: row.id,
+    event: row.event,
+    route: row.route || undefined,
+    traceId: row.traceId,
+    payload: jsonObject(row.payload),
+    occurredAt: iso(row.occurredAt),
+  }));
 }
 
-export async function insertFileAsset(
-  file: FileAsset,
-  context: TransactionContext,
-) {
+export async function insertFileAsset(file: FileAsset, context: TransactionContext) {
   await context.insert(appFileAssets).values({
     id: file.id,
     fileName: file.fileName,
@@ -434,8 +353,15 @@ export async function getFileAssetPage(
       cursorTime: sql<string>`to_char(${appFileAssets.uploadedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
     })
     .from(appFileAssets)
-    .where(query.cursor ? sql`(${appFileAssets.uploadedAt}, ${appFileAssets.id}) < (${query.cursor.uploadedAt}::timestamptz, ${query.cursor.id})` : undefined)
-    .orderBy(sql`${appFileAssets.uploadedAt} desc nulls last`, sql`${appFileAssets.id} desc nulls last`)
+    .where(
+      query.cursor
+        ? sql`(${appFileAssets.uploadedAt}, ${appFileAssets.id}) < (${query.cursor.uploadedAt}::timestamptz, ${query.cursor.id})`
+        : undefined,
+    )
+    .orderBy(
+      sql`${appFileAssets.uploadedAt} desc nulls last`,
+      sql`${appFileAssets.id} desc nulls last`,
+    )
     .limit(query.limit + 1);
   const page = rows.slice(0, query.limit);
   const last = page.at(-1);
@@ -445,16 +371,12 @@ export async function getFileAssetPage(
       uploadedBy: file.uploadedBy || undefined,
       uploadedAt: iso(file.uploadedAt),
     })),
-    nextCursor: rows.length > query.limit && last
-      ? { uploadedAt: last.cursorTime, id: last.file.id }
-      : null,
+    nextCursor:
+      rows.length > query.limit && last ? { uploadedAt: last.cursorTime, id: last.file.id } : null,
   };
 }
 
-export async function insertOutboxEvent(
-  event: OutboxEvent,
-  context: TransactionContext,
-) {
+export async function insertOutboxEvent(event: OutboxEvent, context: TransactionContext) {
   await context.insert(appOutboxEvents).values({
     id: event.id,
     topic: event.topic,
@@ -475,34 +397,30 @@ export async function insertOutboxEvent(
   });
 }
 
-export async function getOutboxEvents(
-  context: DatabaseContext = getDatabase(),
-) {
+export async function getOutboxEvents(context: DatabaseContext = getDatabase()) {
   const rows = await context
     .select()
     .from(appOutboxEvents)
     .orderBy(desc(appOutboxEvents.createdAt))
     .limit(100);
-  return rows.map(
-    (row): OutboxEvent => ({
-      id: row.id,
-      topic: row.topic,
-      eventType: row.eventType,
-      payload: jsonObject(row.payload),
-      status: outboxEventSchema.shape.status.parse(row.status),
-      attempts: row.attempts,
-      maxAttempts: row.maxAttempts,
-      nextAttemptAt: iso(row.nextAttemptAt),
-      lockedBy: row.lockedBy || undefined,
-      lockedAt: row.lockedAt ? iso(row.lockedAt) : undefined,
-      publishedAt: row.publishedAt ? iso(row.publishedAt) : undefined,
-      errorCode: row.errorCode || undefined,
-      lastError: row.lastError || undefined,
-      traceId: row.traceId,
-      createdAt: iso(row.createdAt),
-      updatedAt: iso(row.updatedAt),
-    }),
-  );
+  return rows.map((row): OutboxEvent => ({
+    id: row.id,
+    topic: row.topic,
+    eventType: row.eventType,
+    payload: jsonObject(row.payload),
+    status: outboxEventSchema.shape.status.parse(row.status),
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+    nextAttemptAt: iso(row.nextAttemptAt),
+    lockedBy: row.lockedBy || undefined,
+    lockedAt: row.lockedAt ? iso(row.lockedAt) : undefined,
+    publishedAt: row.publishedAt ? iso(row.publishedAt) : undefined,
+    errorCode: row.errorCode || undefined,
+    lastError: row.lastError || undefined,
+    traceId: row.traceId,
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
+  }));
 }
 
 export async function getAdminCounts(context: DatabaseContext = getDatabase()) {
@@ -587,14 +505,17 @@ export async function getAsyncRuntimeHealthRows(
 export async function lockIdentity(context: TransactionContext) {
   await context.execute(sql`select pg_advisory_xact_lock(741829310)`);
 }
-export async function revokeUserSessions(
-  userId: string,
-  context: TransactionContext,
-) {
+export async function revokeUserSessions(userId: string, context: TransactionContext) {
   await context
     .update(appUserSessions)
     .set({ revokedAt: sql`now()` })
-    .where(and(eq(appUserSessions.userId, userId), sql`${appUserSessions.revokedAt} is null`, sql`${appUserSessions.expiresAt} > now()`));
+    .where(
+      and(
+        eq(appUserSessions.userId, userId),
+        sql`${appUserSessions.revokedAt} is null`,
+        sql`${appUserSessions.expiresAt} > now()`,
+      ),
+    );
 }
 export async function databaseProbe() {
   await getDatabase().execute(sql`select 1`);
@@ -608,11 +529,7 @@ export async function insertUploadIntent(
 }
 export async function lockUploadIntent(id: string, tx: TransactionContext) {
   return (
-    await tx
-      .select()
-      .from(appUploadIntents)
-      .where(eq(appUploadIntents.id, id))
-      .for("update")
+    await tx.select().from(appUploadIntents).where(eq(appUploadIntents.id, id)).for("update")
   )[0];
 }
 export async function setUploadIntentState(
@@ -646,10 +563,7 @@ export async function getStaleUploadIntents(
     .orderBy(asc(appUploadIntents.updatedAt), asc(appUploadIntents.id))
     .limit(limit);
 }
-export async function storageKeyReferenced(
-  storageKey: string,
-  tx: TransactionContext,
-) {
+export async function storageKeyReferenced(storageKey: string, tx: TransactionContext) {
   return (
     (
       await tx
@@ -661,11 +575,7 @@ export async function storageKeyReferenced(
   );
 }
 
-export async function recoverLegacyUser(
-  id: string,
-  passwordHash: string,
-  tx: TransactionContext,
-) {
+export async function recoverLegacyUser(id: string, passwordHash: string, tx: TransactionContext) {
   await tx
     .update(appUsers)
     .set({ passwordHash, status: "enabled", updatedAt: new Date() })
@@ -676,16 +586,9 @@ export async function getUserCredentialsById(
   userId: string,
   context: DatabaseContext = getDatabase(),
 ) {
-  const [row] = await context
-    .select()
-    .from(appUsers)
-    .where(eq(appUsers.id, userId))
-    .limit(1);
+  const [row] = await context.select().from(appUsers).where(eq(appUsers.id, userId)).limit(1);
   if (!row) return undefined;
-  const roles = await context
-    .select()
-    .from(appUserRoles)
-    .where(eq(appUserRoles.userId, userId));
+  const roles = await context.select().from(appUserRoles).where(eq(appUserRoles.userId, userId));
   return {
     user: mapUser(
       row,
@@ -731,8 +634,7 @@ export async function runRetention(options: RetentionOptions) {
       table: "app_task_events",
       id: "id",
       date: "created_at",
-      predicate:
-        "task_id in (select id from app_tasks where status in ('succeeded','canceled'))",
+      predicate: "task_id in (select id from app_tasks where status in ('succeeded','canceled'))",
       update: null,
     },
     {
@@ -809,9 +711,17 @@ export async function runRetention(options: RetentionOptions) {
       where least(expires_at, revoked_at) < ${options.sessionBefore} and least(expires_at, revoked_at) < now()
       order by least(expires_at, revoked_at), id limit ${options.batchSize}`;
     const sessions = options.dryRun
-      ? Number((await tx.execute<{ count: string }>(sql`select count(*) from (${selectedSessions}) selected`)).rows[0].count)
-      : (await tx.execute(sql`with selected as (${selectedSessions} for update skip locked)
-          delete from app_user_sessions where id in (select id from selected) returning id`)).rowCount ?? 0;
+      ? Number(
+          (
+            await tx.execute<{ count: string }>(
+              sql`select count(*) from (${selectedSessions}) selected`,
+            )
+          ).rows[0].count,
+        )
+      : ((
+          await tx.execute(sql`with selected as (${selectedSessions} for update skip locked)
+          delete from app_user_sessions where id in (select id from selected) returning id`)
+        ).rowCount ?? 0);
     return { ...counts, sessions };
   });
 }

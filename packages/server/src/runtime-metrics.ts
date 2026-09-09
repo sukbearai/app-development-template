@@ -20,16 +20,25 @@ async function observeDatabase(): Promise<DatabaseMetrics> {
 }
 function databaseSnapshot(): Promise<DatabaseMetrics> {
   if (cached && performance.now() < cached.expiresAt) return Promise.resolve(cached.value);
-  pending ??= observeDatabase().finally(() => { pending = undefined; });
+  pending ??= observeDatabase().finally(() => {
+    pending = undefined;
+  });
   return pending;
 }
 export async function runtimeMetricsSnapshot(): Promise<RuntimeMetrics> {
   const database = await databaseSnapshot();
   const memory = process.memoryUsage();
   return {
-    version: 1, observedAt: new Date().toISOString(),
-    process: { uptimeSeconds: process.uptime(), rssBytes: memory.rss, heapUsedBytes: memory.heapUsed },
-    databasePool: databasePoolSnapshot(), uploads: uploadAdmissionSnapshot(),
-    http: httpMetricsSnapshot(), database,
+    version: 1,
+    observedAt: new Date().toISOString(),
+    process: {
+      uptimeSeconds: process.uptime(),
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+    },
+    databasePool: databasePoolSnapshot(),
+    uploads: uploadAdmissionSnapshot(),
+    http: httpMetricsSnapshot(),
+    database,
   };
 }

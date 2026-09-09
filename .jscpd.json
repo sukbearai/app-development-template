@@ -7,27 +7,16 @@
     "packages/database/src",
     "packages/kafka/src",
     "packages/server/src",
-    "services/worker/src"
+    "services/worker/src",
+    "packages/sdk/src"
   ],
   "minLines": 8,
   "minTokens": 80,
   "mode": "weak",
-  "format": [
-    "javascript",
-    "typescript",
-    "tsx",
-    "jsx"
-  ],
+  "format": ["javascript", "typescript", "tsx", "jsx"],
   "crossFormats": "js-ts",
-  "ignore": [
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/.vinext/**",
-    "**/.verification/**"
-  ],
-  "reporters": [
-    "json"
-  ],
+  "ignore": ["**/node_modules/**", "**/dist/**", "**/.vinext/**", "**/.verification/**"],
+  "reporters": ["json"],
   "output": "artifacts/quality/duplication",
   "absolute": true,
   "noTips": true

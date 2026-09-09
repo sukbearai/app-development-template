@@ -27,15 +27,15 @@ pnpm dev
 
 ## 工作区
 
-| 位置 | 职责 |
-| --- | --- |
-| apps/web | 页面、API 路由、React 组件 |
-| packages/contracts | Zod 契约、类型、API 操作登记 |
-| packages/database | schema、迁移、事务和仓储 |
-| packages/kafka | 服务端 Kafka 安全连接与恢复检查点 |
-| packages/server | 身份权限、存储和应用服务 |
-| services/worker | 事件发布、消费、幂等和恢复 |
-| deploy/compose | PostgreSQL 与可选中间件 |
+| 位置               | 职责                              |
+| ------------------ | --------------------------------- |
+| apps/web           | 页面、API 路由、React 组件        |
+| packages/contracts | Zod 契约、类型、API 操作登记      |
+| packages/database  | schema、迁移、事务和仓储          |
+| packages/kafka     | 服务端 Kafka 安全连接与恢复检查点 |
+| packages/server    | 身份权限、存储和应用服务          |
+| services/worker    | 事件发布、消费、幂等和恢复        |
+| deploy/compose     | PostgreSQL 与可选中间件           |
 
 ## 验证与扩展
 

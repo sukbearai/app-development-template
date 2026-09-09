@@ -52,125 +52,200 @@ const routeProcess = `
   }
 `;
 
-test("anonymous telemetry enforces its global budget before body reads and durable writes", { timeout: 120000 }, async (t) => {
-  const databaseName = `pstack-telemetry-db-${randomUUID()}`;
-  const redisName = `pstack-telemetry-redis-${randomUUID()}`;
-  let pool;
-  try {
-    docker("run", "-d", "--rm", "--name", databaseName, "-e", "POSTGRES_PASSWORD=isolated-test-only", "-e", "POSTGRES_DB=pstack_test", "-p", "127.0.0.1::5432", "postgres:17-bullseye");
-    docker("run", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:5.0.8");
-    const databasePort = docker("port", databaseName, "5432/tcp").split(":").at(-1);
-    const redisPort = docker("port", redisName, "6379/tcp").split(":").at(-1);
-    const databaseUrl = `postgres://postgres:isolated-test-only@127.0.0.1:${databasePort}/pstack_test`;
-    pool = new pg.Pool({ connectionString: databaseUrl });
-    for (let attempt = 0; attempt < 60; attempt++) {
-      try {
-        await pool.query("select 1");
-        assert.equal(docker("exec", redisName, "redis-cli", "ping"), "PONG");
-        break;
-      } catch (error) {
-        if (attempt === 59) throw error;
-        await pause(100);
-      }
-    }
-    const baseEnv = {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      NODE_ENV: "test",
-      LOG_LEVEL: "error",
-      RATE_LIMIT_DRIVER: "memory",
-      WEB_REPLICAS: "1",
-      LOGIN_RATE_LIMIT_MAX: "20",
-      LOGIN_RATE_LIMIT_GLOBAL_MAX: "1",
-      LOGIN_RATE_LIMIT_WINDOW_SECONDS: "60",
-    };
-    execFileSync("pnpm", ["--filter", "@pstack/database", "db:migrate"], { cwd: workspace, env: baseEnv, stdio: "pipe" });
-    const run = async (actions, extra = {}) => {
-      const prefix = randomUUID();
-      const result = await execute(process.execPath, ["--import", "tsx", "--input-type=module", "--eval", routeProcess], {
-        cwd: workspace,
-        env: { ...baseEnv, ...extra, TEST_ACTIONS: JSON.stringify(actions), TEST_TRACE_PREFIX: prefix },
-        timeout: 30000,
-      });
-      const rows = await pool.query(
-        "select (select count(*)::int from app_telemetry_events where trace_id like $1) telemetry, (select count(*)::int from app_outbox_events where trace_id like $1) outbox",
-        [prefix + ":%"],
+test(
+  "anonymous telemetry enforces its global budget before body reads and durable writes",
+  { timeout: 120000 },
+  async (t) => {
+    const databaseName = `pstack-telemetry-db-${randomUUID()}`;
+    const redisName = `pstack-telemetry-redis-${randomUUID()}`;
+    let pool;
+    try {
+      docker(
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        databaseName,
+        "-e",
+        "POSTGRES_PASSWORD=isolated-test-only",
+        "-e",
+        "POSTGRES_DB=pstack_test",
+        "-p",
+        "127.0.0.1::5432",
+        "postgres:17-bullseye",
       );
-      return { responses: JSON.parse(result.stdout), counts: rows.rows[0] };
-    };
-    const assertLimited = (result) => {
-      assert.equal(result.status, 429);
-      assert.equal(result.body.error.code, "RATE_LIMITED");
-      assert.ok(result.body.error.details.retryAfterSeconds > 0);
-      assert.equal(result.reads, 0, "rejected request body must remain unread");
-    };
-
-    const burst = (count) => Array.from({ length: count }, (_, index) => ({ spoof: index % 2 === 0 }));
-    const mixedBurst = (count) => burst(count).map((action, index) => ({
-      ...action,
-      path: index % 2 === 0 ? '/api/telemetry' : '/api//telemetry',
-    }));
-    await t.test("memory accepts 120 requests and rejects request 121 without writing", async () => {
-      const result = await run(burst(121));
-      assert.deepEqual(result.responses.map(response => response.status), [...Array(120).fill(201), 429]);
-      assertLimited(result.responses[120]);
-      assert.deepEqual(result.counts, { telemetry: 120, outbox: 120 });
-    });
-
-    await t.test("canonical and alias requests share the memory budget before origin and body checks", async () => {
-      const unsafe = await run([{ path: '/api//telemetry', unsafeOrigin: true }]);
-      assert.equal(unsafe.responses[0].status, 403);
-      assert.equal(unsafe.responses[0].reads, 0);
-      assert.deepEqual(unsafe.counts, { telemetry: 0, outbox: 0 });
-      const result = await run([
-        ...mixedBurst(120),
-        { path: '/api//telemetry', unsafeOrigin: true },
-        { path: '/api/telemetry' },
-      ]);
-      assert.deepEqual(result.responses.map(response => response.status), [...Array(120).fill(201), 429, 429]);
-      result.responses.slice(120).forEach(assertLimited);
-      assert.deepEqual(result.counts, { telemetry: 120, outbox: 120 });
-    });
-
-    await t.test("login and telemetry retain independent budgets in either order", async () => {
-      const loginFirst = await run([{ login: true }, { login: true }, ...burst(121)]);
-      assert.deepEqual(loginFirst.responses.map(response => response.status), [401, 429, ...Array(120).fill(201), 429]);
-      assertLimited(loginFirst.responses[1]);
-      assertLimited(loginFirst.responses[122]);
-      assert.deepEqual(loginFirst.counts, { telemetry: 120, outbox: 120 });
-      const telemetryFirst = await run([...burst(121), { login: true }, { login: true }]);
-      assert.deepEqual(telemetryFirst.responses.map(response => response.status), [...Array(120).fill(201), 429, 401, 429]);
-      assertLimited(telemetryFirst.responses[120]);
-      assertLimited(telemetryFirst.responses[122]);
-      assert.deepEqual(telemetryFirst.counts, { telemetry: 120, outbox: 120 });
-    });
-
-    await t.test("two Web processes share 120 Redis admissions across canonical and alias requests despite forged forwarding addresses", async () => {
-      const config = { RATE_LIMIT_DRIVER: "redis", WEB_REPLICAS: "2", REDIS_URL: `redis://127.0.0.1:${redisPort}/7` };
-      const results = await Promise.all([run(mixedBurst(70), config), run(mixedBurst(70), config)]);
-      const responses = results.flatMap(result => result.responses);
-      assert.equal(responses.filter(response => response.status === 201).length, 120);
-      const rejected = responses.filter(response => response.status === 429);
-      assert.equal(rejected.length, 20);
-      rejected.forEach(assertLimited);
-      assert.equal(results.reduce((count, result) => count + result.counts.telemetry, 0), 120);
-      assert.equal(results.reduce((count, result) => count + result.counts.outbox, 0), 120);
-      assert.equal(docker("exec", redisName, "redis-cli", "-n", "7", "get", "telemetry:global"), "140");
-    });
-
-    await t.test("Redis outage fails closed before body consumption or writes", async () => {
-      docker("stop", redisName);
-      const result = await run(mixedBurst(2), { RATE_LIMIT_DRIVER: "redis", WEB_REPLICAS: "2", REDIS_URL: `redis://127.0.0.1:${redisPort}/7` });
-      for (const response of result.responses) {
-        assert.ok(response.status >= 500);
-        assert.equal(response.reads, 0);
+      docker("run", "-d", "--name", redisName, "-p", "127.0.0.1::6379", "redis:5.0.8");
+      const databasePort = docker("port", databaseName, "5432/tcp").split(":").at(-1);
+      const redisPort = docker("port", redisName, "6379/tcp").split(":").at(-1);
+      const databaseUrl = `postgres://postgres:isolated-test-only@127.0.0.1:${databasePort}/pstack_test`;
+      pool = new pg.Pool({ connectionString: databaseUrl });
+      for (let attempt = 0; attempt < 60; attempt++) {
+        try {
+          await pool.query("select 1");
+          assert.equal(docker("exec", redisName, "redis-cli", "ping"), "PONG");
+          break;
+        } catch (error) {
+          if (attempt === 59) throw error;
+          await pause(100);
+        }
       }
-      assert.deepEqual(result.counts, { telemetry: 0, outbox: 0 });
-    });
-  } finally {
-    await pool?.end();
-    for (const name of [redisName, databaseName]) {
-      try { docker("rm", "-f", name); } catch {}
+      const baseEnv = {
+        ...process.env,
+        DATABASE_URL: databaseUrl,
+        NODE_ENV: "test",
+        LOG_LEVEL: "error",
+        RATE_LIMIT_DRIVER: "memory",
+        WEB_REPLICAS: "1",
+        LOGIN_RATE_LIMIT_MAX: "20",
+        LOGIN_RATE_LIMIT_GLOBAL_MAX: "1",
+        LOGIN_RATE_LIMIT_WINDOW_SECONDS: "60",
+      };
+      execFileSync("pnpm", ["--filter", "@pstack/database", "db:migrate"], {
+        cwd: workspace,
+        env: baseEnv,
+        stdio: "pipe",
+      });
+      const run = async (actions, extra = {}) => {
+        const prefix = randomUUID();
+        const result = await execute(
+          process.execPath,
+          ["--import", "tsx", "--input-type=module", "--eval", routeProcess],
+          {
+            cwd: workspace,
+            env: {
+              ...baseEnv,
+              ...extra,
+              TEST_ACTIONS: JSON.stringify(actions),
+              TEST_TRACE_PREFIX: prefix,
+            },
+            timeout: 30000,
+          },
+        );
+        const rows = await pool.query(
+          "select (select count(*)::int from app_telemetry_events where trace_id like $1) telemetry, (select count(*)::int from app_outbox_events where trace_id like $1) outbox",
+          [prefix + ":%"],
+        );
+        return { responses: JSON.parse(result.stdout), counts: rows.rows[0] };
+      };
+      const assertLimited = (result) => {
+        assert.equal(result.status, 429);
+        assert.equal(result.body.error.code, "RATE_LIMITED");
+        assert.ok(result.body.error.details.retryAfterSeconds > 0);
+        assert.equal(result.reads, 0, "rejected request body must remain unread");
+      };
+
+      const burst = (count) =>
+        Array.from({ length: count }, (_, index) => ({ spoof: index % 2 === 0 }));
+      const mixedBurst = (count) =>
+        burst(count).map((action, index) => ({
+          ...action,
+          path: index % 2 === 0 ? "/api/telemetry" : "/api//telemetry",
+        }));
+      await t.test(
+        "memory accepts 120 requests and rejects request 121 without writing",
+        async () => {
+          const result = await run(burst(121));
+          assert.deepEqual(
+            result.responses.map((response) => response.status),
+            [...Array(120).fill(201), 429],
+          );
+          assertLimited(result.responses[120]);
+          assert.deepEqual(result.counts, { telemetry: 120, outbox: 120 });
+        },
+      );
+
+      await t.test(
+        "canonical and alias requests share the memory budget before origin and body checks",
+        async () => {
+          const unsafe = await run([{ path: "/api//telemetry", unsafeOrigin: true }]);
+          assert.equal(unsafe.responses[0].status, 403);
+          assert.equal(unsafe.responses[0].reads, 0);
+          assert.deepEqual(unsafe.counts, { telemetry: 0, outbox: 0 });
+          const result = await run([
+            ...mixedBurst(120),
+            { path: "/api//telemetry", unsafeOrigin: true },
+            { path: "/api/telemetry" },
+          ]);
+          assert.deepEqual(
+            result.responses.map((response) => response.status),
+            [...Array(120).fill(201), 429, 429],
+          );
+          result.responses.slice(120).forEach(assertLimited);
+          assert.deepEqual(result.counts, { telemetry: 120, outbox: 120 });
+        },
+      );
+
+      await t.test("login and telemetry retain independent budgets in either order", async () => {
+        const loginFirst = await run([{ login: true }, { login: true }, ...burst(121)]);
+        assert.deepEqual(
+          loginFirst.responses.map((response) => response.status),
+          [401, 429, ...Array(120).fill(201), 429],
+        );
+        assertLimited(loginFirst.responses[1]);
+        assertLimited(loginFirst.responses[122]);
+        assert.deepEqual(loginFirst.counts, { telemetry: 120, outbox: 120 });
+        const telemetryFirst = await run([...burst(121), { login: true }, { login: true }]);
+        assert.deepEqual(
+          telemetryFirst.responses.map((response) => response.status),
+          [...Array(120).fill(201), 429, 401, 429],
+        );
+        assertLimited(telemetryFirst.responses[120]);
+        assertLimited(telemetryFirst.responses[122]);
+        assert.deepEqual(telemetryFirst.counts, { telemetry: 120, outbox: 120 });
+      });
+
+      await t.test(
+        "two Web processes share 120 Redis admissions across canonical and alias requests despite forged forwarding addresses",
+        async () => {
+          const config = {
+            RATE_LIMIT_DRIVER: "redis",
+            WEB_REPLICAS: "2",
+            REDIS_URL: `redis://127.0.0.1:${redisPort}/7`,
+          };
+          const results = await Promise.all([
+            run(mixedBurst(70), config),
+            run(mixedBurst(70), config),
+          ]);
+          const responses = results.flatMap((result) => result.responses);
+          assert.equal(responses.filter((response) => response.status === 201).length, 120);
+          const rejected = responses.filter((response) => response.status === 429);
+          assert.equal(rejected.length, 20);
+          rejected.forEach(assertLimited);
+          assert.equal(
+            results.reduce((count, result) => count + result.counts.telemetry, 0),
+            120,
+          );
+          assert.equal(
+            results.reduce((count, result) => count + result.counts.outbox, 0),
+            120,
+          );
+          assert.equal(
+            docker("exec", redisName, "redis-cli", "-n", "7", "get", "telemetry:global"),
+            "140",
+          );
+        },
+      );
+
+      await t.test("Redis outage fails closed before body consumption or writes", async () => {
+        docker("stop", redisName);
+        const result = await run(mixedBurst(2), {
+          RATE_LIMIT_DRIVER: "redis",
+          WEB_REPLICAS: "2",
+          REDIS_URL: `redis://127.0.0.1:${redisPort}/7`,
+        });
+        for (const response of result.responses) {
+          assert.ok(response.status >= 500);
+          assert.equal(response.reads, 0);
+        }
+        assert.deepEqual(result.counts, { telemetry: 0, outbox: 0 });
+      });
+    } finally {
+      await pool?.end();
+      for (const name of [redisName, databaseName]) {
+        try {
+          docker("rm", "-f", name);
+        } catch {}
+      }
     }
-  }
-});
+  },
+);

@@ -6,6 +6,11 @@ x-app: &app
   environment: &environment
     NODE_ENV: production
     APP_NAME: ${APP_NAME:-Pstack App}
+    OTEL_ENABLED: ${OTEL_ENABLED:-false}
+    OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-pstack-web}
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-http://localhost:4318/v1/traces}
+    OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+    OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
     APP_ORIGIN: ${APP_ORIGIN:-http://localhost:3100}
     DATABASE_URL: ${COMPOSE_DATABASE_URL:?Run pnpm local:up or set an encoded internal PostgreSQL URL}
     SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-pstack_session}
@@ -59,7 +64,7 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      test: ["CMD-SHELL", 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
       interval: 2s
       timeout: 5s
       retries: 30
@@ -85,7 +90,13 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/system/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://127.0.0.1:3000/api/system/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -127,7 +138,11 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: [CMD-SHELL, "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null"]
+      test:
+        [
+          CMD-SHELL,
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null",
+        ]
       interval: 5s
       timeout: 10s
       retries: 30

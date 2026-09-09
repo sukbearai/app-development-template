@@ -3,13 +3,8 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import {
-  S3Client,
-  CreateBucketCommand,
-  ListObjectsV2Command,
-} from "@aws-sdk/client-s3";
-const docker = (...args) =>
-  execFileSync("docker", args, { encoding: "utf8" }).trim();
+import { S3Client, CreateBucketCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+const docker = (...args) => execFileSync("docker", args, { encoding: "utf8" }).trim();
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 test(
   "real MinIO upload, HEAD, failed commit compensation and reference protection",
@@ -83,9 +78,7 @@ test(
       });
       for (let i = 0; i < 40; i++) {
         try {
-          await s3.send(
-            new CreateBucketCommand({ Bucket: "integration-files" }),
-          );
+          await s3.send(new CreateBucketCommand({ Bucket: "integration-files" }));
           break;
         } catch (error) {
           if (i === 39) throw error;
@@ -95,9 +88,7 @@ test(
       const storage = await import("../src/s3-client.ts");
       closeS3 = storage.closeS3;
       const product = await import("../src/product-service.ts");
-      const { bootstrapAdministrator } = await import(
-        "../src/bootstrap-admin.ts"
-      );
+      const { bootstrapAdministrator } = await import("../src/bootstrap-admin.ts");
       const { login } = await import("../src/auth-service.ts");
       const credentials = {
         account: "s3-admin",
@@ -111,14 +102,8 @@ test(
         file: new File(["persistent-bytes"], "asset.txt"),
         traceId: "s3-success",
       });
-      assert.equal(
-        (await storage.headS3Object(asset.storageKey)).ContentLength,
-        16,
-      );
-      assert.equal(
-        await product.reconcileUploadIntent(asset.storageKey),
-        "protected",
-      );
+      assert.equal((await storage.headS3Object(asset.storageKey)).ContentLength, 16);
+      assert.equal(await product.reconcileUploadIntent(asset.storageKey), "protected");
       await database
         .getPool()
         .query(
@@ -131,17 +116,13 @@ test(
           traceId: "s3-failed",
         }),
       );
-      const listed = await s3.send(
-        new ListObjectsV2Command({ Bucket: "integration-files" }),
-      );
+      const listed = await s3.send(new ListObjectsV2Command({ Bucket: "integration-files" }));
       assert.deepEqual(
         listed.Contents.map((item) => item.Key),
         [asset.storageKey],
       );
       const intent = (
-        await database
-          .getPool()
-          .query("select state from app_upload_intents where state='deleted'")
+        await database.getPool().query("select state from app_upload_intents where state='deleted'")
       ).rows;
       assert.equal(intent.length, 1);
       const { checkInfrastructure } = await import("../src/infrastructure.ts");

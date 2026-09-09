@@ -28,11 +28,7 @@ export type AsyncConsumerResult = {
   taskId: string;
   traceId: string;
   idempotencyKey: string;
-  status:
-    | AsyncTaskStatus
-    | "skipped_duplicate"
-    | "deferred_retry"
-    | "quarantined";
+  status: AsyncTaskStatus | "skipped_duplicate" | "deferred_retry" | "quarantined";
   committed: boolean;
   safeToCommit: boolean;
   nextRetryAt?: string;
@@ -46,7 +42,7 @@ export type LeasedTask = AsyncTaskEnvelope & {
 export type AsyncConsumerHandler = (
   task: AsyncTaskEnvelope,
   context: { client: PoolClient },
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- Domain handlers return arbitrary receipt data for JSON persistence, never for unchecked property access.
+  // oxlint-disable-next-line anti-slop/no-unknown-returns -- Domain handlers return arbitrary receipt data for JSON persistence, never for unchecked property access.
 ) => Promise<unknown>;
 export type ClaimResult =
   | { kind: "claimed"; task: LeasedTask }
@@ -114,10 +110,7 @@ export function nextKafkaOffset(offset: string) {
 }
 
 export function asyncTaskIdempotencyKey(
-  message: Pick<
-    AsyncTaskEventMessage,
-    "eventType" | "eventId" | "idempotencyKey"
-  >,
+  message: Pick<AsyncTaskEventMessage, "eventType" | "eventId" | "idempotencyKey">,
 ) {
   return message.idempotencyKey || `${message.eventType}:${message.eventId}`;
 }
@@ -127,23 +120,17 @@ export function parseAsyncTaskMessage(
   consumerGroup: string,
   defaults: { now?: Date; defaultMaxAttempts?: number } = {},
 ): AsyncTaskEnvelope {
-  const parsed = asyncTaskEventMessageSchema.parse(
-    parseJsonValue(message.value),
-  );
+  const parsed = asyncTaskEventMessageSchema.parse(parseJsonValue(message.value));
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- PostgreSQL JSON storage checks inspect all nested values after envelope parsing.
   function validateJsonStorage(value: unknown): void {
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- PostgreSQL rejects null characters and unpaired surrogates specifically in JSON strings.
     if (typeof value === "string") {
       if (value.includes("\u0000"))
-        throw new Error(
-          "Message contains a null character unsupported by PostgreSQL JSON",
-        );
+        throw new Error("Message contains a null character unsupported by PostgreSQL JSON");
       for (const character of value) {
         const code = character.charCodeAt(0);
         if (character.length === 1 && code >= 0xd800 && code <= 0xdfff)
-          throw new Error(
-            "Message contains an unpaired surrogate unsupported by PostgreSQL JSON",
-          );
+          throw new Error("Message contains an unpaired surrogate unsupported by PostgreSQL JSON");
       }
     }
     if (Array.isArray(value)) value.forEach(validateJsonStorage);
@@ -211,17 +198,14 @@ export function failAsyncTask<TPayload>(
   const now = options.now || new Date();
   const nextAttemptCount = attemptCount + 1;
   const nextRetryAt = new Date(
-    now.getTime() +
-      retryDelayMs(nextAttemptCount, options.retryBaseMs, options.retryMaxMs),
+    now.getTime() + retryDelayMs(nextAttemptCount, options.retryBaseMs, options.retryMaxMs),
   ).toISOString();
   return {
     ...task,
     status: deadLetter ? "dead_letter" : "failed",
     attemptCount: deadLetter ? attemptCount : nextAttemptCount,
     nextRetryAt: deadLetter ? now.toISOString() : nextRetryAt,
-    errorCode: deadLetter
-      ? "ASYNC_TASK_DEAD_LETTER"
-      : "ASYNC_TASK_RETRY_PENDING",
+    errorCode: deadLetter ? "ASYNC_TASK_DEAD_LETTER" : "ASYNC_TASK_RETRY_PENDING",
     errorMessage: error instanceof Error ? error.message : String(error),
     updatedAt: now.toISOString(),
   };
@@ -235,7 +219,7 @@ function canonicalPayload(value: unknown, legacy = false): string {
   if (value && typeof value === "object") {
     const entries = Object.entries(value);
     if (legacy) entries.sort(([a], [b]) => a.localeCompare(b));
-    else entries.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    else entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     return `{${entries
       .map(([key, item]) => `${JSON.stringify(key)}:${canonicalPayload(item, legacy)}`)
       .join(",")}}`;
@@ -249,16 +233,16 @@ function legacyPayloadHash(task: Pick<AsyncTaskEnvelope, "taskType" | "payload">
     .digest("hex");
 }
 
-export function payloadHash(
-  task: Pick<AsyncTaskEnvelope, "taskType" | "payload">,
-) {
+export function payloadHash(task: Pick<AsyncTaskEnvelope, "taskType" | "payload">) {
   return `v2:${createHash("sha256")
     .update(canonicalPayload({ type: task.taskType, payload: task.payload }))
     .digest("hex")}`;
 }
 
 const storedDateSchema = z.string().refine((date) => Number.isFinite(Date.parse(date)));
-const storedIdentifierSchema = z.string().refine((value) => asyncIdentifierSchema.safeParse(value).success);
+const storedIdentifierSchema = z
+  .string()
+  .refine((value) => asyncIdentifierSchema.safeParse(value).success);
 const legacyStoredIdentifierSchema = z.string().refine((value) => value.trim() !== "");
 const storedSourceSchema = z.looseObject({
   offset: kafkaConsumerOffsetSchema.loose(),
@@ -268,21 +252,23 @@ const storedSourceSchema = z.looseObject({
 });
 function storedEnvelopeSchema(allowLegacyIdentifiers: boolean) {
   const identifier = allowLegacyIdentifiers ? legacyStoredIdentifierSchema : storedIdentifierSchema;
-  return z.looseObject({
-    taskId: identifier,
-    taskType: identifier,
-    traceId: identifier,
-    status: asyncTaskStatusSchema,
-    payload: z.unknown(),
-    idempotencyKey: identifier,
-    sourceEventId: identifier,
-    attemptCount: z.number().refine((count) => Number.isInteger(count) && count > 0),
-    maxAttempts: z.number().refine((count) => Number.isInteger(count) && count > 0),
-    createdAt: storedDateSchema,
-    updatedAt: storedDateSchema,
-    nextRetryAt: storedDateSchema.optional(),
-    source: z.looseObject({}),
-  }).refine((record) => Object.hasOwn(record, "payload"));
+  return z
+    .looseObject({
+      taskId: identifier,
+      taskType: identifier,
+      traceId: identifier,
+      status: asyncTaskStatusSchema,
+      payload: z.unknown(),
+      idempotencyKey: identifier,
+      sourceEventId: identifier,
+      attemptCount: z.number().refine((count) => Number.isInteger(count) && count > 0),
+      maxAttempts: z.number().refine((count) => Number.isInteger(count) && count > 0),
+      createdAt: storedDateSchema,
+      updatedAt: storedDateSchema,
+      nextRetryAt: storedDateSchema.optional(),
+      source: z.looseObject({}),
+    })
+    .refine((record) => Object.hasOwn(record, "payload"));
 }
 const strictStoredEnvelopeSchema = storedEnvelopeSchema(false);
 const legacyStoredEnvelopeSchema = storedEnvelopeSchema(true);
@@ -300,9 +286,12 @@ function storedTask(value: unknown, allowLegacyIdentifiers = false): AsyncTaskEn
     throw new PayloadUnverifiableError("Stored task envelope is missing or invalid");
   const source = storedSourceSchema.safeParse(envelope.data.source);
   const metadata = storedMetadataSchema.safeParse(envelope.data);
-  if (!source.success || !metadata.success ||
-      source.data.eventId !== envelope.data.sourceEventId ||
-      source.data.eventType !== envelope.data.taskType)
+  if (
+    !source.success ||
+    !metadata.success ||
+    source.data.eventId !== envelope.data.sourceEventId ||
+    source.data.eventType !== envelope.data.taskType
+  )
     throw new PayloadUnverifiableError("Stored task source or metadata is invalid");
   return { ...envelope.data, ...metadata.data, source: source.data };
 }
@@ -348,8 +337,7 @@ export async function processAsyncConsumerMessage(
   try {
     claim = await options.store.claim(task, options.workerId);
   } catch (error) {
-    if (error instanceof PayloadConflictError)
-      return quarantine("IDEMPOTENCY_CONFLICT", error);
+    if (error instanceof PayloadConflictError) return quarantine("IDEMPOTENCY_CONFLICT", error);
     if (error instanceof PayloadUnverifiableError)
       return quarantine("IDEMPOTENCY_UNVERIFIABLE", error);
     throw error;
@@ -413,17 +401,11 @@ export function createPostgresAsyncTaskStore(
     leaseMs?: number;
   } = {},
 ) {
-  if (
-    !options.pool &&
-    options.databaseUrl &&
-    options.databaseUrl !== process.env.DATABASE_URL
-  )
+  if (!options.pool && options.databaseUrl && options.databaseUrl !== process.env.DATABASE_URL)
     throw new Error("Inject a pool for a database other than DATABASE_URL");
   const pool = options.pool ?? getPool();
   const table = (name: string) =>
-    options.schemaName
-      ? `${quoteIdent(options.schemaName)}.${quoteIdent(name)}`
-      : quoteIdent(name);
+    options.schemaName ? `${quoteIdent(options.schemaName)}.${quoteIdent(name)}` : quoteIdent(name);
   const keys = table("app_idempotency_keys"),
     tasks = table("app_tasks"),
     events = table("app_task_events");
@@ -444,9 +426,7 @@ export function createPostgresAsyncTaskStore(
   const leaseMs = options.leaseMs ?? 60000;
   const key = (task: AsyncTaskEnvelope) =>
     JSON.stringify([task.source.offset?.consumerGroup, task.idempotencyKey]);
-  async function transaction<R>(
-    body: (client: PoolClient) => Promise<R>,
-  ): Promise<R> {
+  async function transaction<R>(body: (client: PoolClient) => Promise<R>): Promise<R> {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -539,7 +519,8 @@ export function createPostgresAsyncTaskStore(
   async function isolateInvalidRecovery(rowKey: string, group: string) {
     return transaction(async (client) => {
       const locked = await client.query<{ response_data: unknown }>(
-        `SELECT response_data FROM ${keys} WHERE key=$1 FOR UPDATE`, [rowKey],
+        `SELECT response_data FROM ${keys} WHERE key=$1 FOR UPDATE`,
+        [rowKey],
       );
       if (locked.rows.length === 0) return;
       const eligible = await client.query(
@@ -599,7 +580,9 @@ export function createPostgresAsyncTaskStore(
           throw new PayloadConflictError("Idempotency key is already bound to another payload");
         if (terminal && row.response_data === null) {
           if (legacy && legacyPayloadHash(incoming) !== persistedHash)
-            throw new PayloadUnverifiableError("Compacted legacy task cannot prove payload identity");
+            throw new PayloadUnverifiableError(
+              "Compacted legacy task cannot prove payload identity",
+            );
           return { kind: "terminal", task: incoming };
         }
         const stored = storedTask(row.response_data);
@@ -678,10 +661,7 @@ export function createPostgresAsyncTaskStore(
           message.offset,
           JSON.stringify(message.value?.toString() ?? null),
           code,
-          (error instanceof Error ? error.message : String(error)).replaceAll(
-            "\u0000",
-            "\\u0000",
-          ),
+          (error instanceof Error ? error.message : String(error)).replaceAll("\u0000", "\\u0000"),
         ],
       );
     },
@@ -704,7 +684,14 @@ export function createPostgresAsyncTaskStore(
           AND ($2::timestamptz IS NULL OR (task.created_at,task.key)>($2::timestamptz,$3::text))
           AND (task.created_at,task.key)<=($4::timestamptz,$5::text)
         ORDER BY task.created_at,task.key LIMIT $6`,
-        [group, scan.after?.created_at, scan.after?.key, scan.through.created_at, scan.through.key, budget],
+        [
+          group,
+          scan.after?.created_at,
+          scan.after?.key,
+          scan.through.created_at,
+          scan.through.key,
+          budget,
+        ],
       );
       let after = scan.after;
       let beforeFirstReturnedMessage: RecoveryPosition | undefined;
@@ -717,14 +704,18 @@ export function createPostgresAsyncTaskStore(
           if (!(error instanceof PayloadUnverifiableError)) throw error;
           recovered = await isolateInvalidRecovery(row.key, group);
         }
-        if (recovered && (!recovered.nextRetryAt || Date.parse(recovered.nextRetryAt) <= Date.now())) {
+        if (
+          recovered &&
+          (!recovered.nextRetryAt || Date.parse(recovered.nextRetryAt) <= Date.now())
+        ) {
           if (messages.length === 0) beforeFirstReturnedMessage = after;
           messages.push(recovered.message);
         }
         after = { created_at: row.created_at, key: row.key };
         if (messages.length === limit) break;
       }
-      if (messages.length > 0) recoveryScans.set(group, { ...scan, after: beforeFirstReturnedMessage });
+      if (messages.length > 0)
+        recoveryScans.set(group, { ...scan, after: beforeFirstReturnedMessage });
       else if (result.rows.length < budget) recoveryScans.delete(group);
       else recoveryScans.set(group, { ...scan, after });
       return messages;
@@ -737,7 +728,7 @@ export function createPostgresAsyncTaskStore(
           `SELECT * FROM ${keys} WHERE key=$1 AND status IN ('failed','dead_letter') FOR UPDATE`,
           [JSON.stringify([group, idempotencyKey])],
         );
-        if (!row || await isRecoveryIsolated(client, row.key)) return false;
+        if (!row || (await isRecoveryIsolated(client, row.key))) return false;
         const task = {
           ...row.response_data,
           status: "pending",
@@ -777,9 +768,7 @@ export async function processConsumerMessagesSequentially(
     processed++;
     if (result.safeToCommit) await commitOffset(message);
     else {
-      if (
-        nextRetryDelayMs(result.nextRetryAt, options.now?.() ?? new Date()) > 0
-      )
+      if (nextRetryDelayMs(result.nextRetryAt, options.now?.() ?? new Date()) > 0)
         await options.onDeferredRetry?.(result);
       else await options.onRetryableFailure?.();
       return { processed, stoppedOnRetryableFailure: true };
@@ -801,13 +790,12 @@ type KafkaConsumerOptions = {
   eachMessage: (message: ConsumerMessage) => Promise<AsyncConsumerResult>;
 };
 
-export function createKafkaConsumer(options: Pick<KafkaConsumerOptions, "groupId" | "brokers" | "clientId" | "recovery" | "signal">) {
+export function createKafkaConsumer(
+  options: Pick<KafkaConsumerOptions, "groupId" | "brokers" | "clientId" | "recovery" | "signal">,
+) {
   const groupId = asyncConsumerGroupSchema.parse(options.groupId);
-  const brokers =
-    options.brokers ??
-    (process.env.KAFKA_BROKERS ?? "").split(",").filter(Boolean);
-  if (!brokers.length)
-    throw new Error("KAFKA_BROKERS is required for Kafka consumers");
+  const brokers = options.brokers ?? (process.env.KAFKA_BROKERS ?? "").split(",").filter(Boolean);
+  if (!brokers.length) throw new Error("KAFKA_BROKERS is required for Kafka consumers");
   return new Kafka({
     ...readKafkaConfig({ ...process.env, KAFKA_BROKERS: brokers.join(",") }),
     clientId: options.clientId ?? "pstack-worker",
@@ -819,13 +807,17 @@ export function createKafkaConsumer(options: Pick<KafkaConsumerOptions, "groupId
   });
 }
 
-export async function runKafkaConsumer(options: KafkaConsumerOptions & {
-  consumer?: Consumer;
-  onReady?: () => void;
-  onFailure?: (cause: unknown) => void;
-}) {
+export async function runKafkaConsumer(
+  options: KafkaConsumerOptions & {
+    consumer?: Consumer;
+    onReady?: () => void;
+    onFailure?: (cause: unknown) => void;
+  },
+) {
   const controller = new AbortController();
-  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, controller.signal])
+    : controller.signal;
   const consumer = options.consumer ?? createKafkaConsumer({ ...options, signal });
   const failures: unknown[] = [];
   const batches = new Set<Promise<void>>();
@@ -845,7 +837,9 @@ export async function runKafkaConsumer(options: KafkaConsumerOptions & {
   void done.catch(() => undefined);
   let joined = false;
   let groupJoined!: () => void;
-  const ready = new Promise<void>((resolve) => { groupJoined = resolve; });
+  const ready = new Promise<void>((resolve) => {
+    groupJoined = resolve;
+  });
   const removeJoin = consumer.on(consumer.events.GROUP_JOIN, () => {
     joined = true;
     groupJoined();
@@ -868,7 +862,11 @@ export async function runKafkaConsumer(options: KafkaConsumerOptions & {
       recoveryTimer = setInterval(() => {
         if (checking || signal.aborted) return;
         checking = true;
-        recoveryCheck = Promise.resolve(options.recovery?.check()).catch(failed).finally(() => { checking = false; });
+        recoveryCheck = Promise.resolve(options.recovery?.check())
+          .catch(failed)
+          .finally(() => {
+            checking = false;
+          });
       }, 1000);
     }
     await consumer.subscribe({
@@ -877,20 +875,11 @@ export async function runKafkaConsumer(options: KafkaConsumerOptions & {
     });
     if (signal.aborted) return { processed };
     if (options.maxWaitMs)
-      timer = setTimeout(
-        () => failed(new Error("Kafka consumer timed out")),
-        options.maxWaitMs,
-      );
+      timer = setTimeout(() => failed(new Error("Kafka consumer timed out")), options.maxWaitMs);
     await consumer.run({
       autoCommit: false,
       eachBatchAutoResolve: false,
-      eachBatch: ({
-        batch,
-        resolveOffset,
-        heartbeat,
-        isRunning,
-        isStale,
-      }) => {
+      eachBatch: ({ batch, resolveOffset, heartbeat, isRunning, isStale }) => {
         if (signal.aborted) return Promise.resolve();
         const operation = (async () => {
           for (const record of batch.messages) {
@@ -944,12 +933,7 @@ export async function runKafkaConsumer(options: KafkaConsumerOptions & {
                 Date.now() + 25,
                 Date.parse(result.nextRetryAt ?? "") || Date.now(),
               );
-              while (
-                Date.now() < until &&
-                isRunning() &&
-                !isStale() &&
-                !signal.aborted
-              ) {
+              while (Date.now() < until && isRunning() && !isStale() && !signal.aborted) {
                 await sleep(Math.min(250, until - Date.now()));
                 await heartbeat();
               }
@@ -978,10 +962,16 @@ export async function runKafkaConsumer(options: KafkaConsumerOptions & {
     removeCrash();
     removeJoin();
     if (!options.consumer) {
-      try { await consumer.stop(); }
-      catch (cause) { failed(cause); }
-      try { await consumer.disconnect(); }
-      catch (cause) { failed(cause); }
+      try {
+        await consumer.stop();
+      } catch (cause) {
+        failed(cause);
+      }
+      try {
+        await consumer.disconnect();
+      } catch (cause) {
+        failed(cause);
+      }
     }
     if (failures.length) throw new AggregateError(failures, "Kafka consumer failed");
   }

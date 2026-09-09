@@ -5,6 +5,7 @@ import { ApiError, fail } from "./api-response";
 import { findApiOperation, parseApiResponse } from "@pstack/contracts/http";
 import { fileURLToPath } from "node:url";
 import { resolve, sep } from "node:path";
+import { traceLogFields, withHttpTrace } from "./tracing";
 
 type LogLevel = "debug" | "info" | "warn" | "error";
 // oxlint-disable-next-line anti-slop/no-unsafe-dictionary-type -- Logging accepts arbitrary field values so the redactor can scrub errors and nested data.
@@ -18,16 +19,63 @@ const rank: Record<LogLevel, number> = {
   error: 40,
 };
 const systemErrorCodes = new Set([
-  "ECONNREFUSED", "ECONNRESET", "ECONNABORTED", "ETIMEDOUT", "ENOTFOUND",
-  "EAI_AGAIN", "EPIPE", "ENETUNREACH", "EHOSTUNREACH", "EACCES", "EPERM",
-  "ENOENT", "ENOSPC", "EMFILE", "ENFILE", "EROFS", "EIO",
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "ECONNABORTED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EPIPE",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EACCES",
+  "EPERM",
+  "ENOENT",
+  "ENOSPC",
+  "EMFILE",
+  "ENFILE",
+  "EROFS",
+  "EIO",
 ]);
 const sqlStateCodes = new Set([
-  "08000", "08001", "08003", "08004", "08006", "08007", "08P01",
-  "22001", "22003", "22007", "22P02", "23502", "23503", "23505", "23514",
-  "23P01", "28000", "28P01", "3D000", "40001", "40P01", "42501", "42703",
-  "42P01", "53100", "53200", "53300", "53400", "54000", "55P03", "57014",
-  "57P01", "57P02", "57P03", "58000", "XX000", "XX001", "XX002",
+  "08000",
+  "08001",
+  "08003",
+  "08004",
+  "08006",
+  "08007",
+  "08P01",
+  "22001",
+  "22003",
+  "22007",
+  "22P02",
+  "23502",
+  "23503",
+  "23505",
+  "23514",
+  "23P01",
+  "28000",
+  "28P01",
+  "3D000",
+  "40001",
+  "40P01",
+  "42501",
+  "42703",
+  "42P01",
+  "53100",
+  "53200",
+  "53300",
+  "53400",
+  "54000",
+  "55P03",
+  "57014",
+  "57P01",
+  "57P02",
+  "57P03",
+  "58000",
+  "XX000",
+  "XX001",
+  "XX002",
 ]);
 const sourceRoots = [fileURLToPath(new URL("../../../", import.meta.url)), resolve() + sep];
 type ErrorDiagnostic = {
@@ -49,8 +97,7 @@ function errorDiagnostic(
     seen.add(value);
     const code: unknown = Object.getOwnPropertyDescriptor(value, "code")?.value;
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Descriptor values bypass getters; only allowlisted string codes may reach production logs.
-    if (typeof code === "string" &&
-        (systemErrorCodes.has(code) || sqlStateCodes.has(code)))
+    if (typeof code === "string" && (systemErrorCodes.has(code) || sqlStateCodes.has(code)))
       diagnostic.code = code;
     let stack: unknown;
     try {
@@ -60,20 +107,36 @@ function errorDiagnostic(
     }
     // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Error stacks can have hostile getters; only strings enter the bounded frame parser.
     if (typeof stack === "string") {
-      diagnostic.frames = stack.slice(0, 16384).split("\n").slice(1, 33).flatMap((line) => {
-        const match = /^\s+at (?:[^()]* \()?((?:file:\/\/\/|\/|node:)[^()\s]+):(\d{1,7}):(\d{1,7})\)?$/.exec(line);
-        if (!match?.[1]) return [];
-        const source = match[1].replace(/^file:\/\//, "");
-        if (!/^(?:node:)?[A-Za-z0-9_./@+-]+$/.test(source) || source.split("/").includes(".."))
-          return [];
-        const file = source.startsWith("node:internal/") ? source :
-          sourceRoots.flatMap(root => source.startsWith(root) ? [source.slice(root.length)] : [])
-            .find(candidate => /^(apps|packages|services|node_modules|dist)\/.+\.[cm]?[jt]sx?$/.test(candidate));
-        if (!file || file.length > 240 ||
-            (!file.startsWith("node:internal/") && !/^(apps|packages|services|node_modules|dist)\/.+\.[cm]?[jt]sx?$/.test(file)))
-          return [];
-        return [{ file, line: Number(match[2]), column: Number(match[3]) }];
-      }).slice(0, 8);
+      diagnostic.frames = stack
+        .slice(0, 16384)
+        .split("\n")
+        .slice(1, 33)
+        .flatMap((line) => {
+          const match =
+            /^\s+at (?:[^()]* \()?((?:file:\/\/\/|\/|node:)[^()\s]+):(\d{1,7}):(\d{1,7})\)?$/.exec(
+              line,
+            );
+          if (!match?.[1]) return [];
+          const source = match[1].replace(/^file:\/\//, "");
+          if (!/^(?:node:)?[A-Za-z0-9_./@+-]+$/.test(source) || source.split("/").includes(".."))
+            return [];
+          const file = source.startsWith("node:internal/")
+            ? source
+            : sourceRoots
+                .flatMap((root) => (source.startsWith(root) ? [source.slice(root.length)] : []))
+                .find((candidate) =>
+                  /^(apps|packages|services|node_modules|dist)\/.+\.[cm]?[jt]sx?$/.test(candidate),
+                );
+          if (
+            !file ||
+            file.length > 240 ||
+            (!file.startsWith("node:internal/") &&
+              !/^(apps|packages|services|node_modules|dist)\/.+\.[cm]?[jt]sx?$/.test(file))
+          )
+            return [];
+          return [{ file, line: Number(match[2]), column: Number(match[3]) }];
+        })
+        .slice(0, 8);
     }
     const cause: unknown = Object.getOwnPropertyDescriptor(value, "cause")?.value;
     if (depth < 2 && cause instanceof Error)
@@ -98,10 +161,12 @@ export function redact(value: unknown, seen = new WeakSet<object>()): unknown {
   if (seen.has(value)) return "[CIRCULAR]";
   seen.add(value);
   if (value instanceof Error)
-    return env.NODE_ENV === "production" ? errorDiagnostic(value) : {
-      name: value.name,
-      message: redact(value.message, seen),
-    };
+    return env.NODE_ENV === "production"
+      ? errorDiagnostic(value)
+      : {
+          name: value.name,
+          message: redact(value.message, seen),
+        };
   if (Array.isArray(value)) return value.map((item) => redact(item, seen));
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
@@ -117,27 +182,21 @@ export function log(level: LogLevel, message: string, fields?: LogFields) {
     message: redact(message),
     time: new Date().toISOString(),
     service: env.APP_NAME,
-    fields: redact(fields || {}),
+    fields: redact({ ...fields, ...traceLogFields() }),
   });
   if (level === "error") console.error(line);
   else if (level === "warn") console.warn(line);
   else console.log(line);
 }
-export function withAccessLog(
-  request: Request,
-  traceId: string,
-  handler: () => Promise<Response>,
-) {
+export function withAccessLog(request: Request, traceId: string, handler: () => Promise<Response>) {
   if (isWebDraining())
-    return Promise.resolve(fail(new ApiError(503, "SERVICE_UNAVAILABLE", "服务正在停止，请稍后重试"), traceId));
-  return trackWebWork(() => accessLog(request, traceId, handler));
+    return Promise.resolve(
+      fail(new ApiError(503, "SERVICE_UNAVAILABLE", "服务正在停止，请稍后重试"), traceId),
+    );
+  return trackWebWork(() => withHttpTrace(request, () => accessLog(request, traceId, handler)));
 }
 
-async function accessLog(
-  request: Request,
-  traceId: string,
-  handler: () => Promise<Response>,
-) {
+async function accessLog(request: Request, traceId: string, handler: () => Promise<Response>) {
   const startedAt = performance.now();
   const path = new URL(request.url).pathname;
   const operation = findApiOperation(request.method, path);
@@ -148,7 +207,8 @@ async function accessLog(
   } catch (error) {
     failure = { error };
     response = fail(error, traceId);
-    if (error instanceof ApiError && error.code === "UPLOAD_BUSY") response.headers.set("retry-after", "1");
+    if (error instanceof ApiError && error.code === "UPLOAD_BUSY")
+      response.headers.set("retry-after", "1");
   }
   try {
     if (operation) {
@@ -165,7 +225,8 @@ async function accessLog(
     failure ??= { error };
     response = fail(error, traceId);
   }
-  if (response.status >= 400 && request.body && !request.bodyUsed) response.headers.set("connection", "close");
+  if (response.status >= 400 && request.body && !request.bodyUsed)
+    response.headers.set("connection", "close");
   if (failure) {
     log(response.status >= 500 ? "error" : "warn", "http request failed", {
       traceId,

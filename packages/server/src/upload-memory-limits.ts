@@ -20,11 +20,7 @@ export function assertInMemoryUploadSize(input: {
   }
 }
 
-export function assertRequestContentLength(
-  request: Request,
-  maxBytes: number,
-  label: string,
-) {
+export function assertRequestContentLength(request: Request, maxBytes: number, label: string) {
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength <= 0) return;
   assertInMemoryUploadSize({
@@ -42,18 +38,12 @@ function formatBytes(value: number) {
 }
 
 function trimNumber(value: number) {
-  return Number.isInteger(value)
-    ? String(value)
-    : value.toFixed(1).replace(/\.0$/, "");
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
-export async function readBoundedFormData(
-  request: Request,
-  maxBytes: number,
-): Promise<FormData> {
+export async function readBoundedFormData(request: Request, maxBytes: number): Promise<FormData> {
   assertRequestContentLength(request, maxBytes, "上传请求");
-  if (!request.body)
-    throw new ApiError(400, "UPLOAD_EMPTY", "上传请求不能为空");
+  if (!request.body) throw new ApiError(400, "UPLOAD_EMPTY", "上传请求不能为空");
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;

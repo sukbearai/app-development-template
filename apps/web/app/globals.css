@@ -28,7 +28,14 @@ body {
   margin: 0;
   background: var(--background);
   color: var(--foreground);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 button,
@@ -149,8 +156,7 @@ a {
   place-items: center;
   padding: 24px;
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 80%), rgb(247 248 250 / 95%)),
-    var(--background);
+    linear-gradient(180deg, rgb(255 255 255 / 80%), rgb(247 248 250 / 95%)), var(--background);
 }
 
 .login-panel {
@@ -698,12 +704,7 @@ a {
   min-width: 24px;
   height: 16px;
   border-radius: 6px;
-  background: linear-gradient(
-    90deg,
-    var(--surface-soft) 0%,
-    #e7edf5 40%,
-    var(--surface-soft) 80%
-  );
+  background: linear-gradient(90deg, var(--surface-soft) 0%, #e7edf5 40%, var(--surface-soft) 80%);
   background-size: 220% 100%;
   animation: skeleton-pulse 1.4s ease-in-out infinite;
 }
@@ -859,4 +860,31 @@ a {
   .admin-page-header h1 {
     font-size: 24px;
   }
+}
+.mobile-sidebar {
+  display: none;
+}
+@media (max-width: 720px) {
+  .desktop-sidebar {
+    display: none;
+  }
+  .mobile-sidebar {
+    display: block;
+    z-index: 60;
+    inset: 0 auto 0 0;
+    transform: none;
+    overflow-y: auto;
+  }
+  .mobile-sidebar .admin-sidebar-head {
+    display: flex;
+  }
+  .admin-nav-backdrop {
+    z-index: 50;
+    inset: 0;
+  }
+}
+
+.form-field {
+  display: grid;
+  gap: 6px;
 }

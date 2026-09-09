@@ -28,7 +28,10 @@ function readSasl(env: NodeJS.ProcessEnv): SASLOptions {
 }
 
 export function readKafkaConfig(env: NodeJS.ProcessEnv = process.env): KafkaConfig {
-  const brokers = (env.KAFKA_BROKERS || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const brokers = (env.KAFKA_BROKERS || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   if (!brokers.length) throw new Error("KAFKA_BROKERS is required");
   const protocol = env.KAFKA_SECURITY_PROTOCOL ?? "PLAINTEXT";
   if (protocol !== "PLAINTEXT" && protocol !== "SSL" && protocol !== "SASL_SSL")

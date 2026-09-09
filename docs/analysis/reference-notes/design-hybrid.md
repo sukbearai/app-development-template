@@ -9,15 +9,14 @@
 ```ts
 // apps/web/app/api/admin/roles/route.ts
 export const POST = (request: Request) =>
-  web.invoke(request, CreateRole, ({ actor, input }) =>
-    Roles.create(actor, input))
+  web.invoke(request, CreateRole, ({ actor, input }) => Roles.create(actor, input));
 
 // services/worker/src/main.ts
-const runtime = ManagedRuntime.make(WorkerLive)
+const runtime = ManagedRuntime.make(WorkerLive);
 try {
-  await runtime.runPromise(Outbox.run, { signal: shutdown.signal })
+  await runtime.runPromise(Outbox.run, { signal: shutdown.signal });
 } finally {
-  await runtime.dispose()
+  await runtime.dispose();
 }
 ```
 

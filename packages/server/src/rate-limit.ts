@@ -15,13 +15,9 @@ function pruneExpiredBuckets(now: number) {
   }
 }
 
-export function assertRateLimit(
-  key: string,
-  options?: { limit?: number; windowMs?: number },
-) {
+export function assertRateLimit(key: string, options?: { limit?: number; windowMs?: number }) {
   const limit = options?.limit ?? env.LOGIN_RATE_LIMIT_MAX;
-  const windowMs =
-    options?.windowMs ?? env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
+  const windowMs = options?.windowMs ?? env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
   const now = Date.now();
   pruneExpiredBuckets(now);
   const current = buckets.get(key);
@@ -32,10 +28,7 @@ export function assertRateLimit(
       retryAfterSeconds: Math.max(1, Math.ceil((resetAt - now) / 1000)),
     });
   }
-  const bucket =
-    current && current.resetAt > now
-      ? current
-      : { count: 0, resetAt: now + windowMs };
+  const bucket = current && current.resetAt > now ? current : { count: 0, resetAt: now + windowMs };
   bucket.count += 1;
   buckets.delete(key);
   buckets.set(key, bucket);
@@ -51,16 +44,10 @@ export async function assertRequestRateLimit(
   options: { limit?: number; windowMs?: number } = {},
 ) {
   const limit = options.limit ?? env.LOGIN_RATE_LIMIT_MAX;
-  const windowMs =
-    options.windowMs ?? env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
+  const windowMs = options.windowMs ?? env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000;
   if (env.RATE_LIMIT_DRIVER === "redis") {
-    if (!env.REDIS_URL)
-      throw new Error("REDIS_URL is required when RATE_LIMIT_DRIVER=redis");
-    const { count, ttlMs } = await redisWindowCount(
-      env.REDIS_URL,
-      key,
-      windowMs,
-    );
+    if (!env.REDIS_URL) throw new Error("REDIS_URL is required when RATE_LIMIT_DRIVER=redis");
+    const { count, ttlMs } = await redisWindowCount(env.REDIS_URL, key, windowMs);
     if (count > limit) {
       throw new ApiError(429, "RATE_LIMITED", "请求过于频繁，请稍后再试", {
         retryAfterSeconds: Math.ceil(ttlMs / 1000),

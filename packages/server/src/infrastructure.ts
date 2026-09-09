@@ -34,9 +34,7 @@ async function probeKafka() {
 }
 export async function checkInfrastructure() {
   const [database, redis, objectStorage, kafka] = await Promise.all([
-    env.DATABASE_URL
-      ? probe(databaseProbe)
-      : Promise.resolve<DependencyState>("missing"),
+    env.DATABASE_URL ? probe(databaseProbe) : Promise.resolve<DependencyState>("missing"),
     env.RATE_LIMIT_DRIVER === "redis"
       ? env.REDIS_URL
         ? probe(() => redisCommand(env.REDIS_URL!, ["PING"]))

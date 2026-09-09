@@ -16,10 +16,20 @@ export function loadEnvironment(root, target = process.env) {
 }
 
 export function postgresUrl(value) {
-  if (!value) throw new Error("DATABASE_URL is required; example files are never loaded automatically");
+  if (!value)
+    throw new Error("DATABASE_URL is required; example files are never loaded automatically");
   let url;
-  try { url = new URL(value); } catch { throw new Error("DATABASE_URL must be a PostgreSQL URL"); }
-  if (!["postgres:", "postgresql:"].includes(url.protocol) || !url.hostname || url.pathname.length < 2 || url.hash) {
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("DATABASE_URL must be a PostgreSQL URL");
+  }
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !url.hostname ||
+    url.pathname.length < 2 ||
+    url.hash
+  ) {
     throw new Error("DATABASE_URL must name a PostgreSQL host and database");
   }
   return url;

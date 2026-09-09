@@ -6,28 +6,28 @@
 
 ## 已交付能力
 
-| 范围 | 当前实现 |
-| --- | --- |
-| Monorepo | 根工程及 web、contracts、database、server、worker 六个 workspace |
-| 管理端 | 原 9 个页面，用户、角色、权限、文件、审计与 outbox |
-| HTTP | 原 15 个业务操作及 hello；Zod 派生 OpenAPI；输入和输出均校验 |
-| 身份 | scrypt、数据库会话、Cookie/Bearer、active 角色授权、事务内撤权复核、最后管理员保护 |
-| 数据 | 原实体能力、安全迁移基线、历史保留与显式旧库升级、完整性和约束漂移检查 |
-| 文件 | local/S3、实际字节上限、持久上传意图、存储位置绑定、失败补偿、引用保护 |
-| 后台 | Kafka outbox、租约代次、原子幂等与回执、重试/重放、毒消息隔离、退出与强杀恢复 |
-| 运维 | Compose 可选服务、备份恢复、配置检查、模板初始化、CI、项目技能和浏览器证据 |
+| 范围     | 当前实现                                                                           |
+| -------- | ---------------------------------------------------------------------------------- |
+| Monorepo | 根工程及 web、contracts、database、server、worker 六个 workspace                   |
+| 管理端   | 原 9 个页面，用户、角色、权限、文件、审计与 outbox                                 |
+| HTTP     | 原 15 个业务操作及 hello；Zod 派生 OpenAPI；输入和输出均校验                       |
+| 身份     | scrypt、数据库会话、Cookie/Bearer、active 角色授权、事务内撤权复核、最后管理员保护 |
+| 数据     | 原实体能力、安全迁移基线、历史保留与显式旧库升级、完整性和约束漂移检查             |
+| 文件     | local/S3、实际字节上限、持久上传意图、存储位置绑定、失败补偿、引用保护             |
+| 后台     | Kafka outbox、租约代次、原子幂等与回执、重试/重放、毒消息隔离、退出与强杀恢复      |
+| 运维     | Compose 可选服务、备份恢复、配置检查、模板初始化、CI、项目技能和浏览器证据         |
 
 ## 实際执行结果
 
-| 命令 | 结果与范围 |
-| --- | --- |
-| `pnpm verify` | 通过，11 项工具检查、38 项单元测试、21 项 PostgreSQL/Redis/MinIO/Kafka 集成测试、3 条浏览器流程 |
-| 聚合内 `test:production` | 实际构建与启动，完成 API smoke，备份应用数据库、恢复至空库、再次迁移与登录成功 |
-| `pnpm test:backup` | 单独备份负向验证通过；缺校验和、缺确认、非空目标均拒绝；并发同名对象冲突时回滚且保留原数据 |
-| `pnpm test:containers` | 最终源码构建 Web/worker 镜像，镜像内迁移与初始化，真实 Web API、Kafka 发布消费与重复回执、SIGTERM 正常退出通过 |
-| Compose 全 profile config | 通过；包含 Redis、Kafka、MinIO 初始化和 ClickHouse 可选配置 |
-| 校验脚本中断 | SIGTERM 后本次容器、子进程和监听端口消失 |
-| 项目技能校验 | runtime 与 browser 两个技能格式检查通过 |
+| 命令                      | 结果与范围                                                                                                     |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `pnpm verify`             | 通过，11 项工具检查、38 项单元测试、21 项 PostgreSQL/Redis/MinIO/Kafka 集成测试、3 条浏览器流程                |
+| 聚合内 `test:production`  | 实际构建与启动，完成 API smoke，备份应用数据库、恢复至空库、再次迁移与登录成功                                 |
+| `pnpm test:backup`        | 单独备份负向验证通过；缺校验和、缺确认、非空目标均拒绝；并发同名对象冲突时回滚且保留原数据                     |
+| `pnpm test:containers`    | 最终源码构建 Web/worker 镜像，镜像内迁移与初始化，真实 Web API、Kafka 发布消费与重复回执、SIGTERM 正常退出通过 |
+| Compose 全 profile config | 通过；包含 Redis、Kafka、MinIO 初始化和 ClickHouse 可选配置                                                    |
+| 校验脚本中断              | SIGTERM 后本次容器、子进程和监听端口消失                                                                       |
+| 项目技能校验              | runtime 与 browser 两个技能格式检查通过                                                                        |
 
 最后的 CI 路由补充了生产启动与容器检查，并复跑 10 项运维工具测试。未运行远端 GitHub Actions；CI 配置使用上述本地已执行入口。
 

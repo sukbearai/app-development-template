@@ -50,7 +50,10 @@ export function CardSkeleton({ lines = 3 }: { lines?: number }) {
     <div className="skeleton-card" aria-hidden="true">
       <SkeletonBlock className="skeleton-card-title" />
       {Array.from({ length: Math.max(1, lines) }).map((_, index) => (
-        <SkeletonBlock key={index} className={index % 2 === 0 ? "skeleton-card-line" : "skeleton-card-line short"} />
+        <SkeletonBlock
+          key={index}
+          className={index % 2 === 0 ? "skeleton-card-line" : "skeleton-card-line short"}
+        />
       ))}
     </div>
   );

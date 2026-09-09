@@ -1,0 +1,19 @@
+node_modules/
+.pnpm-store/
+.git/
+.next/
+.vinext/
+dist/
+.verification/
+artifacts/
+backups/
+.uploads/
+test-results/
+playwright-report/
+pnpm-lock.yaml
+**/next-env.d.ts
+# These files belong to their generators.
+docs/openapi.json
+packages/database/migrations/
+docs/api.md
+packages/sdk/src/schema.d.ts

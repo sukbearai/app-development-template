@@ -52,7 +52,9 @@ export function StatCard({ label, value, hint, icon }: StatCardProps) {
     <div className="admin-stat-card">
       <div className="stat-card-head">
         <span>{label}</span>
-        <span className="stat-icon" aria-hidden>{icon || <Database size={18} />}</span>
+        <span className="stat-icon" aria-hidden>
+          {icon || <Database size={18} />}
+        </span>
       </div>
       <strong>{value}</strong>
       {hint && <small>{hint}</small>}
@@ -60,7 +62,12 @@ export function StatCard({ label, value, hint, icon }: StatCardProps) {
   );
 }
 
-export function Section({ title, description, actions, children }: PageHeaderProps & { children: React.ReactNode }) {
+export function Section({
+  title,
+  description,
+  actions,
+  children,
+}: PageHeaderProps & { children: React.ReactNode }) {
   return (
     <section className="admin-section">
       <div className="admin-section-head">

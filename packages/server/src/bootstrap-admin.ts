@@ -59,9 +59,7 @@ export async function bootstrapAdministrator(
         existing.passwordHash !== previous?.passwordHash ||
         !matchesPrevious
       )
-        throw new Error(
-          "Bootstrap account exists with different credentials or privileges",
-        );
+        throw new Error("Bootstrap account exists with different credentials or privileges");
       return { id: existing.user.id, created: false };
     }
     if ((await repo.getUsers(tx)).length)

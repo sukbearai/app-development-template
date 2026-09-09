@@ -129,20 +129,38 @@ export const fileAssetSchema = z.object({
   uploadedAt: isoDateTimeSchema,
 });
 
-export const filePageCursorSchema = z.object({
-  uploadedAt: z.iso.datetime({ precision: 6 }).refine((value) => !value.startsWith("0000-"), "Invalid cursor year"),
-  id: z.string().min(1).max(256).regex(/^[^\u0000\uD800-\uDFFF]+$/u, "Invalid cursor identifier"),
-}).strict();
+export const filePageCursorSchema = z
+  .object({
+    uploadedAt: z.iso
+      .datetime({ precision: 6 })
+      .refine((value) => !value.startsWith("0000-"), "Invalid cursor year"),
+    id: z
+      .string()
+      .min(1)
+      .max(256)
+      .regex(/^[^\u0000\uD800-\uDFFF]+$/u, "Invalid cursor identifier"),
+  })
+  .strict();
 
 export const filePageQuerySchema = z.object({
-  limit: z.union([z.string().regex(/^\d+$/), z.number()]).transform(Number).pipe(z.number().int().min(1).max(100)).default(100),
-  cursor: z.string().max(1024).transform((value, context) => {
-    try { return JSON.parse(value); }
-    catch {
-      context.addIssue({ code: "custom", message: "Invalid file page cursor" });
-      return z.NEVER;
-    }
-  }).pipe(filePageCursorSchema).optional(),
+  limit: z
+    .union([z.string().regex(/^\d+$/), z.number()])
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(100))
+    .default(100),
+  cursor: z
+    .string()
+    .max(1024)
+    .transform((value, context) => {
+      try {
+        return JSON.parse(value);
+      } catch {
+        context.addIssue({ code: "custom", message: "Invalid file page cursor" });
+        return z.NEVER;
+      }
+    })
+    .pipe(filePageCursorSchema)
+    .optional(),
 });
 
 export const fileAssetPageSchema = z.object({
@@ -179,28 +197,58 @@ export const adminSummarySchema = z.object({
   outboxPending: z.number().int().nonnegative(),
 });
 
-export const asyncTaskStatusSchema = z.enum(["pending", "running", "succeeded", "failed", "dead_letter", "canceled"]);
+export const asyncTaskStatusSchema = z.enum([
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+  "dead_letter",
+  "canceled",
+]);
 
 const asyncIdentifierMaxBytes = 2000;
 const utf8Encoder = new TextEncoder();
 
 export const asyncIdentifierSchema = nonEmptyStringSchema
   .max(asyncIdentifierMaxBytes)
-  .refine((value) => utf8Encoder.encode(value).byteLength <= asyncIdentifierMaxBytes, "Async identifier must not exceed 2000 UTF-8 bytes")
-  .describe("At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes.");
+  .refine(
+    (value) => utf8Encoder.encode(value).byteLength <= asyncIdentifierMaxBytes,
+    "Async identifier must not exceed 2000 UTF-8 bytes",
+  )
+  .describe(
+    "At most 2000 UTF-8 bytes after trimming. The serialized [consumerGroup, idempotencyKey] must also fit 2000 UTF-8 bytes.",
+  );
 
-export const asyncConsumerGroupSchema = z.string().min(1).max(256)
+export const asyncConsumerGroupSchema = z
+  .string()
+  .min(1)
+  .max(256)
   .regex(/^[^\u0000\uD800-\uDFFF]+$/u, "Consumer group must contain valid PostgreSQL text")
   .refine((value) => value.trim().length > 0, "Consumer group is required")
-  .refine((value) => utf8Encoder.encode(value).byteLength <= 256, "Consumer group must not exceed 256 UTF-8 bytes")
-  .describe("At most 256 UTF-8 bytes. Whitespace is preserved as part of the consumer group identity.");
+  .refine(
+    (value) => utf8Encoder.encode(value).byteLength <= 256,
+    "Consumer group must not exceed 256 UTF-8 bytes",
+  )
+  .describe(
+    "At most 256 UTF-8 bytes. Whitespace is preserved as part of the consumer group identity.",
+  );
 
 export const kafkaConsumerOffsetSchema = z.object({
-  topic: z.string().min(1).max(249).regex(/^[A-Za-z0-9._-]+$/)
+  topic: z
+    .string()
+    .min(1)
+    .max(249)
+    .regex(/^[A-Za-z0-9._-]+$/)
     .refine((value) => value !== "." && value !== "..", "Invalid Kafka topic"),
   partition: z.number().int().nonnegative().max(2147483647),
-  offset: z.string().max(19).regex(/^(0|[1-9][0-9]{0,18})$/)
-    .refine((value) => value.length < 19 || value <= "9223372036854775807", "Kafka offset must fit a signed 64-bit integer"),
+  offset: z
+    .string()
+    .max(19)
+    .regex(/^(0|[1-9][0-9]{0,18})$/)
+    .refine(
+      (value) => value.length < 19 || value <= "9223372036854775807",
+      "Kafka offset must fit a signed 64-bit integer",
+    ),
   consumerGroup: asyncConsumerGroupSchema,
 });
 
@@ -314,7 +362,10 @@ export type AdminSummary = z.infer<typeof adminSummarySchema>;
 export type AsyncTaskStatus = z.infer<typeof asyncTaskStatusSchema>;
 export type AsyncTaskKind = string;
 export type KafkaConsumerOffset = z.infer<typeof kafkaConsumerOffsetSchema>;
-export type AsyncTaskEventMessage<TPayload = unknown> = Omit<z.infer<typeof asyncTaskEventMessageSchema>, "payload"> & {
+export type AsyncTaskEventMessage<TPayload = unknown> = Omit<
+  z.infer<typeof asyncTaskEventMessageSchema>,
+  "payload"
+> & {
   payload: TPayload;
 };
 export type AsyncRuntimeHealthAlert = z.infer<typeof asyncRuntimeHealthAlertSchema>;

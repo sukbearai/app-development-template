@@ -15,11 +15,12 @@ import type { OutboxWorkerOptions } from "./outbox";
 
 export type OutboxAlert = OutboxHealthAlert;
 
-type OutboxReadinessInput = OutboxBacklogMetrics & OutboxHealthThresholds & {
-  deadLetter: number;
-  staleLocks: number;
-  quarantine: AsyncQuarantineCounts;
-};
+type OutboxReadinessInput = OutboxBacklogMetrics &
+  OutboxHealthThresholds & {
+    deadLetter: number;
+    staleLocks: number;
+    quarantine: AsyncQuarantineCounts;
+  };
 
 export type OutboxReadiness = {
   service: "worker";
@@ -45,11 +46,7 @@ export type OutboxReadiness = {
   checkedAt: string;
 };
 
-function numberOption(
-  value: number | undefined,
-  envName: string,
-  fallback: number,
-) {
+function numberOption(value: number | undefined, envName: string, fallback: number) {
   return value ?? Number(process.env[envName] || fallback);
 }
 
@@ -63,8 +60,7 @@ export function buildOutboxAlerts(input: OutboxReadinessInput) {
     alerts.push({
       severity: "critical",
       reason: "outbox_dead_letter",
-      message:
-        "Outbox events reached dead letter state and require investigation.",
+      message: "Outbox events reached dead letter state and require investigation.",
       metric: "deadLetter",
       value: input.deadLetter,
       threshold: 1,
@@ -98,11 +94,7 @@ export async function inspectOutboxReadiness(
   const pendingWarn = options.pendingWarn ?? defaults.pendingWarn;
   const pendingBlocked = options.pendingBlocked ?? defaults.pendingBlocked;
   const failedWarn = options.failedWarn ?? defaults.failedWarn;
-  const staleLockMs = numberOption(
-    options.staleLockMs,
-    "OUTBOX_STALE_LOCK_MS",
-    5 * 60 * 1000,
-  );
+  const staleLockMs = numberOption(options.staleLockMs, "OUTBOX_STALE_LOCK_MS", 5 * 60 * 1000);
   const pool = new pg.Pool({ connectionString: databaseUrl, max: 2 });
   try {
     const [statusCounts, oldestPending, staleLocks, quarantine] = await Promise.all([
@@ -126,19 +118,13 @@ export async function inspectOutboxReadiness(
       getAsyncQuarantineCounts(createPgDrizzleClient(pool)),
     ]);
     const countByStatus = new Map(
-      statusCounts.rows.map((row) => [
-        String(row.status),
-        Number(row.count || 0),
-      ]),
+      statusCounts.rows.map((row) => [String(row.status), Number(row.count || 0)]),
     );
     const pending = countByStatus.get("pending") || 0;
     const failed = countByStatus.get("failed") || 0;
     const processing = countByStatus.get("processing") || 0;
     const deadLetter = countByStatus.get("dead_letter") || 0;
-    const oldestPendingAgeMs = Math.max(
-      0,
-      Math.round(Number(oldestPending.rows[0]?.age_ms || 0)),
-    );
+    const oldestPendingAgeMs = Math.max(0, Math.round(Number(oldestPending.rows[0]?.age_ms || 0)));
     const staleLockIds = staleLocks.rows.map((row) => String(row.id));
     const statusInput = {
       quarantine,

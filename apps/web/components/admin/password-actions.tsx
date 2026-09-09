@@ -1,80 +1,187 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
-import { changePasswordResponseSchema, resetUserPasswordResponseSchema } from "@pstack/contracts";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import {
+  changePasswordRequestSchema,
+  changePasswordResponseSchema,
+  resetUserPasswordRequestSchema,
+  resetUserPasswordResponseSchema,
+  type ChangePasswordRequest,
+  type ResetUserPasswordRequest,
+} from "@pstack/contracts";
+import { useApiMutation } from "@/components/api-query";
 import { requestJson } from "@/components/api-client";
+import { FormField, setSubmissionError } from "@/components/admin/form-field";
 import { useHydrated } from "@/components/use-hydrated";
+
+const confirmedPasswordSchema = changePasswordRequestSchema
+  .extend({ confirmation: changePasswordRequestSchema.shape.newPassword })
+  .refine((value) => value.newPassword === value.confirmation, {
+    path: ["confirmation"],
+    message: "两次输入的新密码不一致",
+  });
 
 export function ChangePasswordForm() {
   const ready = useHydrated();
   const router = useRouter();
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState("");
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const newPassword = String(data.get("newPassword") || "");
-    if (newPassword !== data.get("confirmation")) {
-      setMessage("两次输入的新密码不一致");
-      return;
-    }
-    setPending(true);
-    setMessage("");
-    try {
-      await requestJson("/api/auth/password", changePasswordResponseSchema, {
+  const {
+    register,
+    handleSubmit,
+    setError,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<z.infer<typeof confirmedPasswordSchema>>({
+    resolver: zodResolver(confirmedPasswordSchema),
+  });
+  const changePassword = useApiMutation({
+    mutationFn: (data: ChangePasswordRequest) =>
+      requestJson("/api/auth/password", changePasswordResponseSchema, {
         method: "POST",
-        body: JSON.stringify({ currentPassword: String(data.get("currentPassword") || ""), newPassword }),
-      });
-      form.reset();
+        body: JSON.stringify(data),
+      }),
+  });
+  async function submit(data: z.infer<typeof confirmedPasswordSchema>) {
+    try {
+      await changePassword.mutateAsync(changePasswordRequestSchema.parse(data));
+      reset();
       router.replace("/login?passwordChanged=1");
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "修改密码失败");
-    } finally { setPending(false); }
+      setSubmissionError(error, setError, ["currentPassword", "newPassword", "confirmation"]);
+    }
   }
   return (
-    <form className="admin-form" method="post" onSubmit={submit}>
-      <label><span>当前密码</span><input name="currentPassword" type="password" autoComplete="current-password" required /></label>
-      <label><span>新密码</span><input name="newPassword" type="password" autoComplete="new-password" minLength={8} maxLength={256} required /></label>
-      <label><span>确认新密码</span><input name="confirmation" type="password" autoComplete="new-password" minLength={8} maxLength={256} required /></label>
+    <form
+      className="admin-form"
+      method="post"
+      onSubmit={handleSubmit(submit)}
+      noValidate
+      aria-busy={isSubmitting}
+    >
+      <FormField
+        label="当前密码"
+        registration={register("currentPassword")}
+        error={errors.currentPassword}
+        type="password"
+        autoComplete="current-password"
+        required
+      />
+      <FormField
+        label="新密码"
+        registration={register("newPassword")}
+        error={errors.newPassword}
+        type="password"
+        autoComplete="new-password"
+        minLength={8}
+        maxLength={256}
+        required
+      />
+      <FormField
+        label="确认新密码"
+        registration={register("confirmation")}
+        error={errors.confirmation}
+        type="password"
+        autoComplete="new-password"
+        minLength={8}
+        maxLength={256}
+        required
+      />
       <p className="muted">修改后，所有设备需要重新登录。</p>
-      <button className="button primary" type="submit" disabled={!ready || pending}>修改密码</button>
-      {message && <p role="alert" className="form-error">{message}</p>}
+      <button className="button primary" type="submit" disabled={!ready || isSubmitting}>
+        修改密码
+      </button>
+      {errors.root && (
+        <p role="alert" className="form-error">
+          {errors.root.message}
+        </p>
+      )}
     </form>
   );
 }
 
 export function ResetUserPasswordForm({ userId, account }: { userId: string; account: string }) {
   const ready = useHydrated();
+  const formId = useId();
   const [expanded, setExpanded] = useState(false);
-  const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    setPending(true);
+  const {
+    register,
+    handleSubmit,
+    setError,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<ResetUserPasswordRequest>({
+    resolver: zodResolver(resetUserPasswordRequestSchema),
+  });
+  const resetPassword = useApiMutation({
+    mutationFn: (data: ResetUserPasswordRequest) =>
+      requestJson(
+        `/api/admin/users/${encodeURIComponent(userId)}/password`,
+        resetUserPasswordResponseSchema,
+        { method: "POST", body: JSON.stringify(data) },
+      ),
+  });
+  async function submit(data: ResetUserPasswordRequest) {
     setMessage("");
     try {
-      await requestJson(`/api/admin/users/${encodeURIComponent(userId)}/password`, resetUserPasswordResponseSchema, {
-        method: "POST", body: JSON.stringify({ newPassword: String(data.get("newPassword") || "") }),
-      });
-      form.reset();
+      await resetPassword.mutateAsync(data);
+      reset();
       setMessage("密码已重置，原有会话已撤销");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "重置密码失败"); }
-    finally { setPending(false); }
+    } catch (error) {
+      setSubmissionError(error, setError, ["newPassword"]);
+    }
   }
   return (
     <div>
-      <button className="button secondary table-action" type="button" disabled={!ready} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>重置密码</button>
-      {expanded && <form className="admin-form" method="post" onSubmit={submit}>
-        <label><span>{account} 的新密码</span><input name="newPassword" type="password" autoComplete="new-password" minLength={8} maxLength={256} required /></label>
-        <p className="muted">此操作会撤销该用户的全部会话。</p>
-        <button className="button secondary" type="submit" disabled={!ready || pending}>确认重置密码</button>
-        {message && <p role="status" className="form-message">{message}</p>}
-      </form>}
+      <button
+        className="button secondary table-action"
+        type="button"
+        disabled={!ready || isSubmitting}
+        aria-expanded={expanded}
+        aria-controls={formId}
+        onClick={() => setExpanded(!expanded)}
+      >
+        重置密码
+      </button>
+      {expanded && (
+        <form
+          id={formId}
+          className="admin-form"
+          method="post"
+          onSubmit={handleSubmit(submit)}
+          noValidate
+          aria-busy={isSubmitting}
+        >
+          <FormField
+            label={`${account} 的新密码`}
+            registration={register("newPassword")}
+            error={errors.newPassword}
+            type="password"
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={256}
+            required
+          />
+          <p className="muted">此操作会撤销该用户的全部会话。</p>
+          <button className="button secondary" type="submit" disabled={!ready || isSubmitting}>
+            确认重置密码
+          </button>
+          {errors.root && (
+            <p role="alert" className="form-error">
+              {errors.root.message}
+            </p>
+          )}
+          {message && (
+            <p role="status" className="form-message">
+              {message}
+            </p>
+          )}
+        </form>
+      )}
     </div>
   );
 }

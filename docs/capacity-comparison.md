@@ -21,15 +21,15 @@ Exit codes are `0` for passed, `1` for failed, `2` for invalid arguments, JSON o
 
 The workload records `startedAt`, `finishedAt`, initial role and file counts in `data`, original workload `options`, per-operation `observations`, and `metricSamples`. The verifier adds `comparison` with the following fields:
 
-| Field | Contents |
-| --- | --- |
-| `schemaVersion`, `runId` | Version `1` and a unique run identity |
-| `source` | Full `gitSha`, boolean `dirty`, and `sourceSha256` |
-| `environment.machine` | `hostname`, `cpuModel`, `cpuCount`, `totalMemoryBytes` |
-| `environment.platform` | `os`, `release`, `arch` |
-| `environment.runtime` | Actual `node` and `pnpm` versions |
-| `environment.target` | `mode: "production"`, `replicas: 1`, `storage: "local"`, `postgresImage`, `uploadConcurrency`, `databasePoolMax`, and other fixture settings |
-| `load` | Three host load averages in `start` and `end` arrays |
+| Field                    | Contents                                                                                                                                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`, `runId` | Version `1` and a unique run identity                                                                                                        |
+| `source`                 | Full `gitSha`, boolean `dirty`, and `sourceSha256`                                                                                           |
+| `environment.machine`    | `hostname`, `cpuModel`, `cpuCount`, `totalMemoryBytes`                                                                                       |
+| `environment.platform`   | `os`, `release`, `arch`                                                                                                                      |
+| `environment.runtime`    | Actual `node` and `pnpm` versions                                                                                                            |
+| `environment.target`     | `mode: "production"`, `replicas: 1`, `storage: "local"`, `postgresImage`, `uploadConcurrency`, `databasePoolMax`, and other fixture settings |
+| `load`                   | Three host load averages in `start` and `end` arrays                                                                                         |
 
 The comparator requires the complete environment, workload options and initial data counts to match exactly across both groups. Source identity must match within each group. Run IDs must be unique and workload time intervals must not overlap. Timestamps must be canonical UTC ISO strings. Host load must satisfy the caller's maximum and drift limits. These observations cannot detect every competing process or resource quota; control the measurement host and record its operational constraints separately.
 

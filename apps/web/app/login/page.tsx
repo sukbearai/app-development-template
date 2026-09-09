@@ -27,7 +27,9 @@ export default async function LoginPage() {
     <main className="login-page">
       <section className="login-panel">
         <div className="login-brand">
-          <span aria-hidden><Activity size={22} /></span>
+          <span aria-hidden>
+            <Activity size={22} />
+          </span>
           <div>
             <h1>{env.APP_NAME}</h1>
             <p>管理端登录</p>

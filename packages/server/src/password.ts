@@ -1,8 +1,4 @@
-import {
-  randomBytes,
-  scrypt as scryptCallback,
-  timingSafeEqual,
-} from "node:crypto";
+import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 function scrypt(password: string, salt: string, length: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     scryptCallback(password, salt, length, (error, derived) => {
@@ -22,8 +18,12 @@ export async function hashPassword(password: string) {
 export async function verifyPassword(password: string, passwordHash: string) {
   const [algorithm, salt, expectedHash, extra] = passwordHash.split(":");
   const expected = Buffer.from(expectedHash || "", "base64url");
-  const valid = algorithm === "scrypt" && salt !== undefined &&
-    salt.length > 0 && expected.length === keyLength && extra === undefined;
+  const valid =
+    algorithm === "scrypt" &&
+    salt !== undefined &&
+    salt.length > 0 &&
+    expected.length === keyLength &&
+    extra === undefined;
   const actual = await scrypt(password, valid ? salt : "pstack-invalid-password", keyLength);
   return valid && timingSafeEqual(actual, expected);
 }

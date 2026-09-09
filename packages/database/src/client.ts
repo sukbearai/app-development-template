@@ -8,9 +8,7 @@ export function createPgDrizzleClient(pool: Pool) {
   return drizzle(pool, { schema });
 }
 export type DrizzleClient = ReturnType<typeof createPgDrizzleClient>;
-export type TransactionContext = Parameters<
-  Parameters<DrizzleClient["transaction"]>[0]
->[0];
+export type TransactionContext = Parameters<Parameters<DrizzleClient["transaction"]>[0]>[0];
 export type DatabaseContext = DrizzleClient | TransactionContext;
 loadEnvironment();
 let pool: Pool | undefined;
@@ -26,24 +24,24 @@ export function getPool() {
     });
     registerProcessCleanup(closeDatabase);
     pool.on("error", () =>
-      process.stderr.write(
-        '{"level":"error","message":"database idle connection failed"}\n',
-      ),
+      process.stderr.write('{"level":"error","message":"database idle connection failed"}\n'),
     );
   }
   return pool;
 }
 export function databasePoolSnapshot() {
-  return { total: pool?.totalCount ?? 0, idle: pool?.idleCount ?? 0,
-    waiting: pool?.waitingCount ?? 0, max: pool?.options.max ?? 10 };
+  return {
+    total: pool?.totalCount ?? 0,
+    idle: pool?.idleCount ?? 0,
+    waiting: pool?.waitingCount ?? 0,
+    max: pool?.options.max ?? 10,
+  };
 }
 export function getDatabase() {
   database ??= createPgDrizzleClient(getPool());
   return database;
 }
-export function withTransaction<T>(
-  operation: (tx: TransactionContext) => Promise<T>,
-): Promise<T> {
+export function withTransaction<T>(operation: (tx: TransactionContext) => Promise<T>): Promise<T> {
   return getDatabase().transaction(operation);
 }
 export async function closeDatabase() {

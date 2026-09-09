@@ -4,8 +4,12 @@ import { test } from "node:test";
 import { Manifest, VERSION, setLogger } from "release-please";
 import { checkReleaseCandidateChannel, checkReleaseVersion } from "../release-version-check.mjs";
 
-const config = JSON.parse(readFileSync(new URL("../../release-please-config.json", import.meta.url), "utf8"));
-const rootPackage = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
+const config = JSON.parse(
+  readFileSync(new URL("../../release-please-config.json", import.meta.url), "utf8"),
+);
+const rootPackage = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+);
 const previousSha = "a".repeat(40);
 const candidateSha = "b".repeat(40);
 const noop = () => {};
@@ -34,20 +38,38 @@ class ReleaseFixture {
 
   async getFileContentsOnBranch(path) {
     assert.ok(Object.hasOwn(this.files, path), `unexpected fixture read ${path}`);
-    return { parsedContent: this.files[path], content: Buffer.from(this.files[path]).toString("base64"), sha: previousSha };
+    return {
+      parsedContent: this.files[path],
+      content: Buffer.from(this.files[path]).toString("base64"),
+      sha: previousSha,
+    };
   }
 
   async getFileJson(path) {
     return JSON.parse((await this.getFileContentsOnBranch(path)).parsedContent);
   }
 
-  async *releaseIterator() { yield* this.releases; }
-  async *mergeCommitIterator() { yield* this.commits; }
-  async *tagIterator() { yield* []; }
-  async *pullRequestIterator() { yield* this.pullRequests; }
+  async *releaseIterator() {
+    yield* this.releases;
+  }
+  async *mergeCommitIterator() {
+    yield* this.commits;
+  }
+  async *tagIterator() {
+    yield* [];
+  }
+  async *pullRequestIterator() {
+    yield* this.pullRequests;
+  }
 
   async createRelease(release, options) {
-    const created = { id: this.created.length + 1, tagName: release.tag.toString(), sha: release.sha, draft: options.draft, url: "https://example.invalid/release" };
+    const created = {
+      id: this.created.length + 1,
+      tagName: release.tag.toString(),
+      sha: release.sha,
+      draft: options.draft,
+      url: "https://example.invalid/release",
+    };
     this.created.push({ release, options });
     return created;
   }
@@ -63,7 +85,9 @@ class ReleaseFixture {
     this.pullRequests.find((entry) => entry.number === number).labels.push(...labels);
   }
 
-  manifest() { return Manifest.fromManifest(this, "main"); }
+  manifest() {
+    return Manifest.fromManifest(this, "main");
+  }
 }
 
 test("fixtures use the same release-please version as the pinned action", () => {
@@ -99,12 +123,21 @@ for (const [current, message, expected, prerelease = false] of [
     }
     assert.equal(candidates.length, 1);
     const candidate = candidates[0];
-    const rendered = Object.fromEntries(candidate.updates.filter((update) => update.createIfMissing || Object.hasOwn(fixture.files, update.path)).map((update) => [update.path, update.updater.updateContent(fixture.files[update.path])]));
+    const rendered = Object.fromEntries(
+      candidate.updates
+        .filter((update) => update.createIfMissing || Object.hasOwn(fixture.files, update.path))
+        .map((update) => [update.path, update.updater.updateContent(fixture.files[update.path])]),
+    );
     assert.equal(JSON.parse(rendered["package.json"]).version, expected);
     assert.equal(JSON.parse(rendered[".release-please-manifest.json"])["."], expected);
     checkReleaseCandidateChannel(JSON.parse(fixture.files["release-please-config.json"]), expected);
     assert.ok(candidate.title.toString().includes(expected));
-    checkReleaseVersion(JSON.parse(fixture.files["release-please-config.json"]), JSON.parse(rendered[".release-please-manifest.json"]), JSON.parse(rendered["package.json"]), rendered["CHANGELOG.md"]);
+    checkReleaseVersion(
+      JSON.parse(fixture.files["release-please-config.json"]),
+      JSON.parse(rendered[".release-please-manifest.json"]),
+      JSON.parse(rendered["package.json"]),
+      rendered["CHANGELOG.md"],
+    );
     assert.ok(rendered["CHANGELOG.md"].includes(message.split("\n")[0].split(": ")[1]));
   });
 }
@@ -113,10 +146,17 @@ test("bootstrap excludes old history without forcing the first release number", 
   const fixture = new ReleaseFixture("0.1.0", "feat: 增加导出");
   fixture.releases = [];
   fixture.commits[1].sha = config["bootstrap-sha"];
-  fixture.commits.push({ sha: "c".repeat(40), message: "feat!: 历史变更", files: ["package.json"] });
+  fixture.commits.push({
+    sha: "c".repeat(40),
+    message: "feat!: 历史变更",
+    files: ["package.json"],
+  });
   const [candidate] = await (await fixture.manifest()).buildPullRequests();
   const packageUpdate = candidate.updates.find((update) => update.path === "package.json");
-  assert.equal(JSON.parse(packageUpdate.updater.updateContent(fixture.files["package.json"])).version, "0.1.1");
+  assert.equal(
+    JSON.parse(packageUpdate.updater.updateContent(fixture.files["package.json"])).version,
+    "0.1.1",
+  );
 });
 
 test("candidate validation rejects channel drift while ordinary validation permits a channel transition", () => {
@@ -124,35 +164,61 @@ test("candidate validation rejects channel drift while ordinary validation permi
   changed.packages["."].prerelease = true;
   checkReleaseVersion(changed, { ".": "0.1.0" }, { version: "0.1.0" });
   assert.throws(() => checkReleaseCandidateChannel(changed, "0.1.0"), /configured release channel/);
-  assert.throws(() => checkReleaseCandidateChannel(config, "0.1.1-rc.1"), /configured release channel/);
+  assert.throws(
+    () => checkReleaseCandidateChannel(config, "0.1.1-rc.1"),
+    /configured release channel/,
+  );
 });
 
-for (const prerelease of [false, true]) test(`draft creation preserves merge SHA and retry identity, prerelease=${prerelease}`, async () => {
-  const fixture = new ReleaseFixture("0.1.0", "feat: 增加导出", prerelease);
-  const [candidate] = await (await fixture.manifest()).buildPullRequests();
-  fixture.pullRequests = [{
-    number: 42, title: candidate.title.toString(), body: candidate.body.toString(),
-    headBranchName: candidate.headRefName, baseBranchName: "main", sha: candidateSha,
-    labels: ["autorelease: pending"], files: ["package.json", "CHANGELOG.md", ".release-please-manifest.json"],
-  }];
-  const [created] = await (await fixture.manifest()).createReleases();
-  assert.equal(created.id, 1);
-  assert.equal(created.sha, candidateSha);
-  assert.equal(created.tagName, prerelease ? "v0.1.1-rc.1" : "v0.1.1");
-  assert.equal(created.draft, true);
-  assert.equal(created.prNumber, 42);
-  assert.deepEqual(fixture.created[0].options, { draft: true, prerelease, forceTag: true });
-  assert.deepEqual(await (await fixture.manifest()).createReleases(), []);
-  assert.equal(fixture.created.length, 1);
-});
+for (const prerelease of [false, true])
+  test(`draft creation preserves merge SHA and retry identity, prerelease=${prerelease}`, async () => {
+    const fixture = new ReleaseFixture("0.1.0", "feat: 增加导出", prerelease);
+    const [candidate] = await (await fixture.manifest()).buildPullRequests();
+    fixture.pullRequests = [
+      {
+        number: 42,
+        title: candidate.title.toString(),
+        body: candidate.body.toString(),
+        headBranchName: candidate.headRefName,
+        baseBranchName: "main",
+        sha: candidateSha,
+        labels: ["autorelease: pending"],
+        files: ["package.json", "CHANGELOG.md", ".release-please-manifest.json"],
+      },
+    ];
+    const [created] = await (await fixture.manifest()).createReleases();
+    assert.equal(created.id, 1);
+    assert.equal(created.sha, candidateSha);
+    assert.equal(created.tagName, prerelease ? "v0.1.1-rc.1" : "v0.1.1");
+    assert.equal(created.draft, true);
+    assert.equal(created.prNumber, 42);
+    assert.deepEqual(fixture.created[0].options, { draft: true, prerelease, forceTag: true });
+    assert.deepEqual(await (await fixture.manifest()).createReleases(), []);
+    assert.equal(fixture.created.length, 1);
+  });
 
 test("version validation rejects drift, unsafe policy and missing release notes", () => {
   const pkg = { version: "0.1.0" };
   assert.equal(checkReleaseVersion(config, { ".": pkg.version }, pkg).version, pkg.version);
-  assert.throws(() => checkReleaseVersion(config, { ".": "0.2.0" }, pkg), /manifest and application/);
-  assert.throws(() => checkReleaseVersion(config, { ".": "0.2.0" }, { version: "0.2.0" }), /omit CHANGELOG/);
-  assert.throws(() => checkReleaseVersion(config, { ".": pkg.version }, pkg, "## [0.2.0]"), /latest CHANGELOG/);
-  for (const key of ["draft", "bump-minor-pre-major", "bump-patch-for-minor-pre-major", "include-v-in-tag", "force-tag-creation"]) {
+  assert.throws(
+    () => checkReleaseVersion(config, { ".": "0.2.0" }, pkg),
+    /manifest and application/,
+  );
+  assert.throws(
+    () => checkReleaseVersion(config, { ".": "0.2.0" }, { version: "0.2.0" }),
+    /omit CHANGELOG/,
+  );
+  assert.throws(
+    () => checkReleaseVersion(config, { ".": pkg.version }, pkg, "## [0.2.0]"),
+    /latest CHANGELOG/,
+  );
+  for (const key of [
+    "draft",
+    "bump-minor-pre-major",
+    "bump-patch-for-minor-pre-major",
+    "include-v-in-tag",
+    "force-tag-creation",
+  ]) {
     const changed = structuredClone(config);
     changed.packages["."][key] = false;
     assert.throws(() => checkReleaseVersion(changed, { ".": pkg.version }, pkg), /release policy/);

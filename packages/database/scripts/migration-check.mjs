@@ -2,9 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-export const migrationFolder = fileURLToPath(
-  new URL("../migrations/template/", import.meta.url),
-);
+export const migrationFolder = fileURLToPath(new URL("../migrations/template/", import.meta.url));
 export function assertMigrationSafety(journal, sqlFiles, sqlByFile) {
   if (
     journal.version !== "7" ||
@@ -24,9 +22,7 @@ export function assertMigrationSafety(journal, sqlFiles, sqlByFile) {
       typeof entry.breakpoints !== "boolean" ||
       !Number.isSafeInteger(entry.when) ||
       entry.when <= lastTime ||
-      !new RegExp(`^${String(index).padStart(4, "0")}_[-a-zA-Z0-9_]+$`).test(
-        entry.tag,
-      )
+      !new RegExp(`^${String(index).padStart(4, "0")}_[-a-zA-Z0-9_]+$`).test(entry.tag)
     )
       throw new Error(`Invalid migration journal entry ${index}`);
     lastTime = entry.when;
@@ -67,18 +63,11 @@ export async function checkMigrations({ update = false } = {}) {
   for (const entry of journal.entries) {
     const snapshot = JSON.parse(
       await readFile(
-        path.join(
-          migrationFolder,
-          "meta",
-          `${String(entry.idx).padStart(4, "0")}_snapshot.json`,
-        ),
+        path.join(migrationFolder, "meta", `${String(entry.idx).padStart(4, "0")}_snapshot.json`),
         "utf8",
       ),
     );
-    if (
-      snapshot.version !== journal.version ||
-      snapshot.dialect !== journal.dialect
-    )
+    if (snapshot.version !== journal.version || snapshot.dialect !== journal.dialect)
       throw new Error(`Snapshot metadata differs for ${entry.tag}`);
   }
   const actual = {};
@@ -95,22 +84,18 @@ export async function checkMigrations({ update = false } = {}) {
   }
   const priorJournal = previous.$journal || [];
   if (
-    JSON.stringify(journal.entries.slice(0, priorJournal.length)) !==
-    JSON.stringify(priorJournal)
+    JSON.stringify(journal.entries.slice(0, priorJournal.length)) !== JSON.stringify(priorJournal)
   )
     throw new Error("Immutable migration journal entries changed");
   for (const [file, hash] of Object.entries(previous)) {
     if (file === "$journal") continue;
     if (file === "meta/_journal.json" && update) continue;
-    if (actual[file] !== hash)
-      throw new Error(`Immutable migration changed: ${file}`);
+    if (actual[file] !== hash) throw new Error(`Immutable migration changed: ${file}`);
   }
   for (const entry of journal.entries)
-    if (!actual[`${entry.tag}.sql`])
-      throw new Error(`Missing migration ${entry.tag}`);
+    if (!actual[`${entry.tag}.sql`]) throw new Error(`Missing migration ${entry.tag}`);
   actual.$journal = journal.entries;
-  if (update)
-    await writeFile(manifestPath, `${JSON.stringify(actual, null, 2)}\n`);
+  if (update) await writeFile(manifestPath, `${JSON.stringify(actual, null, 2)}\n`);
   else if (
     JSON.stringify(
       Object.keys(previous)
@@ -126,10 +111,7 @@ export async function checkMigrations({ update = false } = {}) {
   for (const [file, expected] of Object.entries({
     ...original.migrations,
     ...Object.fromEntries(
-      Object.entries(original.snapshots).map(([name, hash]) => [
-        `meta/${name}`,
-        hash,
-      ]),
+      Object.entries(original.snapshots).map(([name, hash]) => [`meta/${name}`, hash]),
     ),
   })) {
     if (
@@ -140,10 +122,7 @@ export async function checkMigrations({ update = false } = {}) {
       throw new Error(`Historical migration changed: ${file}`);
   }
   const upgrade = JSON.parse(
-    await readFile(
-      path.join(historical, "legacy-upgrade/integrity.json"),
-      "utf8",
-    ),
+    await readFile(path.join(historical, "legacy-upgrade/integrity.json"), "utf8"),
   );
   for (const [file, expected] of Object.entries(upgrade))
     if (

@@ -88,8 +88,7 @@ export function createAsyncConsumerOptions(input: {
   });
   return {
     consumerGroup: input.consumerGroup || env.kafkaConsumerGroupId,
-    workerId:
-      input.workerId || process.env.WORKER_ID || `worker-${process.pid}`,
+    workerId: input.workerId || process.env.WORKER_ID || `worker-${process.pid}`,
     defaultMaxAttempts: env.asyncTaskDefaultMaxAttempts,
     retryBaseMs: env.asyncTaskRetryBaseMs,
     retryMaxMs: env.asyncTaskRetryMaxMs,
@@ -176,15 +175,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const explicitDryRun = flagEnabled(args, "--dry-run") || process.env.OUTBOX_DRY_RUN === "1";
     const env = loadWorkerEnv({ allowMissingPublisher: explicitDryRun });
     processOutboxOnce({
-      batchSize: Number(
-        flagValue(args, "--batch-size") || env.outboxBatchSize,
-      ),
-      dryRun:
-        explicitDryRun || env.outboxPublisher === "dry-run",
+      batchSize: Number(flagValue(args, "--batch-size") || env.outboxBatchSize),
+      dryRun: explicitDryRun || env.outboxPublisher === "dry-run",
     })
-      .then((result) =>
-        logger.info("worker command complete", { command, result }),
-      )
+      .then((result) => logger.info("worker command complete", { command, result }))
       .finally(() => closeDatabase())
       .catch((error) => {
         logger.error("worker command failed", { command, error });

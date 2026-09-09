@@ -3,5 +3,5 @@ packages:
   - packages/*
   - services/*
 overrides:
-  '@aws-sdk/xml-builder>fast-xml-parser': 5.11.1
+  "@aws-sdk/xml-builder>fast-xml-parser": 5.11.1
   esbuild@0.27.7: 0.28.2
