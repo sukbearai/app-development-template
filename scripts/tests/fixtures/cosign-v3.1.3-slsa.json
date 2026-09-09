@@ -1,0 +1,28 @@
+{
+  "recording": {
+    "cosignVersion": "v3.1.3",
+    "repository": "sukbearai/app-development-template",
+    "image": "ghcr.io/sukbearai/app-development-template-web@sha256:ea8b28ad0a47f03a8b19a92c3002a8b6f8553ee424813ab19ddcbcbf0b9563c2",
+    "verifiedAt": "2026-09-09T11:31:33.207Z",
+    "verificationArgs": [
+      "verify-attestation",
+      "--certificate-identity",
+      "https://github.com/sukbearai/app-development-template/.github/workflows/release.yml@refs/heads/main",
+      "--certificate-oidc-issuer",
+      "https://token.actions.githubusercontent.com",
+      "--type",
+      "slsaprovenance1",
+      "ghcr.io/sukbearai/app-development-template-web@sha256:ea8b28ad0a47f03a8b19a92c3002a8b6f8553ee424813ab19ddcbcbf0b9563c2"
+    ],
+    "note": "Recorded successful cosign verify-attestation output. Offline tests check predicate compatibility; they do not repeat signature verification."
+  },
+  "envelope": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjAuMSIsInN1YmplY3QiOlt7Im5hbWUiOiJnaGNyLmlvL3N1a2JlYXJhaS9hcHAtZGV2ZWxvcG1lbnQtdGVtcGxhdGUtd2ViIiwiZGlnZXN0Ijp7InNoYTI1NiI6ImVhOGIyOGFkMGE0N2YwM2E4YjE5YTkyYzMwMDJhOGI2Zjg1NTNlZTQyNDgxM2FiMTlkZGNiY2JmMGI5NTYzYzIifX1dLCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9zbHNhLmRldi9wcm92ZW5hbmNlL3YxIiwicHJlZGljYXRlIjp7ImJ1aWxkRGVmaW5pdGlvbiI6eyJidWlsZFR5cGUiOiJodHRwczovL3BzdGFjay5kZXYvcmVsZWFzZS92MSIsImV4dGVybmFsUGFyYW1ldGVycyI6eyJhcmNoaXZlIjp7ImJ5dGVzIjo3NTY4OTg4MTYsInBhdGgiOiJhcnRpZmFjdHMvcmVsZWFzZS1jYW5kaWRhdGUvd2ViLnRhciIsInNoYTI1NiI6ImI0YWZlZWU5ZWE1NzhkMWJmNzY4YTZlMmE5MmZhOWRhZDQ1YjkyNGIwMzE5NDRhMDgxNGMyZjFmMTJhMjdjZTIifSwicm9sZSI6IndlYiIsInNlY3VyaXR5Ijp7ImJ5dGVzIjoyNDUyLCJwYXRoIjoiYXJ0aWZhY3RzL3JlbGVhc2Uvc2VjdXJpdHkuanNvbiIsInNoYTI1NiI6IjgzMWE1ODYwNTYwZGE3NWQ0YjJjMGE1NDVlZjE0OThmYjQ3YWM2M2Q3OTY4NDY3Y2YyNzRjY2E4MDE2YTQzMzYifSwic291cmNlIjp7ImRpcnR5IjpmYWxzZSwiZ2l0U2hhIjoiNzcwZWQ3YjJkOTlhOGRmOTYxODcwOGI1N2I5ZWUwMDkyOTI4YWU5MyIsInNvdXJjZVNoYTI1NiI6IjIwYzQ3YzQ4OTk5NDBhYWI2NjdhNzAwYTJjODIwZDA3Mjc0MTIwYTRhOGFiYjU1NTM5YjRkZTAyMjVjNzcwMGYifX0sImludGVybmFsUGFyYW1ldGVycyI6e319LCJydW5EZXRhaWxzIjp7ImJ1aWxkZXIiOnsiaWQiOiJodHRwczovL2dpdGh1Yi5jb20vcHN0YWNrL3JlbGVhc2UifSwibWV0YWRhdGEiOnt9fX19",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+      {
+        "sig": "MEUCIQCVpEuuBbcBWGTnppHdwvVnXzFq35O3tW09zeeMOZdjggIgY4naqJKIDLqGEVkQ1pFGn0HuKfxiQAjKrV+bLF50ui4="
+      }
+    ]
+  }
+}
