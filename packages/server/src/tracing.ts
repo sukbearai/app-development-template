@@ -9,6 +9,7 @@ import {
 import { registerProcessCleanup } from "@pstack/database/process-lifecycle";
 import { findApiOperation } from "@pstack/contracts/http";
 import { env } from "./env";
+import { rpcProcedurePath } from "./trpc-metrics";
 
 let initialization: Promise<void> | undefined;
 
@@ -30,8 +31,11 @@ export async function withHttpTrace(request: Request, handler: () => Promise<Res
   initialization ??= initializeTracing();
   await initialization;
   const operation = findApiOperation(request.method, new URL(request.url).pathname);
-  const method = operation?.method ?? "_OTHER";
-  const route = operation?.path ?? "unmatched";
+  const rpcPath = rpcProcedurePath(new URL(request.url).pathname);
+  const method =
+    operation?.method ??
+    (rpcPath && ["GET", "POST"].includes(request.method) ? request.method : "_OTHER");
+  const route = operation?.path ?? (rpcPath ? `/api/trpc/${rpcPath}` : "unmatched");
   const parent = propagation.extract(ROOT_CONTEXT, {
     traceparent: request.headers.get("traceparent") ?? "",
   });

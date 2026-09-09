@@ -63,11 +63,10 @@ export function fail(error: unknown, traceId: string) {
   );
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-returns -- This bounded transport decoder returns untrusted JSON for parseInput to validate.
-export async function readJson(request: Request): Promise<unknown> {
+export async function readJsonText(request: Request) {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get("content-type") || ""))
     throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "请求内容类型必须是 application/json");
-  if (!request.body) throw new ApiError(400, "INVALID_JSON", "请求体必须是有效 JSON");
+  if (!request.body) return "";
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -85,8 +84,14 @@ export async function readJson(request: Request): Promise<unknown> {
   } finally {
     reader.releaseLock();
   }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+// oxlint-disable-next-line anti-slop/no-unknown-returns -- This bounded transport decoder returns untrusted JSON for parseInput to validate.
+export async function readJson(request: Request): Promise<unknown> {
+  const body = await readJsonText(request);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return JSON.parse(body);
   } catch {
     throw new ApiError(400, "INVALID_JSON", "请求体必须是有效 JSON");
   }

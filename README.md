@@ -1,6 +1,6 @@
 # pstack-x
 
-基于 vinext、React 和 pnpm monorepo 的应用开发模板。提供数据库会话、RBAC 管理端、文件上传、审计、HTTP 契约、PostgreSQL 迁移、Kafka 后台任务和本地基础设施。通过 pstack 开发，项目技能负责实际启动与验证。
+基于 vinext、React 和 pnpm monorepo 的应用开发模板。提供数据库会话、RBAC 管理端、文件上传、审计、tRPC 内部接口与外部 HTTP 契约、PostgreSQL 迁移、Kafka 后台任务和本地基础设施。通过 pstack 开发，项目技能负责实际启动与验证。
 
 ## 本地启动
 

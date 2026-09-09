@@ -49,8 +49,8 @@ test("sends a typed operation over HTTP and returns a validated success", async 
 test("rejects invalid request values before contacting the server", async (t) => {
   const { client, requests } = await server(t, 401, denied);
   await assert.rejects(
-    client.POST("/api/auth/login", {
-      body: { account: "", password: "" },
+    client.POST("/api/telemetry", {
+      body: { event: "" },
     }),
     /too_small/,
   );
@@ -59,7 +59,7 @@ test("rejects invalid request values before contacting the server", async (t) =>
 
 test("preserves declared error responses for the caller", async (t) => {
   const { client } = await server(t, 401, denied);
-  const result = await client.GET("/api/auth/me");
+  const result = await client.GET("/api/system/metrics");
   assert.deepEqual(result.error, denied);
   assert.equal(result.data, undefined);
   assert.equal(result.response.status, 401);
@@ -75,17 +75,26 @@ test("rejects undocumented status codes", async (t) => {
   await assert.rejects(client.GET("/api/hello"), /Undeclared HTTP status 202/);
 });
 
-test("serializes path parameters and sends JSON bodies", async (t) => {
-  const { client, requests } = await server(t, 404, {
+test("sends telemetry JSON and validates its returned event", async (t) => {
+  const event = {
+    id: "telemetry_1",
+    event: "page.view",
+    payload: {},
     traceId: "sdk-test",
-    error: { code: "NOT_FOUND", message: "User missing" },
-  });
-  await client.PATCH("/api/admin/users/{id}", {
-    params: { path: { id: "user/with space" } },
-    body: { displayName: "SDK user" },
-  });
-  assert.equal(requests[0].url, "/api/admin/users/user%2Fwith%20space");
-  assert.deepEqual(JSON.parse(requests[0].body), { displayName: "SDK user" });
+    occurredAt: "2026-09-09T00:00:00Z",
+  };
+  const { client, requests } = await server(t, 201, { traceId: "sdk-test", data: event });
+  const result = await client.POST("/api/telemetry", { body: { event: "page.view", payload: {} } });
+  assert.deepEqual(result.data.data, event);
+  assert.equal(requests[0].url, "/api/telemetry");
+  assert.deepEqual(JSON.parse(requests[0].body), { event: "page.view", payload: {} });
+});
+
+test("rejects removed internal REST operations before sending a request", async (t) => {
+  const { client, requests } = await server(t, 401, denied);
+  await assert.rejects(client.GET("/api/auth/me"), /Unknown API operation/);
+  await assert.rejects(client.POST("/api/admin/users", { body: {} }), /Unknown API operation/);
+  assert.equal(requests.length, 0);
 });
 
 test("validates multipart file uploads with a caller-supplied serializer", async (t) => {

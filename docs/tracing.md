@@ -35,7 +35,7 @@ OTEL_ENABLED=true OTEL_SERVICE_NAME=pstack-local-proof \
   pnpm --filter @pstack/server exec tsx tests/fixtures/tracing.mjs
 ```
 
-The collector prints a `PATCH /api/admin/users/{id}` server span with status 500 and trace ID `0123456789abcdef0123456789abcdef`. The fixture intentionally throws to exercise error attribution. Its exception text and request secrets must be absent from the collector output. The response record and access log share the exported trace ID. Stop the disposable collector after inspecting the output.
+The collector prints a `POST /api/trpc/users.update` server span with status 500 and trace ID `0123456789abcdef0123456789abcdef`. The fixture intentionally throws to exercise error attribution. Its exception text and request secrets must be absent from the collector output. The response record and access log share the exported trace ID. Stop the disposable collector after inspecting the output.
 
 `pnpm --filter @pstack/server test:unit` also runs a real OTLP HTTP receiver and checks default-off behavior, propagation, log correlation, exporter authentication, sanitized payloads, shutdown flush and collector failure.
 

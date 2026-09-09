@@ -56,7 +56,7 @@ try {
   const result = spawnSync("docker", ["logs", name], { encoding: "utf8", timeout: 10000 });
   assert.equal(result.status, 0);
   const logs = result.stdout + result.stderr;
-  assert.match(logs, /PATCH \/api\/admin\/users\/\{id\}/);
+  assert.match(logs, /POST \/api\/trpc\/users\.update/);
   assert.match(logs, /0123456789abcdef0123456789abcdef/);
   assert.doesNotMatch(
     logs,

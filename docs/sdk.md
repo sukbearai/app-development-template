@@ -1,7 +1,7 @@
 # TypeScript SDK
 
 `@pstack/sdk` provides an `openapi-fetch` client for the HTTP operations in
-`packages/contracts/src/http.ts`. `openapi-typescript` generates its route, request,
+`packages/contracts/src/http.ts`. Internal business calls use tRPC and are not included in this SDK. `openapi-typescript` generates its route, request,
 and response types from `docs/openapi.json`.
 
 ```sh
@@ -23,11 +23,11 @@ client with an explicit origin. A browser caller can use `window.location.origin
 import { createApiClient } from "@pstack/sdk";
 
 const api = createApiClient({ baseUrl: "http://localhost:3000" });
-const { data, error, response } = await api.GET("/api/auth/me");
+const { data, error, response } = await api.GET("/api/system/health");
 if (error) {
   console.error(response.status, error.error.message);
 } else {
-  console.log(data.data.user);
+  console.log(data.data.status);
 }
 ```
 

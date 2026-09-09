@@ -5,8 +5,8 @@ process.pstackWebLifecycle = lifecycle;
 const { withAccessLog } = await import("../../src/logger.ts");
 const parent = "00-0123456789abcdef0123456789abcdef-0123456789abcdef-01";
 const response = await withAccessLog(
-  new Request("http://localhost/api/admin/users/private-user?token=query-secret", {
-    method: "PATCH",
+  new Request("http://localhost/api/trpc/users.update?token=query-secret", {
+    method: "POST",
     headers: {
       traceparent: parent,
       tracestate: "private=state-secret",

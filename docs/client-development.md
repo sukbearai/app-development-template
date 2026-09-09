@@ -2,17 +2,36 @@
 
 管理列表的首屏由服务端读取，权限在服务端页面与 HTTP 路由分别检查。用户和审计列表使用数据库分页、搜索、筛选和排序。TanStack Table 显示当前页，nuqs 更新 URL 并触发服务端导航。文件列表保留游标分页。页码分页适合跳页，期间出现新增或删除记录时，相邻页可能移动。
 
-## 调用 API
+## 调用内部业务接口
 
-使用 `apps/web/components/api-client.ts` 的 `requestJson`，传入 contracts 导出的响应 schema。成功和失败信封都在边界执行 Zod 校验。普通请求默认 30 秒超时，FormData 请求默认 120 秒；`timeoutMs` 可按操作覆盖。调用方的 AbortSignal 与超时合并，主动取消、超时、网络故障、HTTP 错误和错误响应结构可以分别处理。
+内部业务使用 tRPC 11。`packages/server/src/trpc-router.ts` 导出唯一的 `AppRouter` 类型，浏览器通过 `import type` 使用它，不导入服务端运行时代码。输入和输出继续由共享 Zod schema 校验。
 
-读取客户端数据使用 `useApiQuery`。默认缓存有效期 30 秒、保留期 10 分钟，窗口重新聚焦不自动刷新。后台任务状态页每 30 秒刷新一次。每个查询用稳定的 query key 表示资源及参数。
+组件通过 `useTRPC()` 获取类型化 query 和 mutation options，直接交给 TanStack Query：
 
-网络故障、超时、502 和 504 最多重试两次。429 和 503 必须带有效的 Retry-After 才重试。所有状态的 Retry-After 均不能超过 60 秒。400、401、403、409、取消和响应校验错误不重试。写入默认不自动重试。
+```tsx
+const trpc = useTRPC();
+const query = useQuery(
+  trpc.users.list.queryOptions(
+    { page: 1 },
+    {
+      trpc: { abortOnUnmount: true },
+    },
+  ),
+);
+const create = useMutation(trpc.users.create.mutationOptions());
+```
 
-写操作使用 `useApiMutation`。`invalidateKeys` 接受需要精确失效的 query key。服务端渲染的列表在写入成功后仍使用 `router.refresh()`。同一份列表不要同时引入第二套客户端缓存。
+不手写业务 URL、HTTP 方法、响应 schema 或 query key。缓存失效使用 `trpc.users.list.queryKey()` 等生成的 key。服务端渲染列表仍使用服务调用读取数据，写入成功后调用 `router.refresh()`。客户端缓存列表与 RSC 列表各自明确数据所有权。
 
-受保护操作返回 401 时，清空 QueryClient 并跳转登录；登录本身设置 `authentication: "public"`，保留账号或密码错误。XHR 和 Uppy 上传也使用同一会话失效处理器。退出登录清空用户缓存。
+传输默认 30 秒超时，覆盖响应头及正文读取。查询设置 `trpc.abortOnUnmount` 后，取消 TanStack Query 会中止实际 HTTP 请求。主动取消、超时、网络错误、HTTP 错误和错误响应结构由 `requestError` 统一分类。公共登录 mutation 设置 `meta: { authentication: "public" }`，避免将账号密码错误当成会话过期。受保护操作返回 401 时清空客户端缓存并跳转登录。
+
+查询默认有效期 30 秒、保留期 10 分钟，窗口聚焦不自动刷新。网络故障、超时、502 和 504 最多重试两次。429 和 503 必须带有效的 Retry-After 才重试，所有自动重试延迟上限为 60 秒。mutation 默认不重试。
+
+tRPC 入口为 `/api/trpc/[trpc]`，查询使用 GET、写入使用 POST。批量请求被拒绝，避免认证操作共享上下文。POST 按实际字节限制为 64 KiB，Cookie 写请求保留 Origin 检查。登录在读取正文前执行全局限流，解析后再执行账号限流。服务层继续执行事务内权限复核。
+
+## 外部 HTTP 与 SDK
+
+`/api/uploads`、`/api/telemetry`、`/api/system/health`、`/api/system/metrics` 和 `/api/hello` 保留标准 HTTP。OpenAPI 与 `@pstack/sdk` 只覆盖这些入口。新增内部业务 procedure 无需修改 OpenAPI 或生成 SDK。旧 `/api/auth/*` 和 `/api/admin/*` HTTP 路由已删除。
 
 ## 编写表单
 

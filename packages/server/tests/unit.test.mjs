@@ -154,8 +154,8 @@ test("request trace IDs preserve valid identities and replace invalid metadata b
 
 test("production login logs a database failure without exposing credentials to logs or clients", () => {
   const source = `
-    const { POST } = await import(${JSON.stringify(new URL("../../../apps/web/app/api/auth/login/route.ts", import.meta.url).href)});
-    const response = await POST(new Request('https://app.example/api/auth/login', {
+    const { handleTrpcRequest } = await import(${JSON.stringify(new URL("../src/trpc-handler.ts", import.meta.url).href)});
+    const response = await handleTrpcRequest(new Request('https://app.example/api/trpc/auth.login', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ account: 'failure-proof', password: 'synthetic-password-never-log' })
     }));
@@ -187,7 +187,7 @@ test("production login logs a database failure without exposing credentials to l
     .map((line) => JSON.parse(line))
     .find((line) => line.responseStatus);
   assert.equal(response.responseStatus, 500);
-  assert.equal(response.responseBody.error.code, "INTERNAL_ERROR");
+  assert.equal(response.responseBody.error.data.businessCode, "INTERNAL_ERROR");
   const errors = output.stderr
     .split("\n")
     .filter((line) => line.startsWith("{"))
@@ -198,7 +198,7 @@ test("production login logs a database failure without exposing credentials to l
     "the actual route must log its unknown failure once at LOG_LEVEL=error",
   );
   assert.equal(errors[0].level, "error");
-  assert.equal(errors[0].fields.traceId, response.responseBody.traceId);
+  assert.equal(errors[0].fields.traceId, response.responseBody.error.data.traceId);
   assert.match(JSON.stringify(errors[0]), /ECONNREFUSED/);
   assert.ok(
     errors[0].fields.error.frames.length > 0,
@@ -237,7 +237,7 @@ test("production diagnostics keep bounded causes and source locations without er
     const values = [wrapped, cyclic, deep, hostile, nonError, secret, null, 12n, undefined];
     const responses = [];
     for (const value of values) {
-      const response = await withAccessLog(new Request('https://app.example/api/auth/login', { method: 'POST' }), 'trace-safe', async () => { throw value; });
+      const response = await withAccessLog(new Request('https://app.example/api/uploads', { method: 'POST' }), 'trace-safe', async () => { throw value; });
       responses.push({ status: response.status, body: await response.json() });
     }
     const unknownCode = Object.assign(new Error(secret), { code: secret });
@@ -337,7 +337,7 @@ test("canonical deployment origins accept same-origin cookie writes and reject f
     import { env } from './src/env.ts';
     import { validateProductionConfig } from './src/production-config.ts';
     const results = ['https://app.example', 'https://evil.example', 'null'].map(origin => {
-      const request = new Request('http://internal:3000/api/auth/logout', {
+      const request = new Request('http://internal:3000/api/trpc/auth.logout', {
         method: 'POST', headers: { origin, cookie: sessionCookieName + '=test' }
       });
       try { assertSafeWriteOrigin(request); return 200; } catch (error) { return error.status; }
@@ -430,7 +430,7 @@ test("actual stream bytes enforce upload ceiling without content length", async 
 });
 test("HTTP boundary rejects an invalid success body", async () => {
   const response = await withAccessLog(
-    new Request("http://localhost/api/auth/login", { method: "POST" }),
+    new Request("http://localhost/api/uploads", { method: "POST" }),
     "trace",
     async () => Response.json({ traceId: "trace", data: { broken: true }, meta: {} }),
   );
@@ -438,7 +438,7 @@ test("HTTP boundary rejects an invalid success body", async () => {
 });
 
 test("HTTP boundary validates thrown API failures and preserves valid client errors", async () => {
-  const request = new Request("http://localhost/api/auth/login", { method: "POST" });
+  const request = new Request("http://localhost/api/uploads", { method: "POST" });
   const valid = await withAccessLog(request, "trace-client", async () => {
     throw new ApiError(401, "INVALID_CREDENTIALS", "凭据无效", { remaining: 2 });
   });
@@ -460,31 +460,31 @@ test("HTTP boundary validates thrown API failures and preserves valid client err
 });
 
 test("login route keeps origin and input rejection ahead of authentication", async () => {
-  const { POST } = await import("../../../apps/web/app/api/auth/login/route.ts");
-  const forbidden = await POST(
-    new Request("https://app.example/api/auth/login", {
+  const { handleTrpcRequest } = await import("../src/trpc-handler.ts");
+  const forbidden = await handleTrpcRequest(
+    new Request("https://app.example/api/trpc/auth.login", {
       method: "POST",
       headers: { cookie: "pstack_session=synthetic", origin: "https://evil.example" },
     }),
   );
   assert.equal(forbidden.status, 403);
-  assert.equal((await forbidden.json()).error.code, "CSRF_ORIGIN_INVALID");
+  assert.equal((await forbidden.json()).error.data.businessCode, "CSRF_ORIGIN_INVALID");
   assert.equal(forbidden.headers.get("set-cookie"), null);
-  const invalid = await POST(
-    new Request("https://app.example/api/auth/login", {
+  const invalid = await handleTrpcRequest(
+    new Request("https://app.example/api/trpc/auth.login", {
       method: "POST",
       headers: { "content-type": "text/plain" },
       body: "invalid",
     }),
   );
   assert.equal(invalid.status, 415);
-  assert.equal((await invalid.json()).error.code, "UNSUPPORTED_MEDIA_TYPE");
+  assert.equal((await invalid.json()).error.data.businessCode, "UNSUPPORTED_MEDIA_TYPE");
   assert.equal(invalid.headers.get("set-cookie"), null);
 });
 
 test("HTTP boundary removes undeclared output fields and preserves cookies", async () => {
   const response = await withAccessLog(
-    new Request("http://localhost/api/admin/users", { method: "POST" }),
+    new Request("http://localhost/api/uploads", { method: "POST" }),
     "trace",
     async () =>
       Response.json(
@@ -492,19 +492,19 @@ test("HTTP boundary removes undeclared output fields and preserves cookies", asy
           traceId: "trace",
           data: {
             id: "user",
-            account: "test",
-            displayName: "Test",
-            status: "enabled",
-            roleIds: [],
-            createdAt: new Date().toISOString(),
+            fileName: "test.txt",
+            mimeType: "text/plain",
+            sizeBytes: 4,
+            storageKey: "test-key",
+            uploadedAt: new Date().toISOString(),
             passwordHash: "synthetic-secret",
           },
           meta: {},
         },
-        { status: 201, headers: { "set-cookie": "test=value; HttpOnly" } },
+        { status: 200, headers: { "set-cookie": "test=value; HttpOnly" } },
       ),
   );
-  assert.equal(response.status, 201);
+  assert.equal(response.status, 200);
   assert.match(response.headers.get("set-cookie"), /test=value/);
   assert.equal("passwordHash" in (await response.json()).data, false);
 });

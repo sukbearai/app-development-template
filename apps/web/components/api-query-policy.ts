@@ -1,5 +1,6 @@
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { ApiRequestError } from "./api-client";
+import { requestError } from "./trpc-client";
 
 export type AuthenticationPolicy = "required" | "public";
 
@@ -10,6 +11,7 @@ export function handleApiSessionError(
   error: Error,
   authentication: AuthenticationPolicy = "required",
 ) {
+  error = requestError(error);
   if (authentication === "public" || !(error instanceof ApiRequestError) || error.status !== 401)
     return;
   const onSessionExpired = sessionHandlers.get(client);
@@ -24,6 +26,7 @@ function validRetryDelay(delay: number) {
 }
 
 export function retryApiQuery(failureCount: number, error: Error) {
+  error = requestError(error);
   if (failureCount >= 2 || !(error instanceof ApiRequestError)) return false;
   if (error.kind === "network" || error.kind === "timeout") return true;
   if (error.kind !== "http") return false;
@@ -33,6 +36,7 @@ export function retryApiQuery(failureCount: number, error: Error) {
 }
 
 export function apiQueryRetryDelay(attempt: number, error: Error) {
+  error = requestError(error);
   if (
     error instanceof ApiRequestError &&
     error.retryAfterMs !== undefined &&

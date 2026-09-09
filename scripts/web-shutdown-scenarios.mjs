@@ -6,6 +6,7 @@ import net from "node:net";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { Client } from "pg";
+import { createTestTrpcClient } from "./trpc-client.mjs";
 
 export async function verifyWebShutdown({ launch, env, output }) {
   const checks = [];
@@ -37,7 +38,7 @@ export async function verifyWebShutdown({ launch, env, output }) {
     await once(client, "connect");
     const body = '{"account":""}';
     client.write(
-      `POST /api/auth/login HTTP/1.1\r\nHost: ${address.host}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: keep-alive\r\n\r\n${body.slice(0, 5)}`,
+      `POST /api/trpc/auth.login HTTP/1.1\r\nHost: ${address.host}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: keep-alive\r\n\r\n${body.slice(0, 5)}`,
     );
     await delay(250);
     return { client, body, closed, response: () => response };
@@ -142,16 +143,11 @@ export async function verifyWebShutdown({ launch, env, output }) {
     );
 
     server = await launch();
-    const login = await fetch(`${base}/api/auth/login`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        account: env.UI_FLOW_ADMIN_ACCOUNT,
-        password: env.UI_FLOW_ADMIN_PASSWORD,
-      }),
+    const login = await createTestTrpcClient({ baseUrl: base }).auth.login.mutate({
+      account: env.UI_FLOW_ADMIN_ACCOUNT,
+      password: env.UI_FLOW_ADMIN_PASSWORD,
     });
-    assert.equal(login.status, 200);
-    const token = (await login.json()).data.token;
+    const token = login.token;
     const filename = `shutdown-${randomUUID()}.txt`;
     const bytes = "upload committed after client disconnect";
     const form = new FormData();

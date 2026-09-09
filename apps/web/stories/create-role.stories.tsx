@@ -36,7 +36,7 @@ export const Success: Story = {
 };
 
 export const Error: Story = {
-  parameters: { msw: { handlers: [http.post("/api/admin/roles", unavailableResponse)] } },
+  parameters: { msw: { handlers: [http.post("/api/trpc/roles.create", unavailableResponse)] } },
   async play({ canvasElement }) {
     const canvas = await submitRole(canvasElement);
     await expect(await canvas.findByRole("alert")).toHaveTextContent("角色服务暂时不可用");

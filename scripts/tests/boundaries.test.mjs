@@ -49,6 +49,16 @@ test("package boundary gate rejects builtins and relative cross-layer imports", 
     await writeFile(path.join(fixture, "packages/server/src/index.ts"), "export {};");
     await writeFile(
       path.join(fixture, "apps/web/components/client.tsx"),
+      '"use client"; import type { AppRouter } from "@pstack/server/trpc-router";',
+    );
+    assert.match(run(), /boundaries verified/);
+    await writeFile(
+      path.join(fixture, "apps/web/components/client.tsx"),
+      '"use client"; import { appRouter } from "@pstack/server/trpc-router";',
+    );
+    assert.throws(run, /browser/);
+    await writeFile(
+      path.join(fixture, "apps/web/components/client.tsx"),
       '"use client"; import "../../../packages/server/src/index";',
     );
     assert.throws(run);

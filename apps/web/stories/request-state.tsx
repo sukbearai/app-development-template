@@ -1,17 +1,13 @@
-import { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { roleSchema } from "@pstack/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { EmptyState, Section, StatusBadge } from "../components/admin/admin-ui";
 import { CardSkeleton } from "../components/skeleton";
-import { useApiQuery } from "../components/api-query";
+import { useTRPC } from "../components/trpc-client";
 
 function RoleRequest() {
-  const query = useApiQuery({
-    queryKey: ["storybook", "roles"],
-    schema: roleSchema.array(),
-    url: "/api/admin/roles",
-    fallbackMessage: "角色加载失败",
-  });
+  const trpc = useTRPC();
+  const query = useQuery(
+    trpc.roles.list.queryOptions(undefined, { retry: false, trpc: { abortOnUnmount: true } }),
+  );
   if (query.isPending)
     return (
       <div role="status" aria-label="正在加载角色">
@@ -41,17 +37,9 @@ function RoleRequest() {
 }
 
 export function RequestState() {
-  const [client] = useState(
-    () =>
-      new QueryClient({
-        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
-      }),
-  );
   return (
-    <QueryClientProvider client={client}>
-      <Section title="角色请求">
-        <RoleRequest />
-      </Section>
-    </QueryClientProvider>
+    <Section title="角色请求">
+      <RoleRequest />
+    </Section>
   );
 }

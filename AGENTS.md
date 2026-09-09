@@ -13,7 +13,7 @@ After installing dependencies, run `pnpm hooks:install` once per repository to e
 - `packages/server` owns authentication, authorization, application operations, storage and transport helpers. It must not import Web code.
 - `services/worker` owns Kafka delivery, durable task recovery and process shutdown. Its database handlers use the transaction client supplied by the worker.
 
-Browser modules cannot import server/database packages or credentials. Keep one schema authority per interface. Generate OpenAPI with `pnpm api:docs`; do not edit generated output manually. Add explicit route files and register their request/response schemas in `packages/contracts/src/http.ts`.
+Browser modules cannot import server/database runtime code or credentials. The browser may import `AppRouter` with `import type` from `@pstack/server/trpc-router`. Keep one schema authority per interface. Internal business APIs use tRPC procedures in `packages/server/src/trpc-router.ts`; preserve service authorization, transaction boundaries and Zod input/output validation. External HTTP routes remain explicitly registered in `packages/contracts/src/http.ts`. Generate their OpenAPI with `pnpm api:docs`; do not edit generated output manually.
 
 ## Verification
 

@@ -39,8 +39,7 @@ test("body decoding faults and malformed success contracts have distinct safe st
   assert.equal(broken.diagnostic.stage, "response_body");
   assert.equal(broken.diagnostic.name, "SyntaxError");
   const badContract = assessCapacityResponse("read", new Response(null, { status: 200 }), {
-    traceId: "trace_test",
-    data: 123,
+    result: { data: 123 },
   });
   assert.equal(badContract.outcome, "failed");
   assert.equal(badContract.diagnostic.stage, "response_contract");

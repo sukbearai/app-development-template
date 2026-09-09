@@ -4,7 +4,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { sourceSha256 } from "../../.agents/skills/verify-pstack-x/scripts/identity.mjs";
+import {
+  sourceHashes,
+  sourceSha256,
+} from "../../.agents/skills/verify-pstack-x/scripts/identity.mjs";
 
 test("production browser source identity includes styles and static assets", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "pstack-source-identity-"));
@@ -15,6 +18,12 @@ test("production browser source identity includes styles and static assets", asy
     await writeFile(path.join(root, "style.css"), "body { color: red }");
     await writeFile(path.join(root, "public/logo.svg"), "<svg/>");
     const original = sourceSha256(root);
+    execFileSync("git", ["-C", root, "add", "page.tsx"]);
+    await rm(path.join(root, "page.tsx"));
+    assert.equal(sourceHashes(root)["page.tsx"], null);
+    assert.notEqual(sourceSha256(root), original);
+    await writeFile(path.join(root, "page.tsx"), "export default () => null;");
+    assert.equal(sourceSha256(root), original);
     await writeFile(path.join(root, "style.css"), "body { color: blue }");
     const restyled = sourceSha256(root);
     assert.notEqual(restyled, original, "CSS changes must invalidate production source identity");

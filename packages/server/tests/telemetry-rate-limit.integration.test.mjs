@@ -13,7 +13,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const routeProcess = `
   import { POST as telemetry } from './apps/web/app/api/telemetry/route.ts';
-  import { POST as login } from './apps/web/app/api/auth/login/route.ts';
+  import { handleTrpcRequest as login } from './packages/server/src/trpc-handler.ts';
   import { closeDatabase } from './packages/database/src/client.ts';
   import { closeRedis } from './packages/server/src/redis-client.ts';
   import { sessionCookieName } from './packages/server/src/request-auth.ts';
@@ -31,7 +31,7 @@ const routeProcess = `
           controller.close();
         },
       }, { highWaterMark: 0 });
-      const request = new Request('http://localhost' + (action.login ? '/api/auth/login' : action.path ?? '/api/telemetry'), {
+      const request = new Request('http://localhost' + (action.login ? '/api/trpc/auth.login' : action.path ?? '/api/telemetry'), {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -129,8 +129,10 @@ test(
       };
       const assertLimited = (result) => {
         assert.equal(result.status, 429);
-        assert.equal(result.body.error.code, "RATE_LIMITED");
-        assert.ok(result.body.error.details.retryAfterSeconds > 0);
+        const error = result.body.error;
+        const details = error.data ?? error;
+        assert.equal(error.data ? details.businessCode : error.code, "RATE_LIMITED");
+        assert.ok(details.details.retryAfterSeconds > 0);
         assert.equal(result.reads, 0, "rejected request body must remain unread");
       };
 

@@ -10,6 +10,7 @@ import type {
 } from "react-hook-form";
 import { z } from "zod";
 import { ApiRequestError } from "@/components/api-client";
+import { requestError } from "@/components/trpc-client";
 
 const validationDetailsSchema = z.object({
   issues: z.array(
@@ -51,6 +52,7 @@ export function setSubmissionError<T extends FieldValues>(
   setError: UseFormSetError<T>,
   fields: FieldPath<T>[],
 ) {
+  if (error instanceof Error) error = requestError(error);
   setError("root", { message: error instanceof Error ? error.message : "提交失败，请重试" });
   if (!(error instanceof ApiRequestError) || error.code !== "VALIDATION_FAILED") return;
   const details = validationDetailsSchema.safeParse(error.details);

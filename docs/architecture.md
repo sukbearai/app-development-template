@@ -1,6 +1,6 @@
 # 应用模板架构
 
-Web 接收请求，先解析身份、校验来源和权限，再调用服务器用例。服务器用例通过 database 包完成一次业务写入。业务行、审计和 outbox 在同一 PostgreSQL 事务中提交。HTTP 结果在运行边界按 contracts 登记的 schema 验证，未知错误返回脱敏 500。
+Web 接收请求，先解析身份、校验来源和权限，再调用服务器用例。服务器用例通过 database 包完成一次业务写入。业务行、审计和 outbox 在同一 PostgreSQL 事务中提交。内部业务由 tRPC procedure 复用 contracts 的输入和输出 schema，浏览器类型直接从 AppRouter 推导。外部 HTTP 结果按 contracts 登记的 schema 验证。未知异常都返回脱敏错误，服务层权限及事务不依赖传输协议。
 
 浏览器只依赖 contracts 与 React 组件。database 不依赖 server，server 不依赖 Web。连接池归应用进程所有；worker 退出时停止认领并关闭连接。避免在请求中创建另一套数据库或 Kafka 连接。
 

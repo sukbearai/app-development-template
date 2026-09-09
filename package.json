@@ -85,18 +85,19 @@
     "node": ">=22.12"
   },
   "devDependencies": {
-    "pg": "8.21.0",
-    "typescript": "5.9.3",
-    "tsx": "4.21.0",
-    "@playwright/test": "1.63.0",
-    "@types/pg": "8.20.0",
+    "@axe-core/playwright": "4.11.1",
     "@oxlint/plugins": "1.78.0",
+    "@playwright/test": "1.63.0",
+    "@trpc/client": "11.18.0",
+    "@types/pg": "8.20.0",
     "jscpd": "5.1.2",
-    "oxlint": "1.78.0",
-    "release-please": "17.3.0",
-    "zod": "4.4.3",
-    "prettier": "3.9.6",
     "openapi-typescript": "7.13.0",
-    "@axe-core/playwright": "4.11.1"
+    "oxlint": "1.78.0",
+    "pg": "8.21.0",
+    "prettier": "3.9.6",
+    "release-please": "17.3.0",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3",
+    "zod": "4.4.3"
   }
 }

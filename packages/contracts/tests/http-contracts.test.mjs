@@ -14,6 +14,9 @@ import {
   asyncTaskEventMessageSchema,
   outboxEventSchema,
   uploadRequestSchema,
+  userSchema,
+  loginResponseSchema,
+  currentUserResponseSchema,
 } from "../src/index.ts";
 import { buildOpenApiDocument, jsonSchema } from "../src/openapi.ts";
 
@@ -52,7 +55,7 @@ test("request defaults are optional in OpenAPI input and required after parsing"
     ],
     ["TelemetryRequest", telemetryRequestSchema, { event: "page.view" }, ["payload"]],
   ]) {
-    const inputSchema = buildOpenApiDocument().components.schemas[name];
+    const inputSchema = jsonSchema(schema, "input");
     const outputSchema = jsonSchema(schema, "output");
     const parsed = schema.parse(input);
     for (const field of defaults) {
@@ -72,7 +75,7 @@ test("request schemas reject empty identifiers, short passwords, wrong enums and
     { ...valid, roleIds: [null] },
   ])
     assert.equal(createUserRequestSchema.safeParse(invalid).success, false);
-  const generated = buildOpenApiDocument().components.schemas.CreateUserRequest;
+  const generated = jsonSchema(createUserRequestSchema, "input");
   assert.equal(generated.properties.password.minLength, 8);
   assert.equal(generated.properties.account.minLength, 1);
   assert.deepEqual(generated.properties.status.enum, ["enabled", "disabled"]);
@@ -105,30 +108,23 @@ test("each operation rejects empty and unrelated successful response shapes", ()
       }
     }
   }
-  assert.deepEqual(parseApiResponse("postApiAdminUsers", 201, wrap(user)), wrap(user));
-  assert.throws(() =>
-    parseApiResponse("postApiAdminUsers", 201, wrap({ ...user, createdAt: "yesterday" })),
-  );
-  assert.throws(() => parseApiResponse("postApiAdminUsers", 201, wrap({ ...user, roleIds: [3] })));
+  assert.deepEqual(userSchema.parse(user), user);
+  assert.throws(() => userSchema.parse({ ...user, createdAt: "yesterday" }));
+  assert.throws(() => userSchema.parse({ ...user, roleIds: [3] }));
 });
 
 test("login and current-user responses have distinct token requirements", () => {
   const current = { session, user, roles: [], permissions: [] };
-  assert.deepEqual(parseApiResponse("getApiAuthMe", 200, wrap(current)), wrap(current));
-  assert.throws(() => parseApiResponse("postApiAuthLogin", 200, wrap(current)));
-  assert.deepEqual(
-    parseApiResponse("postApiAuthLogin", 200, wrap({ ...current, token: "session.secret" })),
-    wrap({ ...current, token: "session.secret" }),
-  );
+  assert.deepEqual(currentUserResponseSchema.parse(current), current);
+  assert.throws(() => loginResponseSchema.parse(current));
+  assert.deepEqual(loginResponseSchema.parse({ ...current, token: "session.secret" }), {
+    ...current,
+    token: "session.secret",
+  });
 });
 
-test("auth, permission, conflict, not-found, rate and size statuses are declared", () => {
+test("external REST auth, permission, rate and size statuses are declared", () => {
   for (const [operationId, statuses] of [
-    ["postApiAuthLogin", [400, 401, 403, 413, 429, 500]],
-    ["postApiAdminUsers", [401, 403, 409]],
-    ["postApiAdminRoles", [401, 403, 409]],
-    ["patchApiAdminUsersId", [404]],
-    ["patchApiAdminRolesId", [404]],
     ["postApiUploads", [401, 403, 413]],
     ["postApiTelemetry", [403, 413, 429]],
   ]) {
@@ -139,19 +135,51 @@ test("auth, permission, conflict, not-found, rate and size statuses are declared
     () => parseApiResponse("getApiHello", 201, { message: "Hello from vinext" }),
     /Undeclared HTTP status/,
   );
-  assert.throws(() => parseApiResponse("getApiAuthMe", 401, { traceId: "trace_1", error: {} }));
+  assert.throws(() => parseApiResponse("postApiUploads", 401, { traceId: "trace_1", error: {} }));
 });
 
-test("matching uses complete route segments and distinguishes methods", () => {
-  assert.equal(
-    findApiOperation("patch", "/api/admin/users/user_1")?.operationId,
-    "patchApiAdminUsersId",
-  );
-  assert.equal(findApiOperation("GET", "/api/admin/users/")?.operationId, "getApiAdminUsers");
-  assert.equal(findApiOperation("PATCH", "/api/admin/users/"), undefined);
-  assert.equal(findApiOperation("GET", "/api/admin/users/user_1"), undefined);
-  assert.equal(findApiOperation("PATCH", "/api/admin/users/user_1/extra"), undefined);
+test("external REST matching distinguishes methods and complete route segments", () => {
+  assert.equal(findApiOperation("post", "/api/uploads/")?.operationId, "postApiUploads");
+  assert.equal(findApiOperation("GET", "/api/uploads"), undefined);
+  assert.equal(findApiOperation("POST", "/api/uploads/extra"), undefined);
   assert.equal(findApiOperation("GET", "/api/hello")?.operationId, "getApiHello");
+});
+
+test("OpenAPI only publishes external REST operations and models", () => {
+  const document = buildOpenApiDocument();
+  assert.deepEqual(Object.keys(document.paths).sort(), [
+    "/api/hello",
+    "/api/system/health",
+    "/api/system/metrics",
+    "/api/telemetry",
+    "/api/uploads",
+  ]);
+  for (const path of [
+    "/api/auth/login",
+    "/api/auth/me",
+    "/api/auth/logout",
+    "/api/auth/password",
+    "/api/admin/users",
+    "/api/admin/roles",
+    "/api/admin/audit-logs",
+    "/api/admin/outbox-events",
+    "/api/admin/async-runtime-health",
+    "/api/trpc/users.list",
+  ]) {
+    for (const method of ["GET", "POST", "PATCH"])
+      assert.equal(findApiOperation(method, path), undefined);
+  }
+  for (const name of [
+    "User",
+    "Role",
+    "LoginResponse",
+    "CreateUserRequest",
+    "UserDirectorySuccess",
+    "AuditListSuccess",
+    "OutboxEvent",
+  ]) {
+    assert.equal(document.components.schemas[name], undefined);
+  }
 });
 
 test("multipart contract validates a File and generates a binary body field", () => {
@@ -191,7 +219,7 @@ test("message boundaries preserve required ownership and retry fields", () => {
   };
   assert.deepEqual(outboxEventSchema.parse(outbox), outbox);
   assert.equal(outboxEventSchema.safeParse({ ...outbox, maxAttempts: undefined }).success, false);
-  assert.ok(buildOpenApiDocument().components.schemas.OutboxEvent.required.includes("maxAttempts"));
+  assert.ok(jsonSchema(outboxEventSchema, "output").required.includes("maxAttempts"));
 });
 
 test("generic success constructor validates its concrete payload", () => {

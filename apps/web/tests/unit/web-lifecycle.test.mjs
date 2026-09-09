@@ -20,7 +20,7 @@ test("the application bridge drains accepted work before ending its actual pg Po
     await Promise.resolve();
     assert.equal(pool.ended, false);
     const rejected = await withAccessLog(
-      new Request("http://localhost/api/auth/login", { method: "POST" }),
+      new Request("http://localhost/api/telemetry", { method: "POST" }),
       "shutdown_test",
       async () => {
         assert.fail("New business work ran after draining began");

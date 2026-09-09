@@ -1,11 +1,39 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import ts from "typescript";
+import { appRouter } from "@pstack/server/trpc-router";
+import { handleTrpcRequest } from "@pstack/server/trpc-handler";
+import * as trpcRoute from "../app/api/trpc/[trpc]/route.ts";
 import { jsonSchema } from "@pstack/contracts/openapi";
 import { apiRoutes, buildOpenApiDocument, buildApiMarkdown } from "./api-contracts.mjs";
 
 const webRoot = new URL("../", import.meta.url);
 const root = new URL("../../", webRoot);
+const trpcRouteFile = "app/api/trpc/[trpc]/route.ts";
+const fallbackRouteFile = "app/api/[...segments]/route.ts";
+const expectedProcedures = {
+  "auth.login": "mutation",
+  "auth.me": "query",
+  "auth.logout": "mutation",
+  "auth.changePassword": "mutation",
+  "users.list": "query",
+  "users.create": "mutation",
+  "users.update": "mutation",
+  "users.resetPassword": "mutation",
+  "roles.list": "query",
+  "roles.create": "mutation",
+  "roles.update": "mutation",
+  "audit.list": "query",
+  "outbox.list": "query",
+  "runtime.health": "query",
+};
+const inputlessProcedures = new Set([
+  "auth.me",
+  "auth.logout",
+  "roles.list",
+  "outbox.list",
+  "runtime.health",
+]);
 const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
 
 async function listRouteFiles(directory, prefix = "app/api") {
@@ -62,7 +90,37 @@ assert.equal(
   apiRoutes.length,
   "Duplicate HTTP operation",
 );
-const explicit = routeFiles.filter((file) => file !== "app/api/[...segments]/route.ts");
+assert.ok(routeFiles.includes(trpcRouteFile), "tRPC adapter route is missing");
+assert.ok(routeFiles.includes(fallbackRouteFile), "Not-found fallback route is missing");
+assert.deepEqual(
+  routeFiles.filter((file) => file.includes("[")),
+  [fallbackRouteFile, trpcRouteFile].sort(),
+  "Only the registered tRPC route and not-found fallback may be dynamic",
+);
+assert.equal(trpcRoute.GET, handleTrpcRequest, "tRPC GET must bind the real fetch adapter");
+assert.equal(trpcRoute.POST, handleTrpcRequest, "tRPC POST must bind the real fetch adapter");
+const procedures = appRouter._def.procedures;
+assert.deepEqual(
+  Object.keys(procedures).sort(),
+  Object.keys(expectedProcedures).sort(),
+  "tRPC procedure inventory changed",
+);
+for (const [name, type] of Object.entries(expectedProcedures)) {
+  const definition = procedures[name]._def;
+  assert.equal(definition.type, type, `${name}: unexpected procedure type`);
+  assert.ok(definition.output, `${name}: output validation is missing`);
+  assert.equal(
+    definition.output.safeParse({}).success,
+    false,
+    `${name}: output parser accepts an empty response`,
+  );
+  assert.equal(
+    definition.inputs.length,
+    inputlessProcedures.has(name) ? 0 : 1,
+    `${name}: input parser count changed`,
+  );
+}
+const explicit = routeFiles.filter((file) => file !== fallbackRouteFile && file !== trpcRouteFile);
 assert.deepEqual(
   [...new Set(apiRoutes.map((operation) => operation.routeFile))].sort(),
   explicit,
@@ -71,8 +129,16 @@ assert.deepEqual(
 
 for (const file of routeFiles) {
   const source = await readFile(new URL(file, webRoot), "utf8");
-  if (file === "app/api/[...segments]/route.ts") {
+  if (file === fallbackRouteFile) {
     assert.match(source, /ROUTE_NOT_FOUND/, "catch-all must remain a not-found fallback");
+    continue;
+  }
+  if (file === trpcRouteFile) {
+    assert.deepEqual(
+      exportedMethods(source, file),
+      ["GET", "POST"],
+      "tRPC must expose only GET and POST",
+    );
     continue;
   }
   const operations = apiRoutes.filter((operation) => operation.routeFile === file);
@@ -124,5 +190,5 @@ for (const file of routeFiles) {
   }
 }
 console.log(
-  `contract check ok (${apiRoutes.length} operations; route methods, generated inputs and outputs)`,
+  `contract check ok (${apiRoutes.length} external REST operations; ${Object.keys(procedures).length} tRPC procedures; route methods, adapter bindings, generated inputs and outputs)`,
 );

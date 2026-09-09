@@ -1,16 +1,50 @@
+import { z } from "zod";
 import { tsImport } from "tsx/esm/api";
 import { capacityFailure, summarizeFailures } from "./capacity-diagnostics.mjs";
 
 const { parseApiResponse } = await tsImport("../packages/contracts/src/http.ts", import.meta.url);
 const operationIds = {
-  login: "postApiAuthLogin",
-  read: "getApiAdminRoles",
-  write: "postApiAdminRoles",
   upload: "postApiUploads",
   metrics: "getApiSystemMetrics",
 };
 
+const { loginResponseSchema, roleSchema } = await tsImport(
+  "../packages/contracts/src/schemas.ts",
+  import.meta.url,
+);
+const procedureData = {
+  login: loginResponseSchema,
+  read: z.array(roleSchema),
+  write: roleSchema,
+};
+
 export function parseCapacityResponse(operation, status, payload) {
+  const dataSchema = procedureData[operation];
+  if (dataSchema) {
+    if (status >= 400) {
+      return z
+        .object({
+          error: z.object({
+            message: z.string(),
+            code: z.number().int(),
+            data: z.object({
+              code: z.string().min(1),
+              httpStatus: z.literal(status),
+              businessCode: z.string().min(1),
+              traceId: z.string().min(1),
+            }),
+          }),
+          result: z.never().optional(),
+        })
+        .parse(payload);
+    }
+    return z
+      .object({
+        result: z.object({ data: dataSchema }),
+        error: z.never().optional(),
+      })
+      .parse(payload);
+  }
   return parseApiResponse(operationIds[operation], status, payload);
 }
 
@@ -73,9 +107,9 @@ export function assessCapacityResponse(operation, response, body) {
     /^[1-9]\d*$/.test(response.headers.get("retry-after") ?? "")
   )
     return { outcome: "upload_busy" };
-  const expected = operation === "write" ? 201 : 200;
-  return response.status === expected && payload?.data !== undefined && !payload.error
-    ? { outcome: "success" }
+  const data = procedureData[operation] ? payload.result?.data : payload.data;
+  return response.status === 200 && data !== undefined && !payload.error
+    ? { outcome: "success", data }
     : { outcome: "failed", diagnostic: capacityFailure("response_status") };
 }
 

@@ -4,7 +4,7 @@
 
 The workbench contains the production `CreateRoleForm` and a request example composed from `useApiQuery`, `CardSkeleton`, `EmptyState`, `Section` and `StatusBadge`. Both have empty, loading, error, success and slow network stories. Loading holds the request open. Slow network delays the response by 2.5 seconds.
 
-MSW handles `/api/admin/roles` inside the browser. Handlers validate form requests and response fixtures with the shared contracts. Unhandled `/api/` requests fail instead of reaching a backend. Each request story mounts its own query client, and MSW resets handlers between stories.
+MSW handles `/api/trpc/roles.list` inside the browser. Handlers validate form requests and response fixtures with the shared contracts. Unhandled `/api/` requests fail instead of reaching a backend. Each request story mounts its own query client, and MSW resets handlers between stories.
 
 Storybook aliases `next/navigation` to `.storybook/navigation.ts`. Its router records navigation calls without leaving the story. This alias exists only in the component configuration. The application uses its normal vinext router.
 

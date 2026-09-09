@@ -12,6 +12,7 @@ import {
   summarizeMetrics,
   summarizeRequests,
 } from "./capacity-summary.mjs";
+import { issueCapacityTrpc } from "./capacity-trpc.mjs";
 import { verifyCapacityOverload } from "./capacity-overload.mjs";
 
 export async function runCapacityWorkload({ env, options, signal }) {
@@ -88,20 +89,14 @@ export async function runCapacityWorkload({ env, options, signal }) {
       status: "active",
       permissionIds: ["admin.read"],
     };
-    const headers = {};
-    if (!login) headers.authorization = `Bearer ${token}`;
-    if (operation !== "read") headers["content-type"] = "application/json";
-    return call(login ? "/api/auth/login" : "/api/admin/roles", {
-      method: operation === "read" ? "GET" : "POST",
-      headers,
-      body:
-        operation === "read"
-          ? undefined
-          : JSON.stringify(
-              login
-                ? { account: env.UI_FLOW_ADMIN_ACCOUNT, password: env.UI_FLOW_ADMIN_PASSWORD }
-                : role,
-            ),
+    return issueCapacityTrpc({
+      baseUrl: env.APP_ORIGIN,
+      operation,
+      token,
+      input: login
+        ? { account: env.UI_FLOW_ADMIN_ACCOUNT, password: env.UI_FLOW_ADMIN_PASSWORD }
+        : role,
+      signal,
     });
   }
   async function phase(operation) {
@@ -130,20 +125,20 @@ export async function runCapacityWorkload({ env, options, signal }) {
             requestStage = "assertion";
             if (outcome === "success") {
               if (operation === "login") {
-                token = payload.data.token;
+                token = assessment.data.token;
               }
               if (operation === "write") {
                 assert.equal(
-                  payload.data.id,
+                  assessment.data.id,
                   `${prefix}_${index}`,
                   "Created role identity mismatch",
                 );
-                writes.push(payload.data.id);
+                writes.push(assessment.data.id);
               }
               if (operation === "upload") {
                 uploads.push({
-                  id: payload.data.id,
-                  storageKey: payload.data.storageKey,
+                  id: assessment.data.id,
+                  storageKey: assessment.data.storageKey,
                   filename: `${prefix}_${index}.txt`,
                 });
               }

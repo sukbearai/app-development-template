@@ -189,24 +189,38 @@ test("only upload 503 UPLOAD_BUSY with retry instructions is expected shedding",
   );
   assert.equal(
     responseOutcome("read", new Response(null, { status: 200 }), {
-      traceId: "trace_capacity_test",
-      data: [],
+      result: { data: [] },
     }),
     "success",
   );
 });
 
 test("capacity rejects malformed successful envelopes using canonical operation contracts", () => {
-  const wrap = (data) => ({ traceId: "trace_capacity_test", data });
+  const wrap = (data) => ({ result: { data } });
   const response = new Response(null, { status: 200 });
-  for (const operation of ["login", "read", "upload"]) {
+  for (const operation of ["login", "read", "write"]) {
     assert.equal(responseOutcome(operation, response, wrap(123)), "failed");
     assert.throws(() => parseCapacityResponse(operation, 200, wrap(123)));
   }
-  assert.equal(responseOutcome("write", new Response(null, { status: 201 }), wrap(123)), "failed");
-  assert.throws(() => parseCapacityResponse("metrics", 200, wrap({ version: 1 })));
+  assert.equal(
+    responseOutcome("upload", response, { traceId: "trace_capacity_test", data: 123 }),
+    "failed",
+  );
+  assert.throws(() =>
+    parseCapacityResponse("metrics", 200, { traceId: "trace_capacity_test", data: { version: 1 } }),
+  );
   assert.equal(responseOutcome("read", response, wrap([{ id: "role_1" }])), "failed");
   assert.deepEqual(parseCapacityResponse("read", 200, wrap([])), wrap([]));
+  assert.equal(responseOutcome("read", response, { data: [] }), "failed");
+  assert.equal(responseOutcome("read", response, { ...wrap([]), error: {} }), "failed");
+  const role = {
+    id: "capacity_role",
+    name: "Capacity reader",
+    status: "active",
+    permissionIds: ["admin.read"],
+  };
+  assert.equal(responseOutcome("write", response, wrap(role)), "success");
+  assert.equal(responseOutcome("write", new Response(null, { status: 201 }), wrap(role)), "failed");
 });
 
 test("fast admission rejections cannot hide successful upload tail latency", () => {

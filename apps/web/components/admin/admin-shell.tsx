@@ -15,13 +15,11 @@ import {
   UsersRound,
   X,
 } from "lucide-react";
-import { logoutResponseSchema } from "@pstack/contracts/http";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useApiMutation } from "@/components/api-query";
-import { requestJson } from "@/components/api-client";
+import { useTRPC } from "@/components/trpc-client";
 
 type AdminShellProps = {
   accountName: string;
@@ -125,13 +123,8 @@ export function AdminShell({ accountName, displayName, permissions, children }: 
   const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const logoutMutation = useApiMutation({
-    mutationFn: () =>
-      requestJson("/api/auth/logout", logoutResponseSchema, {
-        method: "POST",
-        body: JSON.stringify({}),
-      }),
-  });
+  const trpc = useTRPC();
+  const logoutMutation = useMutation(trpc.auth.logout.mutationOptions());
   const [navOpen, setNavOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");

@@ -5,9 +5,9 @@ import { LogIn } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useHydrated } from "@/components/use-hydrated";
-import { loginRequestSchema, loginResponseSchema, type LoginRequest } from "@pstack/contracts";
-import { useApiMutation } from "@/components/api-query";
-import { requestJson } from "@/components/api-client";
+import { loginRequestSchema, type LoginRequest } from "@pstack/contracts";
+import { useMutation } from "@tanstack/react-query";
+import { useTRPC } from "@/components/trpc-client";
 import { FormField, setSubmissionError } from "@/components/admin/form-field";
 
 function nextPath() {
@@ -29,14 +29,10 @@ export function LoginForm() {
   });
   const { register, handleSubmit, setError, formState } = form;
   const message = formState.errors.root?.message;
-  const login = useApiMutation({
-    authentication: "public",
-    mutationFn: (data: LoginRequest) =>
-      requestJson("/api/auth/login", loginResponseSchema, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-  });
+  const trpc = useTRPC();
+  const login = useMutation(
+    trpc.auth.login.mutationOptions({ meta: { authentication: "public" } }),
+  );
 
   async function submit(data: LoginRequest) {
     try {

@@ -20,7 +20,7 @@ Run `test:unit` for local behavior and `test:integration` for disposable Postgre
 
 Password characters, including surrounding spaces, are preserved by login, user creation, rotation and bootstrap. Login and current-password verification preserve compatibility with existing longer passwords. New user and API replacement passwords require 8–256 characters; bootstrap and operator recovery require 16–256. Older API-created passwords were trimmed before hashing: enter that stored trimmed value, or replace the password. There is no automatic trimming fallback.
 
-`POST /api/auth/password` accepts `{currentPassword,newPassword}` and returns `{reauthenticate:true}` inside the normal success envelope. It verifies the current password and revokes every session, including the caller's session. `POST /api/admin/users/{id}/password` accepts `{newPassword}` and returns `{updated:true}`. It requires `admin.write` and rejects resetting the caller's own account; use the current-password operation for that. Both writes revalidate the session under the identity transaction lock, reject a changed credential snapshot, and atomically record the password hash, session revocations, audit and outbox event. Passwords and hashes are excluded from those events.
+`auth.changePassword` accepts `{currentPassword,newPassword}` and returns `{reauthenticate:true}` through tRPC. It verifies the current password and revokes every session, including the caller's session. `users.resetPassword` accepts `{id,newPassword}` and returns `{updated:true}`. It requires `admin.write` and rejects resetting the caller's own account; use the current-password operation for that. Both writes revalidate the session under the identity transaction lock, reject a changed credential snapshot, and atomically record the password hash, session revocations, audit and outbox event. Passwords and hashes are excluded from those events.
 
 An operator with database credentials can recover an existing enabled administrator with modern scrypt credentials:
 
@@ -44,3 +44,7 @@ Upload I/O now runs outside the identity lock, between short begin and final aut
 Local writes sync the file, rename, and sync the directory/ancestors; deletion syncs its directory. Tests exercise actual filesystem calls, not power loss. Cleanup uses bounded keyset pages, excludes terminal and blocked rows from automatic rescanning, and records location changes so they do not starve current-location work.
 
 Existing login/current passwords retain historical length compatibility and exact characters. New passwords are 8–256 characters; bootstrap/operator recovery require 16–256. No whitespace fallback is used for old credentials that were originally trimmed at creation.
+
+## Internal tRPC transport
+
+`trpc-router.ts` owns AppRouter and the domain routers. `trpc-handler.ts` adapts Web Requests, enforces request size, origin and login admission, and preserves cookies and trace headers. Procedures use existing services and Zod parsers. The Web route exports this handler for GET and POST. Browser imports of AppRouter must be type-only. External REST remains in the contracts operation registry.

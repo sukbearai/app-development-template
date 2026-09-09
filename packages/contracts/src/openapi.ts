@@ -11,20 +11,9 @@ export function jsonSchema(schema: z.ZodType, io: "input" | "output") {
 }
 
 const models = {
-  User: schemas.userSchema,
-  Role: schemas.roleSchema,
-  Permission: schemas.permissionSchema,
-  AuthSession: schemas.authSessionSchema,
-  LoginResponse: schemas.loginResponseSchema,
   HealthStatus: schemas.healthStatusSchema,
-  AuditEvent: schemas.auditEventSchema,
   TelemetryEvent: schemas.telemetryEventSchema,
   FileAsset: schemas.fileAssetSchema,
-  OutboxEvent: schemas.outboxEventSchema,
-  AdminSummary: schemas.adminSummarySchema,
-  AsyncRuntimeHealth: schemas.asyncRuntimeHealthSchema,
-  AsyncTaskEventMessage: schemas.asyncTaskEventMessageSchema,
-  KafkaConsumerOffset: schemas.kafkaConsumerOffsetSchema,
   ApiFailure: apiFailureSchema,
 };
 

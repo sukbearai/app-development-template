@@ -7,7 +7,7 @@ test("metrics use dedicated bearer security without session or cookie alternativ
   const document = buildOpenApiDocument();
   assert.deepEqual(document.paths["/api/system/metrics"].get.security, [{ metricsBearerAuth: [] }]);
   assert.equal(document.components.securitySchemes.metricsBearerAuth.scheme, "bearer");
-  assert.deepEqual(document.paths["/api/auth/me"].get.security, [
+  assert.deepEqual(document.paths["/api/uploads"].post.security, [
     { bearerAuth: [] },
     { cookieAuth: [] },
   ]);

@@ -15,12 +15,19 @@ export function sourceHashes(root) {
     ),
   ].sort();
   return Object.fromEntries(
-    files.map((file) => [
-      file,
-      createHash("sha256")
-        .update(readFileSync(path.join(root, file)))
-        .digest("hex"),
-    ]),
+    files.map((file) => {
+      try {
+        return [
+          file,
+          createHash("sha256")
+            .update(readFileSync(path.join(root, file)))
+            .digest("hex"),
+        ];
+      } catch (error) {
+        if (error.code === "ENOENT") return [file, null];
+        throw error;
+      }
+    }),
   );
 }
 

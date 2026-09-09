@@ -4,8 +4,10 @@ import {
   userPageQuerySchema,
   auditPageQuerySchema,
   readPageSearchParams,
+  auditPageSchema,
 } from "../src/admin-pages.ts";
-import { buildOpenApiDocument } from "../src/openapi.ts";
+import { jsonSchema } from "../src/openapi.ts";
+import { userDirectorySchema } from "../src/http.ts";
 
 test("directory queries default, validate bounded pagination and reject repeated parameters", () => {
   assert.deepEqual(userPageQuerySchema.parse({}), {
@@ -34,23 +36,21 @@ test("directory queries default, validate bounded pagination and reject repeated
   );
 });
 
-test("OpenAPI publishes directory query parameters and page response envelopes", () => {
-  const document = buildOpenApiDocument();
-  const users = document.paths["/api/admin/users"].get;
-  assert.deepEqual(
-    users.parameters.map((parameter) => parameter.name),
-    ["page", "limit", "search", "direction", "status", "sort"],
-  );
-  assert.ok(
-    users.parameters.every((parameter) => parameter.in === "query" && parameter.required === false),
-  );
-  assert.ok(users.responses["400"]);
-  assert.equal(
-    document.components.schemas.AuditListSuccess.properties.data.properties.items.type,
-    "array",
-  );
-  assert.equal(
-    document.components.schemas.UserDirectorySuccess.properties.data.properties.total.type,
-    "integer",
-  );
+test("directory schemas retain optional inputs and complete page outputs for tRPC", () => {
+  const users = jsonSchema(userPageQuerySchema, "input");
+  assert.deepEqual(Object.keys(users.properties), [
+    "page",
+    "limit",
+    "search",
+    "direction",
+    "status",
+    "sort",
+  ]);
+  assert.equal(users.required?.length ?? 0, 0);
+  const audit = jsonSchema(auditPageSchema, "output");
+  const directory = jsonSchema(userDirectorySchema, "output");
+  assert.equal(audit.properties.items.type, "array");
+  assert.equal(directory.properties.total.type, "integer");
+  assert.equal(auditPageSchema.safeParse({}).success, false);
+  assert.equal(userDirectorySchema.safeParse({}).success, false);
 });

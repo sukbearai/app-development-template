@@ -2,6 +2,14 @@ import { test, expect } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createTestTrpcClient } from "../../../../scripts/trpc-client.mjs";
+
+const rpc = (request, headers = {}) =>
+  createTestTrpcClient({
+    baseUrl: `http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}`,
+    request,
+    headers,
+  });
 
 const account = process.env.UI_FLOW_ADMIN_ACCOUNT;
 const password = process.env.UI_FLOW_ADMIN_PASSWORD;
@@ -213,7 +221,7 @@ test("login: delayed JavaScript enables submission only after hydration", async 
     await page.getByLabel("密码").fill(password);
     const response = page.waitForResponse(
       (response) =>
-        new URL(response.url()).pathname === "/api/auth/login" &&
+        new URL(response.url()).pathname === "/api/trpc/auth.login" &&
         response.request().method() === "POST",
     );
     await button.click();
@@ -235,10 +243,7 @@ test("admin: new-user password cannot enter URL before hydration", async ({
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
   const base = `http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}`;
-  const login = await context.request.post(`${base}/api/auth/login`, {
-    data: { account, password },
-  });
-  expect(login.status()).toBe(200);
+  await rpc(context.request).auth.login.mutate({ account, password });
   const navigations = [];
   page.on("request", (request) => {
     if (!request.isNavigationRequest()) return;
@@ -291,41 +296,28 @@ test("password: administrator reset and self-service rotation revoke old session
   const resetPassword = " Reset-Password-43! ";
   const changedPassword = " Changed-Password-44! ";
   const base = `http://127.0.0.1:${process.env.PSTACK_VERIFY_PORT}`;
-  const adminLogin = await page.request.post("/api/auth/login", { data: { account, password } });
-  expect(adminLogin.status()).toBe(200);
-  const adminToken = (await adminLogin.json()).data.token;
-  const headers = { authorization: `Bearer ${adminToken}` };
+  const adminLogin = await rpc(page.request).auth.login.mutate({ account, password });
+  const admin = rpc(page.request, { authorization: `Bearer ${adminLogin.token}` });
   const roleId = `role_password_${suffix}`;
-  expect(
-    (
-      await page.request.post("/api/admin/roles", {
-        headers,
-        data: {
-          id: roleId,
-          name: "Password test",
-          permissionIds: ["admin.read"],
-          status: "active",
-        },
-      })
-    ).status(),
-  ).toBe(201);
-  const created = await page.request.post("/api/admin/users", {
-    headers,
-    data: {
-      account: userAccount,
-      displayName: "Password test",
-      password: initialPassword,
-      roleIds: [roleId],
-      status: "enabled",
-    },
+  await admin.roles.create.mutate({
+    id: roleId,
+    name: "Password test",
+    permissionIds: ["admin.read"],
+    status: "active",
   });
-  expect(created.status()).toBe(201);
-  const userId = (await created.json()).data.id;
-  const userLogin = await request.post("/api/auth/login", {
-    data: { account: userAccount, password: initialPassword },
+  const created = await admin.users.create.mutate({
+    account: userAccount,
+    displayName: "Password test",
+    password: initialPassword,
+    roleIds: [roleId],
+    status: "enabled",
   });
-  expect(userLogin.status()).toBe(200);
-  const oldToken = (await userLogin.json()).data.token;
+  const userId = created.id;
+  const userLogin = await rpc(request).auth.login.mutate({
+    account: userAccount,
+    password: initialPassword,
+  });
+  const oldToken = userLogin.token;
 
   await page.goto("/admin/users");
   const row = page.getByRole("row").filter({ hasText: userAccount });
@@ -333,19 +325,15 @@ test("password: administrator reset and self-service rotation revoke old session
   await row.getByLabel(`${userAccount} 的新密码`).fill(resetPassword);
   await row.getByRole("button", { name: "确认重置密码" }).click();
   await expect(row.getByRole("status")).toContainText("原有会话已撤销");
-  expect(
-    (
-      await request.get("/api/auth/me", { headers: { authorization: `Bearer ${oldToken}` } })
-    ).status(),
-  ).toBe(401);
-  expect(
-    (
-      await request.post("/api/auth/login", {
-        headers: { origin: base },
-        data: { account: userAccount, password: initialPassword },
-      })
-    ).status(),
-  ).toBe(401);
+  await expect(
+    rpc(request, { authorization: `Bearer ${oldToken}` }).auth.me.query(),
+  ).rejects.toMatchObject({ data: { httpStatus: 401 } });
+  await expect(
+    rpc(request, { origin: base }).auth.login.mutate({
+      account: userAccount,
+      password: initialPassword,
+    }),
+  ).rejects.toMatchObject({ data: { httpStatus: 401 } });
 
   await page.context().clearCookies();
   await page.goto("/login?next=/account");
@@ -359,20 +347,15 @@ test("password: administrator reset and self-service rotation revoke old session
   await page.getByLabel("确认新密码").fill(changedPassword);
   await page.getByRole("button", { name: "修改密码", exact: true }).click();
   await expect(page).toHaveURL(/\/login\?passwordChanged=1$/);
-  expect(
-    (
-      await request.post("/api/auth/login", {
-        headers: { origin: base },
-        data: { account: userAccount, password: resetPassword },
-      })
-    ).status(),
-  ).toBe(401);
-  const newLogin = await request.post("/api/auth/login", {
-    headers: { origin: base },
-    data: { account: userAccount, password: changedPassword },
+  const auth = rpc(request, { origin: base });
+  await expect(
+    auth.auth.login.mutate({ account: userAccount, password: resetPassword }),
+  ).rejects.toMatchObject({ data: { httpStatus: 401 } });
+  const newLogin = await auth.auth.login.mutate({
+    account: userAccount,
+    password: changedPassword,
   });
-  expect(newLogin.status()).toBe(200);
-  expect((await newLogin.json()).data.user.id).toBe(userId);
+  expect(newLogin.user.id).toBe(userId);
   expect(errors).toEqual([]);
 });
 
@@ -451,41 +434,25 @@ test("files: keyset navigation, invalid cursor and session pruning preserve live
       caret: "initial",
       animations: "disabled",
     });
-    const adminLogin = await page.request.post("/api/auth/login", {
-      headers: { origin: new URL(page.url()).origin },
-      data: { account, password },
-    });
-    expect(adminLogin.status()).toBe(200);
-    const headers = { authorization: `Bearer ${(await adminLogin.json()).data.token}` };
+    const adminLogin = await rpc(page.request, {
+      origin: new URL(page.url()).origin,
+    }).auth.login.mutate({ account, password });
+    const admin = rpc(page.request, { authorization: `Bearer ${adminLogin.token}` });
     const roleId = `${prefix}reader`;
     const readerPassword = "File-Reader-Password-57!";
-    expect(
-      (
-        await page.request.post("/api/admin/roles", {
-          headers,
-          data: {
-            id: roleId,
-            name: "File reader",
-            permissionIds: ["admin.read"],
-            status: "active",
-          },
-        })
-      ).status(),
-    ).toBe(201);
-    expect(
-      (
-        await page.request.post("/api/admin/users", {
-          headers,
-          data: {
-            account: roleId,
-            displayName: "File reader",
-            password: readerPassword,
-            roleIds: [roleId],
-            status: "enabled",
-          },
-        })
-      ).status(),
-    ).toBe(201);
+    await admin.roles.create.mutate({
+      id: roleId,
+      name: "File reader",
+      permissionIds: ["admin.read"],
+      status: "active",
+    });
+    await admin.users.create.mutate({
+      account: roleId,
+      displayName: "File reader",
+      password: readerPassword,
+      roleIds: [roleId],
+      status: "enabled",
+    });
     await page.context().clearCookies();
     await page.goto("/login?next=/admin/files");
     await page.getByLabel("账号", { exact: true }).fill(roleId);
@@ -561,11 +528,15 @@ test("directories: server pagination, filters and browser history preserve URL s
       fullPage: true,
       animations: "disabled",
     });
-    expect((await page.request.get("/api/admin/users?page=0")).status()).toBe(400);
-    expect((await page.request.get("/api/admin/audit-logs?page=1&page=2")).status()).toBe(400);
-    const audit = await page.request.get(`/api/admin/audit-logs?search=${prefix}&limit=100&page=2`);
-    expect(audit.status()).toBe(200);
-    expect((await audit.json()).data.items).toHaveLength(37);
+    const admin = rpc(page.request);
+    await expect(admin.users.list.query({ page: 0 })).rejects.toMatchObject({
+      data: { httpStatus: 400 },
+    });
+    await expect(admin.audit.list.query({ page: [1, 2] })).rejects.toMatchObject({
+      data: { httpStatus: 400 },
+    });
+    const audit = await admin.audit.list.query({ search: prefix, limit: 100, page: 2 });
+    expect(audit.items).toHaveLength(37);
   } finally {
     await database.query("delete from app_users where id like $1", [`${prefix}%`]);
     await database.query("delete from app_audit_logs where id like $1", [`${prefix}%`]);

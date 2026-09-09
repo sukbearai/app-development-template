@@ -12,8 +12,10 @@
 | Permissions                          | apps/web/app/admin/permissions                                           | Permission directory navigation                                                                                                                                                                 | .agents/skills/verify-pstack-x/scripts/app.spec.mjs   |
 | Runtime metrics and upload admission | apps/web/app/api/system/metrics, packages/server/src/upload-admission.ts | Dedicated credential rejection, unavailable database and real pool observations in server integration tests; owned production HTTP load and stalled upload saturation with `pnpm test:capacity` | scripts/verify-app.mjs, scripts/capacity-workload.mjs |
 
-Run `pnpm test:ui` for browser evidence and `pnpm test:e2e` for API rejection and persistence paths. `node scripts/verify-app.mjs --production --ui` runs the same eight browser flows against an owned production build before and after database restore. Production checks also exercise Web shutdown with admitted requests, blocked transactions, a disconnected upload client and a forced deadline. These commands own an ephemeral database. Optional middleware is covered separately.
+Run `pnpm test:ui` for browser evidence and `pnpm test:e2e` for API rejection and persistence paths. `node scripts/verify-app.mjs --production --ui` runs the same browser flows against an owned production build before and after database restore. Production checks also exercise Web shutdown with admitted requests, blocked transactions, a disconnected upload client and a forced deadline. These commands own an ephemeral database. Optional middleware is covered separately.
 
 ## Client development coverage
 
 The `dx.spec.mjs` suite covers field errors, axe scans, mobile keyboard focus, Uppy batch persistence, cancellation and bounded browser diagnostics. `app.spec.mjs` covers user and audit directory SQL pagination, URL filters and browser history. Both run through the same isolated development and production harness.
+
+Internal business calls now use 14 tRPC procedures. The browser suite exercises the typed client and cookie session behavior; smoke verifies authorization, malformed input, body limits and retired REST 404 responses. Contract checks separately validate the five retained REST operations and the tRPC adapter/procedure inventory.

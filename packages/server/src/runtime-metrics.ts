@@ -2,6 +2,7 @@ import { databasePoolSnapshot } from "@pstack/database/client";
 import { readDatabaseMetrics } from "@pstack/database/operational-metrics";
 import type { DatabaseMetrics, RuntimeMetrics } from "@pstack/contracts/runtime-metrics";
 import { httpMetricsSnapshot } from "./http-metrics";
+import { rpcMetricsSnapshot } from "./trpc-metrics";
 import { uploadAdmissionSnapshot } from "./upload-admission";
 
 const databaseCacheMs = 1000;
@@ -38,7 +39,7 @@ export async function runtimeMetricsSnapshot(): Promise<RuntimeMetrics> {
     },
     databasePool: databasePoolSnapshot(),
     uploads: uploadAdmissionSnapshot(),
-    http: httpMetricsSnapshot(),
+    http: [...httpMetricsSnapshot(), ...rpcMetricsSnapshot()],
     database,
   };
 }

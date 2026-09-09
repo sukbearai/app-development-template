@@ -1,20 +1,17 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   changePasswordRequestSchema,
-  changePasswordResponseSchema,
   resetUserPasswordRequestSchema,
-  resetUserPasswordResponseSchema,
-  type ChangePasswordRequest,
   type ResetUserPasswordRequest,
 } from "@pstack/contracts";
-import { useApiMutation } from "@/components/api-query";
-import { requestJson } from "@/components/api-client";
+import { useMutation } from "@tanstack/react-query";
+import { useTRPC } from "@/components/trpc-client";
 import { FormField, setSubmissionError } from "@/components/admin/form-field";
 import { useHydrated } from "@/components/use-hydrated";
 
@@ -37,13 +34,8 @@ export function ChangePasswordForm() {
   } = useForm<z.infer<typeof confirmedPasswordSchema>>({
     resolver: zodResolver(confirmedPasswordSchema),
   });
-  const changePassword = useApiMutation({
-    mutationFn: (data: ChangePasswordRequest) =>
-      requestJson("/api/auth/password", changePasswordResponseSchema, {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
-  });
+  const trpc = useTRPC();
+  const changePassword = useMutation(trpc.auth.changePassword.mutationOptions());
   async function submit(data: z.infer<typeof confirmedPasswordSchema>) {
     try {
       await changePassword.mutateAsync(changePasswordRequestSchema.parse(data));
@@ -105,7 +97,7 @@ export function ChangePasswordForm() {
 
 export function ResetUserPasswordForm({ userId, account }: { userId: string; account: string }) {
   const ready = useHydrated();
-  const formId = useId();
+  const formId = `reset-password-${userId}`;
   const [expanded, setExpanded] = useState(false);
   const [message, setMessage] = useState("");
   const {
@@ -117,18 +109,12 @@ export function ResetUserPasswordForm({ userId, account }: { userId: string; acc
   } = useForm<ResetUserPasswordRequest>({
     resolver: zodResolver(resetUserPasswordRequestSchema),
   });
-  const resetPassword = useApiMutation({
-    mutationFn: (data: ResetUserPasswordRequest) =>
-      requestJson(
-        `/api/admin/users/${encodeURIComponent(userId)}/password`,
-        resetUserPasswordResponseSchema,
-        { method: "POST", body: JSON.stringify(data) },
-      ),
-  });
+  const trpc = useTRPC();
+  const resetPassword = useMutation(trpc.users.resetPassword.mutationOptions());
   async function submit(data: ResetUserPasswordRequest) {
     setMessage("");
     try {
-      await resetPassword.mutateAsync(data);
+      await resetPassword.mutateAsync({ id: userId, ...data });
       reset();
       setMessage("密码已重置，原有会话已撤销");
     } catch (error) {

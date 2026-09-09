@@ -11,16 +11,14 @@ import { useHydrated } from "@/components/use-hydrated";
 import {
   createUserRequestSchema,
   createRoleRequestSchema,
-  roleSchema,
-  userSchema,
   type CreateUserRequest,
   type CreateRoleRequest,
   type Permission,
   type Role,
   type User,
 } from "@pstack/contracts";
-import { useApiMutation } from "@/components/api-query";
-import { requestJson } from "@/components/api-client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useTRPC } from "@/components/trpc-client";
 
 export function CreateUserForm({ roles }: { roles: Role[] }) {
   const router = useRouter();
@@ -37,10 +35,13 @@ export function CreateUserForm({ roles }: { roles: Role[] }) {
     defaultValues: { roleIds: [] },
   });
 
-  const create = useApiMutation({
-    mutationFn: (data: CreateUserRequest) =>
-      requestJson("/api/admin/users", userSchema, { method: "POST", body: JSON.stringify(data) }),
-  });
+  const trpc = useTRPC();
+  const cache = useQueryClient();
+  const create = useMutation(
+    trpc.users.create.mutationOptions({
+      onSuccess: () => cache.invalidateQueries({ queryKey: trpc.users.list.queryKey() }),
+    }),
+  );
 
   async function submit(data: CreateUserRequest) {
     setMessage("");
@@ -132,21 +133,22 @@ export function CreateUserForm({ roles }: { roles: Role[] }) {
 
 function StatusButton({
   mutate,
+  pending,
   enabled,
   icon,
 }: {
   mutate: () => Promise<User | Role>;
+  pending: boolean;
   enabled: boolean;
   icon: React.ReactNode;
 }) {
   const router = useRouter();
   const [message, setMessage] = useState("");
-  const update = useApiMutation({ mutationFn: mutate });
 
   async function updateStatus() {
     setMessage("");
     try {
-      await update.mutateAsync();
+      await mutate();
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "更新失败");
@@ -158,7 +160,7 @@ function StatusButton({
         className="button secondary table-action"
         type="button"
         onClick={updateStatus}
-        disabled={update.isPending}
+        disabled={pending}
       >
         {icon}
         {enabled ? "停用" : "启用"}
@@ -173,14 +175,22 @@ function StatusButton({
 }
 
 export function UserStatusButton({ user }: { user: User }) {
+  const trpc = useTRPC();
+  const cache = useQueryClient();
+  const update = useMutation(
+    trpc.users.update.mutationOptions({
+      onSuccess: () => cache.invalidateQueries({ queryKey: trpc.users.list.queryKey() }),
+    }),
+  );
   return (
     <StatusButton
+      pending={update.isPending}
       enabled={user.status === "enabled"}
       icon={<RefreshCw size={15} />}
       mutate={() =>
-        requestJson(`/api/admin/users/${encodeURIComponent(user.id)}`, userSchema, {
-          method: "PATCH",
-          body: JSON.stringify({ status: user.status === "enabled" ? "disabled" : "enabled" }),
+        update.mutateAsync({
+          id: user.id,
+          status: user.status === "enabled" ? "disabled" : "enabled",
         })
       }
     />
@@ -202,10 +212,13 @@ export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
     defaultValues: { permissionIds: [] },
   });
 
-  const create = useApiMutation({
-    mutationFn: (data: CreateRoleRequest) =>
-      requestJson("/api/admin/roles", roleSchema, { method: "POST", body: JSON.stringify(data) }),
-  });
+  const trpc = useTRPC();
+  const cache = useQueryClient();
+  const create = useMutation(
+    trpc.roles.create.mutationOptions({
+      onSuccess: () => cache.invalidateQueries({ queryKey: trpc.roles.list.queryKey() }),
+    }),
+  );
 
   async function submit(data: CreateRoleRequest) {
     setMessage("");
@@ -278,14 +291,22 @@ export function CreateRoleForm({ permissions }: { permissions: Permission[] }) {
 }
 
 export function RoleStatusButton({ role }: { role: Role }) {
+  const trpc = useTRPC();
+  const cache = useQueryClient();
+  const update = useMutation(
+    trpc.roles.update.mutationOptions({
+      onSuccess: () => cache.invalidateQueries({ queryKey: trpc.roles.list.queryKey() }),
+    }),
+  );
   return (
     <StatusButton
+      pending={update.isPending}
       enabled={role.status === "active"}
       icon={<Check size={15} />}
       mutate={() =>
-        requestJson(`/api/admin/roles/${encodeURIComponent(role.id)}`, roleSchema, {
-          method: "PATCH",
-          body: JSON.stringify({ status: role.status === "active" ? "inactive" : "active" }),
+        update.mutateAsync({
+          id: role.id,
+          status: role.status === "active" ? "inactive" : "active",
         })
       }
     />

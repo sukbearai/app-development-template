@@ -96,7 +96,7 @@ test(
       ),
     );
     const [span] = resource.scopeSpans[0].spans;
-    assert.equal(span.name, "PATCH /api/admin/users/{id}");
+    assert.equal(span.name, "POST /api/trpc/users.update");
     assert.equal(span.traceId, "0123456789abcdef0123456789abcdef");
     assert.equal(span.parentSpanId, "0123456789abcdef");
     assert.equal(span.status.code, 2);

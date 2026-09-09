@@ -84,7 +84,7 @@ type ErrorDiagnostic = {
   frames?: { file: string; line: number; column: number }[];
   cause?: ErrorDiagnostic;
 };
-function errorDiagnostic(
+export function errorDiagnostic(
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Thrown values may be arbitrary; diagnostics only inspect Error instances.
   value: unknown,
   seen = new WeakSet<object>(),

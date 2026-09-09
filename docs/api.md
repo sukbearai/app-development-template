@@ -1,5 +1,7 @@
 # HTTP API
 
+本文只记录对外 REST 接口。应用内部的认证和管理操作通过 /api/trpc 调用，不进入 OpenAPI 或 REST SDK。
+
 本文和 openapi.json 由 packages/contracts/src/http.ts 登记的操作与 Zod schema 生成。执行 pnpm api:docs 更新。
 
 除 /api/hello 返回 message 外，响应包含 traceId 和 data；失败响应包含 traceId 和 error。健康检查的 503 仍返回 data，描述具体依赖状态。
@@ -9,23 +11,9 @@
 | 方法 | 路径 | 说明 | 响应状态 |
 | --- | --- | --- | --- |
 | `GET` | `/api/system/metrics` | 使用独立凭据读取进程和数据库聚合指标 | 200, 401, 500, 503 |
-| `POST` | `/api/auth/password` | 验证当前密码并修改密码，撤销所有会话 | 200, 400, 401, 403, 409, 413, 415, 429, 500, 503 |
-| `POST` | `/api/admin/users/{id}/password` | 管理员重置其他用户密码并撤销其所有会话 | 200, 400, 401, 403, 404, 409, 413, 415, 500, 503 |
-| `POST` | `/api/auth/login` | 账号密码登录 | 200, 400, 401, 403, 413, 415, 429, 500, 503 |
-| `GET` | `/api/auth/me` | 获取当前用户、角色和权限 | 200, 401, 500, 503 |
-| `POST` | `/api/auth/logout` | 退出登录并失效当前会话 | 200, 401, 403, 500, 503 |
 | `GET` | `/api/system/health` | 查询应用健康状态 | 200, 500, 503 |
-| `GET` | `/api/admin/users` | 分页搜索用户、角色和权限 | 200, 400, 401, 403, 500, 503 |
-| `POST` | `/api/admin/users` | 创建用户 | 201, 400, 401, 403, 409, 413, 415, 500, 503 |
-| `PATCH` | `/api/admin/users/{id}` | 更新用户 | 200, 400, 401, 403, 404, 409, 413, 415, 500, 503 |
-| `GET` | `/api/admin/roles` | 查询角色 | 200, 401, 403, 500, 503 |
-| `POST` | `/api/admin/roles` | 创建角色 | 201, 400, 401, 403, 409, 413, 415, 500, 503 |
-| `PATCH` | `/api/admin/roles/{id}` | 更新角色 | 200, 400, 401, 403, 404, 409, 413, 415, 500, 503 |
-| `GET` | `/api/admin/audit-logs` | 分页搜索审计日志 | 200, 400, 401, 403, 500, 503 |
-| `GET` | `/api/admin/outbox-events` | 查询 outbox 事件 | 200, 401, 403, 500, 503 |
-| `GET` | `/api/admin/async-runtime-health` | 查询异步运行时计划和任务积压 | 200, 401, 403, 500, 503 |
 | `POST` | `/api/uploads` | 上传文件并记录审计和 outbox | 200, 400, 401, 403, 413, 415, 500, 503 |
 | `POST` | `/api/telemetry` | 写入前端埋点事件 | 201, 400, 403, 413, 415, 429, 500, 503 |
 | `GET` | `/api/hello` | 验证 vinext HTTP 路由 | 200 |
 
-上传使用 multipart/form-data 的 file 字段，大小由 UPLOAD_MAX_BYTES 限制。每进程并发由 UPLOAD_MAX_CONCURRENT 限制，超限返回 503 UPLOAD_BUSY 和 Retry-After。匿名埋点和登录可能返回 429。默认值只在请求解析时应用，输出契约仍要求完整数据。
+上传使用 multipart/form-data 的 file 字段，大小由 UPLOAD_MAX_BYTES 限制。每进程并发由 UPLOAD_MAX_CONCURRENT 限制，超限返回 503 UPLOAD_BUSY 和 Retry-After。匿名埋点可能返回 429。默认值只在请求解析时应用，输出契约仍要求完整数据。

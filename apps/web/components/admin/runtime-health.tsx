@@ -1,19 +1,20 @@
 "use client";
 
-import { asyncRuntimeHealthSchema } from "@pstack/contracts";
-import { useApiQuery } from "@/components/api-query";
+import { useQuery } from "@tanstack/react-query";
+import { useTRPC, requestError } from "@/components/trpc-client";
 import { ApiRequestError } from "@/components/api-client";
 import { CardSkeleton } from "@/components/skeleton";
 
 export function RuntimeHealth() {
-  const query = useApiQuery({
-    queryKey: ["admin", "runtime-health"],
-    url: "/api/admin/async-runtime-health",
-    schema: asyncRuntimeHealthSchema,
-    staleTime: 10_000,
-    refetchInterval: 30_000,
-    fallbackMessage: "暂时无法获取任务状态",
-  });
+  const trpc = useTRPC();
+  const query = useQuery(
+    trpc.runtime.health.queryOptions(undefined, {
+      staleTime: 10_000,
+      refetchInterval: 30_000,
+      trpc: { abortOnUnmount: true },
+    }),
+  );
+  const error = query.error ? requestError(query.error) : null;
   if (query.isPending)
     return (
       <div aria-busy="true">
@@ -25,10 +26,8 @@ export function RuntimeHealth() {
     <section aria-label="任务状态">
       {query.isError && (
         <p role="alert">
-          {query.error.message}
-          {query.error instanceof ApiRequestError && query.error.traceId
-            ? `，追踪编号 ${query.error.traceId}`
-            : ""}
+          {error?.message}
+          {error instanceof ApiRequestError && error.traceId ? `，追踪编号 ${error.traceId}` : ""}
         </p>
       )}
       {query.data && (

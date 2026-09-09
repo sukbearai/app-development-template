@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
+import { createTestTrpcClient } from "../../../scripts/trpc-client.mjs";
 
 const base = process.env.SMOKE_BASE_URL;
 const account = process.env.UI_FLOW_ADMIN_ACCOUNT;
@@ -38,37 +39,46 @@ async function call(path, { method = "GET", body, token, cookie, origin, raw, tr
     cookie: response.headers.get("set-cookie")?.split(";")[0],
   };
 }
+const client = (headers = {}, onResponse) =>
+  createTestTrpcClient({ baseUrl: base, headers, onResponse });
+const anonymous = client();
+const expectStatus = (operation, status) =>
+  assert.rejects(operation, (error) => error.data?.httpStatus === status);
 assert.equal((await call("/api/hello")).status, 200);
-assert.equal((await call("/api/admin/users")).status, 401);
-assert.equal((await call("/api/auth/login", { method: "POST", raw: "{" })).status, 400);
-const login = await call("/api/auth/login", {
-  method: "POST",
-  body: { account, password },
-  origin: base,
-});
-assert.equal(login.status, 200, JSON.stringify(login.body));
-const token = login.body.data.token;
-const cookie = login.cookie;
+for (const [path, method] of [
+  ["/api/auth/login", "POST"],
+  ["/api/auth/me", "GET"],
+  ["/api/auth/logout", "POST"],
+  ["/api/auth/password", "POST"],
+  ["/api/admin/users", "GET"],
+  ["/api/admin/users", "POST"],
+  ["/api/admin/users/retired", "PATCH"],
+  ["/api/admin/users/retired/password", "POST"],
+  ["/api/admin/roles", "GET"],
+  ["/api/admin/roles", "POST"],
+  ["/api/admin/roles/retired", "PATCH"],
+  ["/api/admin/audit-logs", "GET"],
+  ["/api/admin/outbox-events", "GET"],
+  ["/api/admin/async-runtime-health", "GET"],
+]) {
+  assert.equal((await call(path, { method })).status, 404, `${method} ${path}`);
+}
+await expectStatus(anonymous.users.list.query({}), 401);
+assert.equal((await call("/api/trpc/auth.login", { method: "POST", raw: "{" })).status, 400);
+let cookie;
+const login = await client({ origin: base }, (response) => {
+  assert.equal(response.status, 200);
+  cookie = response.headers.get("set-cookie")?.split(";")[0];
+}).auth.login.mutate({ account, password });
+const token = login.token;
 assert.ok(token && cookie);
-assert.equal((await call("/api/auth/me", { token })).body.data.user.account, account);
+const admin = client({ authorization: `Bearer ${token}` });
+assert.equal((await admin.auth.me.query()).user.account, account);
 const forged = `${token.split(".")[0]}.forged-secret`;
-assert.equal(
-  (await call("/api/auth/logout", { method: "POST", token: forged, body: {} })).status,
-  200,
-);
-assert.equal((await call("/api/auth/me", { token })).status, 200);
+await client({ authorization: `Bearer ${forged}` }).auth.logout.mutate();
+assert.equal((await admin.auth.me.query()).user.account, account);
 checks.push("malformed input rejected; forged logout cannot revoke real session");
-assert.equal(
-  (
-    await call("/api/admin/roles", {
-      method: "POST",
-      cookie,
-      origin: "https://evil.invalid",
-      body: {},
-    })
-  ).status,
-  403,
-);
+await expectStatus(client({ cookie, origin: "https://evil.invalid" }).roles.create.mutate({}), 403);
 checks.push("cross-origin cookie write rejected");
 const suffix = String(Date.now());
 const role = {
@@ -77,7 +87,7 @@ const role = {
   permissionIds: ["admin.read"],
   status: "active",
 };
-assert.equal((await call("/api/admin/roles", { method: "POST", token, body: role })).status, 201);
+await admin.roles.create.mutate(role);
 const user = {
   account: `smoke_${suffix}`,
   displayName: "Smoke user",
@@ -85,56 +95,24 @@ const user = {
   roleIds: [role.id],
   status: "enabled",
 };
-const created = await call("/api/admin/users", { method: "POST", token, body: user });
-assert.equal(created.status, 201, JSON.stringify(created.body));
-const userId = created.body.data.id;
-assert.equal((await call("/api/admin/users", { method: "POST", token, body: user })).status, 409);
-const reader = await call("/api/auth/login", {
-  method: "POST",
-  body: { account: user.account, password: user.password },
+const created = await admin.users.create.mutate(user);
+const userId = created.id;
+await expectStatus(admin.users.create.mutate(user), 409);
+const readerLogin = await anonymous.auth.login.mutate({
+  account: user.account,
+  password: user.password,
 });
-assert.equal(reader.status, 200);
-const readerToken = reader.body.data.token;
-assert.equal((await call("/api/admin/users", { token: readerToken })).status, 200);
-assert.equal(
-  (await call("/api/admin/roles", { method: "POST", token: readerToken, body: role })).status,
-  403,
-);
-assert.equal(
-  (
-    await call(`/api/admin/roles/${role.id}`, {
-      method: "PATCH",
-      token,
-      body: { status: "inactive" },
-    })
-  ).status,
-  200,
-);
-assert.equal((await call("/api/admin/users", { token: readerToken })).status, 403);
+const reader = client({ authorization: `Bearer ${readerLogin.token}` });
+await reader.users.list.query({});
+await expectStatus(reader.roles.create.mutate(role), 403);
+await admin.roles.update.mutate({ id: role.id, status: "inactive" });
+await expectStatus(reader.users.list.query({}), 403);
 checks.push(
   "read-only role cannot write; inactive role immediately loses access; duplicate user conflicts",
 );
-assert.equal(
-  (
-    await call(`/api/admin/users/${userId}`, {
-      method: "PATCH",
-      token,
-      body: { status: "disabled" },
-    })
-  ).status,
-  200,
-);
-assert.equal(
-  (
-    await call(`/api/admin/users/${userId}`, {
-      method: "PATCH",
-      token,
-      body: { status: "enabled" },
-    })
-  ).status,
-  200,
-);
-assert.equal((await call("/api/auth/me", { token: readerToken })).status, 401);
+await admin.users.update.mutate({ id: userId, status: "disabled" });
+await admin.users.update.mutate({ id: userId, status: "enabled" });
+await expectStatus(reader.auth.me.query(), 401);
 checks.push("disabled then re-enabled user cannot reuse revoked session");
 const upload = new FormData();
 upload.set("file", new File(["smoke evidence"], `smoke-${suffix}.txt`, { type: "text/plain" }));
@@ -169,17 +147,17 @@ for (const length of [36, 2400, 6000]) {
 checks.push(
   "blank upload names fail before commit and oversized trace headers use safe server identities",
 );
-assert.equal((await call("/api/admin/audit-logs", { token })).status, 200);
-assert.equal((await call("/api/admin/outbox-events", { token })).status, 200);
-assert.equal((await call("/api/admin/async-runtime-health", { token })).status, 200);
+await admin.audit.list.query({});
+await admin.outbox.list.query();
+await admin.runtime.health.query();
 assert.equal(
   (await call("/api/telemetry", { method: "POST", body: { event: "smoke.completed", route: "/" } }))
     .status,
   201,
 );
 checks.push("upload, audit, outbox, runtime health and telemetry routes work");
-assert.equal((await call("/api/auth/logout", { method: "POST", token, body: {} })).status, 200);
-assert.equal((await call("/api/auth/me", { token })).status, 401);
+await admin.auth.logout.mutate();
+await expectStatus(admin.auth.me.query(), 401);
 const health = await call("/api/system/health");
 assert.equal(health.status, 200, JSON.stringify(health.body));
 assert.equal(health.body.data.status, "ok");
