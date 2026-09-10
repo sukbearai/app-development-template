@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/sukbearai/vibe-coding-template/compare/v0.2.4...v0.2.5) (2026-09-10)
+
+
+### Bug Fixes
+
+* **release:** 兼容历史清单门禁与仓库更名签名 ([81173e8](https://github.com/sukbearai/vibe-coding-template/commit/81173e8ca66df7740e4de956c31f6f9c35874c0b))
+
 ## [0.2.4](https://github.com/sukbearai/vibe-coding-template/compare/v0.2.3...v0.2.4) (2026-09-10)
 
 ### Features
