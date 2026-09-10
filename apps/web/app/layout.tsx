@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { env } from "@pstack/server/env";
-import { AppQueryProvider } from "@/components/query-provider";
-import { BrowserDiagnostics } from "@/components/browser-diagnostics";
-import { Notifications } from "@/components/notifications";
+import { AppQueryProvider } from "@/components/providers/query-provider";
+import { BrowserDiagnostics } from "@/components/providers/browser-diagnostics";
+import { Notifications } from "@/components/ui/notifications";
 import "./globals.css";
 
 export const metadata: Metadata = {

@@ -19,8 +19,8 @@ import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useTRPC } from "@/components/trpc-client";
-import { useHydrated } from "@/components/use-hydrated";
+import { useTRPC } from "@/lib/trpc-client";
+import { useHydrated } from "@/lib/hooks/use-hydrated";
 
 type AdminShellProps = {
   accountName: string;

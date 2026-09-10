@@ -1,15 +1,10 @@
 import { cookies } from "next/headers";
-import { requirePermission } from "@pstack/server/auth-service";
-import { listOutboxEvents } from "@pstack/server/product-service";
+import { requirePermission } from "@pstack/server/modules/identity/service";
+import { listOutboxEvents } from "@pstack/server/modules/outbox/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { RuntimeHealth } from "@/components/admin/runtime-health";
-import {
-  EmptyState,
-  PageHeader,
-  Section,
-  StatusBadge,
-  formatDateTime,
-} from "@/components/admin/admin-ui";
+import { RuntimeHealth } from "@/components/runtime/runtime-health";
+import { EmptyState, PageHeader, Section, StatusBadge } from "@/components/ui/page-layout";
+import { formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 

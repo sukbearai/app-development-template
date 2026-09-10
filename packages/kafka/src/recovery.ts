@@ -1,7 +1,7 @@
 import kafka, { type Admin } from "kafkajs";
 import { z } from "zod";
 import { readKafkaConfig } from "./index";
-import { asyncConsumerGroupSchema } from "@pstack/contracts";
+import { asyncConsumerGroupSchema } from "@pstack/contracts/async-contracts";
 const { ConfigResourceTypes, Kafka } = kafka;
 
 const offset = z.string().regex(/^(0|[1-9][0-9]*)$/);

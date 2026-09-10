@@ -1,18 +1,10 @@
-import { pageInfoSchema } from "./admin-pages.ts";
+import { uploadRequestSchema, fileAssetSchema } from "./modules/uploads/contracts.ts";
+import { helloResponseSchema, healthStatusSchema } from "./transport.ts";
+import { nonEmptyStringSchema, jsonRecordSchema } from "./primitives.ts";
 import { z } from "zod";
 import { runtimeMetricsSchema } from "./runtime-metrics.ts";
-import {
-  nonEmptyStringSchema,
-  jsonRecordSchema,
-  loginResponseSchema,
-  telemetryRequestSchema,
-  telemetryEventSchema,
-  userSchema,
-  roleSchema,
-  permissionSchema,
-  healthStatusSchema,
-  fileAssetSchema,
-} from "./schemas.ts";
+
+import { telemetryRequestSchema, telemetryEventSchema } from "./modules/telemetry/contracts.ts";
 
 export function apiSuccessSchema<T extends z.ZodType>(data: T) {
   return z.object({ traceId: nonEmptyStringSchema, data, meta: jsonRecordSchema.optional() });
@@ -26,16 +18,6 @@ export const apiFailureSchema = z.object({
     details: jsonRecordSchema.optional(),
   }),
 });
-
-export const currentUserResponseSchema = loginResponseSchema.omit({ token: true });
-export const userDirectorySchema = pageInfoSchema.extend({
-  users: z.array(userSchema),
-  roles: z.array(roleSchema),
-  permissions: z.array(permissionSchema),
-});
-export const logoutResponseSchema = z.object({ ok: z.literal(true) });
-export const helloResponseSchema = z.object({ message: z.literal("Hello from vinext") });
-export const uploadRequestSchema = z.object({ file: z.file() });
 
 const statusDescriptions = new Map<number, string>(
   Object.entries({

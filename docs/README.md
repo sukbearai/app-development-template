@@ -1,6 +1,8 @@
 # 文档入口
 
 - [架构与职责](architecture.md)
+- [目录与代码约定](conventions.md)
+- [业务开发步骤](module-development.md)
 - [运行、中间件、备份恢复](operations.md)
 - [生成的 HTTP 契约](api.md)
 - [数据库迁移](../packages/database/README.md)

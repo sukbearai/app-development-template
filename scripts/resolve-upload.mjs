@@ -31,7 +31,8 @@ export function parseResolveArguments(argv) {
 export async function main(argv = process.argv.slice(2)) {
   const options = parseResolveArguments(argv);
   loadEnvironment(root);
-  const { resolveBlockedUpload } = await import("../packages/server/src/product-service.ts");
+  const { resolveBlockedUpload } =
+    await import("../packages/server/src/modules/uploads/service.ts");
   const { closeDatabase } = await import("../packages/database/src/client.ts");
   const { closeRedis } = await import("../packages/server/src/redis-client.ts");
   const { closeS3 } = await import("../packages/server/src/s3-client.ts");

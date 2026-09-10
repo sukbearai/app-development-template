@@ -45,6 +45,7 @@
     "test:production": "node scripts/verify-app.mjs --production",
     "dependency:check": "node scripts/check-dependencies.mjs",
     "boundary:check": "node scripts/check-boundaries.mjs",
+    "conventions:check": "node scripts/check-conventions.mjs",
     "db:migrate:legacy": "node scripts/with-env.mjs pnpm --filter @pstack/database db:migrate:legacy",
     "test:containers": "node scripts/test-containers.mjs",
     "admin:recover": "node scripts/with-env.mjs pnpm --filter @pstack/server admin:recover",

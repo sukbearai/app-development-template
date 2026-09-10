@@ -9,7 +9,7 @@ const operationIds = {
 };
 
 const { loginResponseSchema, roleSchema } = await tsImport(
-  "../packages/contracts/src/schemas.ts",
+  "../packages/contracts/src/modules/identity/contracts.ts",
   import.meta.url,
 );
 const procedureData = {

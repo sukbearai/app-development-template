@@ -9,13 +9,13 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx --test tests/unit.test.mjs",
+    "test:unit": "node ../../scripts/run-tests.mjs unit",
     "db:generate": "drizzle-kit generate && node scripts/migration-check.mjs --update",
     "db:migrate": "tsx scripts/migrate.ts",
     "migration:check": "node scripts/migration-check.mjs",
     "db:integration": "tsx scripts/integration.ts",
     "db:migrate:legacy": "tsx scripts/migrate.ts --legacy-upgrade",
-    "test:integration": "tsx --test tests/*.integration.test.mjs tests/integration.test.mjs"
+    "test:integration": "node ../../scripts/run-tests.mjs integration"
   },
   "dependencies": {
     "zod": "4.4.3",

@@ -4,7 +4,7 @@
 
 安装依赖后，在仓库中执行一次 `pnpm hooks:install`。安装器仅设置仓库级 `core.hooksPath=.githooks`，可以重复执行。已有其他 hooksPath 或默认 hooks 目录中存在自定义文件时，安装器会停止，保留原配置和文件；先检查并整合已有钩子。安装不会修改全局 Git 配置。
 
-原生 `.githooks/pre-commit` 将整个暂存区导出到独立临时目录，然后用 shell 依次执行暂存 `package.json` 中的 `lint`、`duplication:check` 和 `dependency:check` 脚本。快照的 `node_modules/.bin` 加入 PATH，直接使用已安装工具，避免 pnpm 在快照中自动安装依赖。检查采用已暂存的源码、配置、基线和 vendor，复用本地安装的第三方依赖；workspace 包链接重新指向暂存快照，避免读取未暂存源码。部分暂存、删除文件和文件名空格均按将提交的内容检查，钩子不执行 stash、add 或自动修复。首次提交这些工具时，必须一并暂存配置、脚本、vendor 和 package.json；缺少必要文件、门禁脚本或依赖时提交失败。
+原生 `.githooks/pre-commit` 将整个暂存区导出到独立临时目录，然后用 shell 依次执行暂存 `package.json` 中的 `lint`、`duplication:check`、`dependency:check` 和 `conventions:check` 脚本。快照的 `node_modules/.bin` 加入 PATH，直接使用已安装工具，避免 pnpm 在快照中自动安装依赖。检查采用已暂存的源码、配置、基线和 vendor，复用本地安装的第三方依赖；workspace 包链接重新指向暂存快照，避免读取未暂存源码。部分暂存、删除文件和文件名空格均按将提交的内容检查，钩子不执行 stash、add 或自动修复。首次提交这些工具时，必须一并暂存配置、脚本、vendor 和 package.json；缺少必要文件、门禁脚本或依赖时提交失败。
 
 临时目录在完成或失败后清理。重复检查的 JSON 报告保存在被忽略的 `artifacts/quality/pre-commit/<本次运行目录>/`，文件路径映射回仓库，片段和行号对应暂存内容；工作区另有修改时，行号可能不同。同一目录的 `dependency-report.json` 保留 dpdm 的入口、循环和缺失导入结果，其源码路径相对于暂存快照。每次报告独立保存，需要时可删除旧报告。
 
@@ -44,8 +44,8 @@ jscpd 固定为 `5.1.2`。`.jscpd.json` 明确扫描 Web 的 app/components/lib�
 
 `.jscpd-baseline.json` 使用工具原生指纹及出现次数。当前初始化基线记录 4 处既有重复：
 
-- `apps/web/components/admin/admin-actions.tsx` 内三组表单提交或状态更新片段。
-- `packages/server/src/async-runtime-health-service.ts` 与 `services/worker/src/async-runtime.ts` 的异步运行配置字段及默认值。
+- `apps/web/components/identity/identity-actions.tsx` 内三组表单提交或状态更新片段。
+- `packages/server/src/runtime-health-config.ts` 与 `services/worker/src/async-runtime.ts` 的异步运行配置字段及默认值。
 
 这些条目保留既有实现，不代表应当复制。`pnpm duplication:check` 使用 `--fail-on-new-clones=0` 拒绝任何新增重复，包括已知片段的新增副本。检查前删除旧报告，工具失败、报告缺失或格式错误、空扫描、生产根目录缺失均失败。正常检查不会更新基线。
 
@@ -66,3 +66,13 @@ jscpd 固定为 `5.1.2`。`.jscpd.json` 明确扫描 Web 的 app/components/lib�
 dpdm 先将 TypeScript 转换为 JavaScript，因此仅有类型的导入和再导出不构成运行时循环；被擦除的类型引用由 `pnpm typecheck` 检查。每个模块使用最近的 tsconfig 解析别名。Node 内置模块和已解析的第三方依赖保留为外部边。只有 Web 内的 `next/headers`、`next/link`、`next/navigation` 可以使用 vinext 例外，且对应已安装的运行时 shim 文件必须存在。其他无法解析的内部或外部导入均失败。源码中的 `@dpdm-ignore` 注释也会失败，包括入口之外实际导入的本地源码。
 
 报告写入 `artifacts/quality/dependencies/report.json`，包含入口、扫描文件、循环、缺失导入、外部依赖和数量。检查前删除旧报告，解析异常不会留下上次通过的证据。命令不接受跳过选项。`pnpm test:tools` 中的真实临时项目覆盖循环、类型、动态导入、路由、别名、工作区包、缺失文件、空目录、vinext 例外和禁止忽略注释等路径。
+
+## 目录与模块约定
+
+生产源码通过 `.oxlintrc.json` 的 overrides 启用 `max-lines`，上限为 600，忽略空行与纯注释行。声明文件单独关闭这一条规则，测试与工具目录不在生产源码匹配范围内。`pnpm lint` 已被暂存快照与 CI 调用，无需额外行数脚本。`scripts/tests/file-size.test.mjs` 用真实 Oxlint 验证 600/601 行边界、空行注释和排除范围，并确认其他规则没有被关闭。
+
+`pnpm conventions:check` 检查业务模块落点、公共职责入口、私有引用、命名、环境读取和测试归属。它复用 source-scope 与共享 TypeScript 解析，识别类型导入、再导出和透明类型包装。配置入口允许路径由 scripts/convention-policy.mjs 明确列出，没有存量迁移豁免。
+
+测试发现器递归扫描执行环境目录。完整约定检查还拒绝有文件却没有默认执行入口的套件，以及非 server 的 web-runtime。单独执行 unit 不会误拒同 workspace 的 integration 文件。独立 collector、类型测试和资源生命周期继续由原命令负责。
+
+原生暂存快照在 lint、duplication、dependency 后执行 conventions。完整验证计划和 CI engineering 分支同样执行该检查。修改未暂存规则不能掩盖暂存违规。完整目录规则见[目录与代码约定](conventions.md)。

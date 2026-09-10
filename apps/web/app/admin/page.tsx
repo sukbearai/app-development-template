@@ -1,11 +1,11 @@
-import { listUsers } from "@pstack/server/auth-service";
-import { requirePermission } from "@pstack/server/auth-service";
-import { adminSummary } from "@pstack/server/product-service";
+import { listUsers, requirePermission } from "@pstack/server/modules/identity/service";
+
+import { adminSummary } from "@pstack/server/modules/runtime/service";
 import { cookies } from "next/headers";
 import { sessionCookieName } from "@pstack/server/request-auth";
 import { Activity, Archive, ClipboardList, FileUp, UsersRound } from "lucide-react";
-import { PageHeader, Section, StatCard, StatGrid, StatusBadge } from "@/components/admin/admin-ui";
-import { AdminResourceChart } from "@/components/admin/admin-charts";
+import { PageHeader, Section, StatCard, StatGrid, StatusBadge } from "@/components/ui/page-layout";
+import { AdminResourceChart } from "@/components/runtime/resource-chart";
 
 export const dynamic = "force-dynamic";
 

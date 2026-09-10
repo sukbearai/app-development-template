@@ -64,6 +64,10 @@ async function fixture(t) {
     "scripts/install-hooks.mjs",
     "scripts/check-duplication.mjs",
     "scripts/check-dependencies.mjs",
+    "scripts/check-conventions.mjs",
+    "scripts/convention-policy.mjs",
+    "scripts/source-analysis.mjs",
+    "scripts/test-discovery.mjs",
     "scripts/source-scope.mjs",
     "scripts/source-scope.json",
   ]) {
@@ -75,17 +79,21 @@ async function fixture(t) {
   const config = JSON.parse(await readFile(path.join(root, ".jscpd.json"), "utf8"));
   await writeFile(path.join(cwd, ".jscpd.json"), JSON.stringify(config));
   await writeFile(path.join(cwd, ".jscpd-baseline.json"), '{"version":1,"fingerprints":{}}\n');
-  await mkdir(path.join(cwd, "packages/server/src"), { recursive: true });
-  await writeFile(path.join(cwd, "packages/server/src/with spaces.ts"), good);
-  await writeFile(path.join(cwd, "packages/server/src/summary.ts"), sample);
-  for (const directory of ["apps/web/app", "apps/web/components", "apps/web/lib"])
+  await mkdir(path.join(cwd, "packages/server/src/modules/reports"), { recursive: true });
+  await writeFile(path.join(cwd, "packages/server/src/modules/reports/label.ts"), good);
+  await writeFile(path.join(cwd, "packages/server/src/modules/reports/summary.ts"), sample);
+  for (const directory of ["apps/web/app", "apps/web/components/ui", "apps/web/lib"])
     await mkdir(path.join(cwd, directory), { recursive: true });
   for (const file of [
     "apps/web/app/page.tsx",
-    "apps/web/components/button.tsx",
+    "apps/web/components/ui/button.tsx",
     "apps/web/lib/client.ts",
   ])
     await writeFile(path.join(cwd, file), good);
+  await writeFile(
+    path.join(cwd, "apps/web/package.json"),
+    JSON.stringify({ name: "@pstack/web", type: "module" }),
+  );
   for (const name of ["contracts", "database", "kafka", "server", "sdk", "worker"]) {
     const directory = `${name === "worker" ? "services" : "packages"}/${name}`;
     await mkdir(path.join(cwd, directory, "src"), { recursive: true });
@@ -158,37 +166,37 @@ test("installer refuses foreign configuration and default hooks, and is idempote
 test("real first commit, partial staging and deletions validate the index and clean temporary files", async (t) => {
   const cwd = await fixture(t);
   assert.equal(install(cwd).status, 0);
-  const file = path.join(cwd, "packages/server/src/with spaces.ts");
+  const file = path.join(cwd, "packages/server/src/modules/reports/label.ts");
   await writeFile(file, bad);
-  git(cwd, "add", "packages/server/src/with spaces.ts");
+  git(cwd, "add", "packages/server/src/modules/reports/label.ts");
   await writeFile(file, good);
   await unchangedAfterFailure(cwd, /no-chained-type-assertions/);
-  git(cwd, "add", "packages/server/src/with spaces.ts");
+  git(cwd, "add", "packages/server/src/modules/reports/label.ts");
   await writeFile(file, bad);
   const success = execute(cwd, "git", ["commit", "-m", "first staged commit"]);
   assert.equal(success.status, 0, success.output);
-  assert.equal(git(cwd, "show", "HEAD:packages/server/src/with spaces.ts"), good.trim());
+  assert.equal(git(cwd, "show", "HEAD:packages/server/src/modules/reports/label.ts"), good.trim());
   assert.equal(await readFile(file, "utf8"), bad);
   await assert.rejects(readdir(success.output.match(/checking the staged snapshot at (.+)/)[1]), {
     code: "ENOENT",
   });
   await writeFile(file, good);
   await writeFile(
-    path.join(cwd, "packages/server/src/remove me.ts"),
+    path.join(cwd, "packages/server/src/modules/reports/remove-target.ts"),
     good.replace("label", "other"),
   );
-  git(cwd, "add", "packages/server/src/remove me.ts");
+  git(cwd, "add", "packages/server/src/modules/reports/remove-target.ts");
   git(cwd, "commit", "-m", "add deletion target");
-  git(cwd, "rm", "packages/server/src/remove me.ts");
-  await writeFile(path.join(cwd, "packages/server/src/remove me.ts"), bad);
+  git(cwd, "rm", "packages/server/src/modules/reports/remove-target.ts");
+  await writeFile(path.join(cwd, "packages/server/src/modules/reports/remove-target.ts"), bad);
   git(cwd, "commit", "-m", "delete staged file");
-  assert.equal(git(cwd, "ls-files", "packages/server/src/remove me.ts"), "");
+  assert.equal(git(cwd, "ls-files", "packages/server/src/modules/reports/remove-target.ts"), "");
 });
 
 test("real duplicate blocks commit and preserves report paths after cleanup", async (t) => {
   const cwd = await fixture(t);
   assert.equal(install(cwd).status, 0);
-  await writeFile(path.join(cwd, "packages/server/src/duplicate.ts"), sample);
+  await writeFile(path.join(cwd, "packages/server/src/modules/reports/duplicate.ts"), sample);
   git(cwd, "add", "packages/server/src");
   const result = await unchangedAfterFailure(cwd, /new clones|new clones found/i);
   const reportFile = result.output.match(/staged report saved to (.+); line numbers/)[1];
@@ -196,8 +204,8 @@ test("real duplicate blocks commit and preserves report paths after cleanup", as
   assert.ok(report.statistics.total.newClones > 0);
   for (const clone of report.duplicates) {
     assert.ok(
-      clone.firstFile.name.endsWith("/src/duplicate.ts") ||
-        clone.firstFile.name.endsWith("/src/summary.ts"),
+      clone.firstFile.name.endsWith("/src/modules/reports/duplicate.ts") ||
+        clone.firstFile.name.endsWith("/src/modules/reports/summary.ts"),
     );
     assert.ok(clone.secondFile.name.startsWith(git(cwd, "rev-parse", "--show-toplevel")));
   }
@@ -218,6 +226,7 @@ test("gate commands come from the index and run installed tools without dependen
   assert.equal(result.status, 0, result.output);
   assert.match(result.output, /STAGED_GATE/);
   assert.match(result.output, /Dependencies verified/);
+  assert.match(result.output, /Source and test conventions verified/);
   assert.doesNotMatch(result.output, /pnpm install|Verifying lockfile|Ignored build scripts/);
   assert.deepEqual(await readFile(path.join(cwd, ".git/index")), index);
   assert.equal(await readFile(file, "utf8"), unstaged);
@@ -261,8 +270,8 @@ if (process.argv[2] !== "lint") process.exit(0);
 for (const [filename, source, contents] of [
   ["dependency-report.json", "dependencies/report.json", ${JSON.stringify(dependencyBytes)}],
   ["jscpd-report.json", "duplication/jscpd-report.json", JSON.stringify({ duplicates: [{
-    firstFile: { name: path.join(process.cwd(), "packages/server/src/summary.ts"), start: 1 },
-    secondFile: { name: path.join(process.cwd(), "packages/server/src/with spaces.ts"), start: 2 }
+    firstFile: { name: path.join(process.cwd(), "packages/server/src/modules/reports/summary.ts"), start: 1 },
+    secondFile: { name: path.join(process.cwd(), "packages/server/src/modules/reports/label.ts"), start: 2 }
   }] })]
 ]) {
   const file = path.join("artifacts/quality", source);
@@ -307,14 +316,14 @@ if (scenario.blocked) await mkdir(path.join(${JSON.stringify(cwd)},
             firstFile: {
               name: path.join(
                 git(cwd, "rev-parse", "--show-toplevel"),
-                "packages/server/src/summary.ts",
+                "packages/server/src/modules/reports/summary.ts",
               ),
               start: 1,
             },
             secondFile: {
               name: path.join(
                 git(cwd, "rev-parse", "--show-toplevel"),
-                "packages/server/src/with spaces.ts",
+                "packages/server/src/modules/reports/label.ts",
               ),
               start: 2,
             },
@@ -379,7 +388,15 @@ test("missing dependencies and unstaged gate configuration fail clearly", async 
   await rm(path.join(cwd, "node_modules"));
   await unchangedAfterFailure(cwd, /Missing node_modules/);
   await symlink(path.join(root, "node_modules"), path.join(cwd, "node_modules"), "junction");
-  for (const file of [".oxlintrc.json", "scripts/source-scope.mjs", "scripts/source-scope.json"]) {
+  for (const file of [
+    ".oxlintrc.json",
+    "scripts/source-scope.mjs",
+    "scripts/source-scope.json",
+    "scripts/check-conventions.mjs",
+    "scripts/convention-policy.mjs",
+    "scripts/source-analysis.mjs",
+    "scripts/test-discovery.mjs",
+  ]) {
     git(cwd, "rm", "--cached", file);
     const result = await unchangedAfterFailure(cwd, /Required staged file missing:/);
     assert.ok(result.output.includes(`Required staged file missing: ${file}.`));
@@ -393,24 +410,27 @@ test("alternate Git index is exported without changing the ordinary index", asyn
   const index = await readFile(path.join(cwd, ".git/index"));
   const alternate = path.join(cwd, ".git/alternate-index");
   await writeFile(alternate, index);
-  await writeFile(path.join(cwd, "packages/server/src/with spaces.ts"), bad);
+  await writeFile(path.join(cwd, "packages/server/src/modules/reports/label.ts"), bad);
   const selected = {
     GIT_INDEX_FILE: alternate,
     GIT_DIR: path.join(cwd, ".git"),
     GIT_WORK_TREE: cwd,
   };
   assert.equal(
-    execute(cwd, "git", ["add", "packages/server/src/with spaces.ts"], selected).status,
+    execute(cwd, "git", ["add", "packages/server/src/modules/reports/label.ts"], selected).status,
     0,
   );
   const staged = await readFile(alternate);
-  await writeFile(path.join(cwd, "packages/server/src/with spaces.ts"), good);
+  await writeFile(path.join(cwd, "packages/server/src/modules/reports/label.ts"), good);
   const result = execute(cwd, process.execPath, ["scripts/pre-commit.mjs"], selected);
   assert.notEqual(result.status, 0, result.output);
   assert.match(result.output, /no-chained-type-assertions/);
   assert.deepEqual(await readFile(alternate), staged);
   assert.deepEqual(await readFile(path.join(cwd, ".git/index")), index);
-  assert.equal(await readFile(path.join(cwd, "packages/server/src/with spaces.ts"), "utf8"), good);
+  assert.equal(
+    await readFile(path.join(cwd, "packages/server/src/modules/reports/label.ts"), "utf8"),
+    good,
+  );
 });
 
 test(
@@ -458,3 +478,55 @@ test(
     assert.ok((await readFile(path.join(cwd, ".git/index"))).equals(index));
   },
 );
+
+test("staged production paths containing spaces fail conventions without changing either tree", async (t) => {
+  const cwd = await fixture(t);
+  assert.equal(install(cwd).status, 0);
+  const file = "packages/server/src/modules/reports/with spaces.ts";
+  await writeFile(path.join(cwd, file), good);
+  git(cwd, "add", file);
+  await rm(path.join(cwd, file));
+  const result = await unchangedAfterFailure(
+    cwd,
+    /\[file-name\].*Use kebab-case for with spaces\.ts/,
+  );
+  assert.match(result.output, /conventions:check failed/);
+  assert.equal(git(cwd, "show", `:${file}`), good.trim());
+  await assert.rejects(readFile(path.join(cwd, file)), { code: "ENOENT" });
+});
+
+test("unstaged source and checker edits cannot hide a staged convention violation", async (t) => {
+  const cwd = await fixture(t);
+  assert.equal(install(cwd).status, 0);
+  const file = "packages/server/src/modules/reports/label.ts";
+  const violation = "export default function label() { return 42; }\n";
+  await writeFile(path.join(cwd, file), violation);
+  git(cwd, "add", file);
+  await writeFile(path.join(cwd, file), good);
+  const checker = path.join(cwd, "scripts/check-conventions.mjs");
+  const stagedChecker = await readFile(checker, "utf8");
+  await writeFile(checker, 'throw new Error("UNSTAGED_CHECKER_EXECUTED");\n');
+  const result = await unchangedAfterFailure(cwd, /\[named-export\]/);
+  assert.doesNotMatch(result.output, /UNSTAGED_CHECKER_EXECUTED/);
+  assert.equal(git(cwd, "show", `:${file}`), violation.trim());
+  assert.equal(await readFile(path.join(cwd, file), "utf8"), good);
+  assert.equal(git(cwd, "show", ":scripts/check-conventions.mjs"), stagedChecker.trim());
+  await writeFile(checker, stagedChecker);
+  git(cwd, "add", file);
+  const success = execute(cwd, "git", ["commit", "-m", "fix staged convention"]);
+  assert.equal(success.status, 0, success.output);
+  assert.match(success.output, /Source and test conventions verified/);
+});
+
+test("a missing staged conventions command fails despite an unstaged restored script", async (t) => {
+  const cwd = await fixture(t);
+  assert.equal(install(cwd).status, 0);
+  const file = path.join(cwd, "package.json");
+  const original = await readFile(file, "utf8");
+  const manifest = JSON.parse(original);
+  delete manifest.scripts["conventions:check"];
+  await writeFile(file, JSON.stringify(manifest));
+  git(cwd, "add", "package.json");
+  await writeFile(file, original);
+  await unchangedAfterFailure(cwd, /Required staged script missing: conventions:check/);
+});

@@ -1,5 +1,5 @@
 import { assertSafeWriteOrigin } from "@pstack/server/api-security";
-import { requirePermission } from "@pstack/server/auth-service";
+import { requirePermission } from "@pstack/server/modules/identity/service";
 import { authToken } from "@pstack/server/request-auth";
 
 /**

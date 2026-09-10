@@ -11,7 +11,7 @@ const output = new URL("../packages/sdk/src/schema.d.ts", import.meta.url);
 const schema = new URL("../docs/openapi.json", import.meta.url);
 const generated = astToString(
   await openapiTS(schema, {
-    inject: 'import type { jsonRecordSchema } from "@pstack/contracts/schemas";',
+    inject: 'import type { jsonRecordSchema } from "@pstack/contracts/primitives";',
     transform(schemaObject) {
       if (schemaObject.format === "binary") {
         return ts.factory.createTypeReferenceNode("File");

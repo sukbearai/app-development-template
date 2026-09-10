@@ -1,5 +1,8 @@
 import { z } from "zod";
-import * as schemas from "./schemas.ts";
+import * as schemas_transport from "./transport.ts";
+import * as schemas_telemetry from "./modules/telemetry/contracts.ts";
+import * as schemas_uploads from "./modules/uploads/contracts.ts";
+import * as schemas_primitives from "./primitives.ts";
 import { apiFailureSchema, apiOperations, type HttpOperationContract } from "./http.ts";
 
 export function jsonSchema(schema: z.ZodType, io: "input" | "output") {
@@ -11,9 +14,9 @@ export function jsonSchema(schema: z.ZodType, io: "input" | "output") {
 }
 
 const models = {
-  HealthStatus: schemas.healthStatusSchema,
-  TelemetryEvent: schemas.telemetryEventSchema,
-  FileAsset: schemas.fileAssetSchema,
+  HealthStatus: schemas_transport.healthStatusSchema,
+  TelemetryEvent: schemas_telemetry.telemetryEventSchema,
+  FileAsset: schemas_uploads.fileAssetSchema,
   ApiFailure: apiFailureSchema,
 };
 
@@ -61,7 +64,7 @@ export function buildOpenApiDocument() {
       name: match[1],
       in: "path",
       required: true,
-      schema: jsonSchema(schemas.nonEmptyStringSchema, "input"),
+      schema: jsonSchema(schemas_primitives.nonEmptyStringSchema, "input"),
     }));
     if (operation.query) {
       for (const [name, schema] of Object.entries(operation.query.schema.shape)) {

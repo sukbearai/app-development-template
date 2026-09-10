@@ -3,9 +3,9 @@ import { cookies } from "next/headers";
 import { Activity } from "lucide-react";
 import { ApiError } from "@pstack/server/api-response";
 import { env } from "@pstack/server/env";
-import { getCurrentUser } from "@pstack/server/auth-service";
+import { getCurrentUser } from "@pstack/server/modules/identity/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { LoginForm } from "@/components/admin/login-form";
+import { LoginForm } from "@/components/identity/login-form";
 
 export const dynamic = "force-dynamic";
 

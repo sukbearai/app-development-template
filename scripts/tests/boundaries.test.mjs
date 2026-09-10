@@ -23,7 +23,12 @@ test("package boundaries cover runtime syntax, aliases and every production laye
     "services/worker/src",
   ])
     await mkdir(path.join(fixture, directory), { recursive: true });
-  for (const filename of ["check-boundaries.mjs", "source-scope.mjs", "source-scope.json"])
+  for (const filename of [
+    "check-boundaries.mjs",
+    "source-analysis.mjs",
+    "source-scope.mjs",
+    "source-scope.json",
+  ])
     await copyFile(path.join(root, "scripts", filename), path.join(fixture, "scripts", filename));
   await symlink(path.join(root, "node_modules"), path.join(fixture, "node_modules"), "dir");
   await writeFile(
@@ -231,6 +236,8 @@ test("package boundaries cover runtime syntax, aliases and every production laye
   const client = path.join(fixture, "apps/web/components/client.tsx");
   for (const source of [
     '"use client"; import type { AppRouter } from "@pstack/server/trpc-router";',
+    '"use client"; import type Router = require("@pstack/server/trpc-router");',
+    '"use client"; type Router = import("@pstack/server/trpc-router").AppRouter;',
     '"use client"; import { type AppRouter } from "@pstack/server/trpc-router";',
     '"use client"; export type { AppRouter } from "@pstack/server/trpc-router";',
     '"use client"; export { type AppRouter } from "@pstack/server/trpc-router";',

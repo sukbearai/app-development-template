@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { asyncIdentifierSchema } from "@pstack/contracts";
+import { asyncIdentifierSchema } from "@pstack/contracts/async-contracts";
 
 export class ApiError extends Error {
   status: number;

@@ -5,10 +5,10 @@ import { createProducer, processOutboxOnce } from "./outbox";
 import { closeDatabase, getPool } from "@pstack/database/client";
 import {
   createKafkaConsumer,
-  createPostgresAsyncTaskStore,
   processAsyncConsumerMessage,
   runKafkaConsumer,
 } from "./async-consumer";
+import { createPostgresAsyncTaskStore } from "./async-task-store";
 import { handleDomainEvent } from "./domain-handler";
 import { createHeartbeatWriter } from "./heartbeat";
 import { asyncRuntimeTopics, loadWorkerEnv } from "./env";

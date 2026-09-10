@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { uploadFile, validateUpload } from "../../components/upload-client.ts";
-import { createBatchUploader } from "../../components/uppy-client.ts";
-import { ApiRequestError } from "../../components/api-client.ts";
-import { createAppQueryClient, handleApiSessionError } from "../../components/api-query-policy.ts";
+import { uploadFile, validateUpload } from "../../lib/uploads/upload-client.ts";
+import { createBatchUploader } from "../../lib/uploads/uppy-client.ts";
+import { ApiRequestError } from "../../lib/api-client.ts";
+import { createAppQueryClient, handleApiSessionError } from "../../lib/api-query-policy.ts";
 
 const asset = {
   id: "file-test",

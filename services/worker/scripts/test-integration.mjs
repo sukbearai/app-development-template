@@ -4,6 +4,13 @@ import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { Kafka, logLevel } from "kafkajs";
+import { testRun } from "../../../scripts/run-tests.mjs";
+
+const selectedTests = await testRun(fileURLToPath(new URL("../", import.meta.url)), "integration");
+if (process.argv.includes("--list")) {
+  process.stdout.write(`${JSON.stringify([selectedTests], null, 2)}\n`);
+  process.exit(0);
+}
 
 const runId = randomUUID();
 const ownerLabel = "dev.pstack.worker-integration";
@@ -291,11 +298,12 @@ try {
   env.WORKER_TEST_MIGRATIONS = fileURLToPath(
     new URL("../migrations/template/", import.meta.resolve("@pstack/database/client")),
   );
-  await command(
-    process.execPath,
-    ["--import", import.meta.resolve("tsx"), "--test", "tests/integration.test.mjs"],
-    { env, stream: true, test: true, timeoutMs: 180000 },
-  );
+  await command(process.execPath, selectedTests.args, {
+    env,
+    stream: true,
+    test: true,
+    timeoutMs: 180000,
+  });
   checkInterrupted();
 } catch (error) {
   failure = redact(error.message);

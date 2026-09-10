@@ -1,7 +1,7 @@
-import { passwordSchema } from "@pstack/contracts";
+import { passwordSchema } from "@pstack/contracts/modules/identity/contracts";
 import { randomUUID } from "node:crypto";
 import { withTransaction } from "@pstack/database/client";
-import * as repo from "@pstack/database/repository";
+import * as repo from "@pstack/database/modules/identity/repository";
 import { appPermissions } from "@pstack/database/schema";
 import { hashPassword, verifyPassword } from "./password";
 import { recordAudit } from "./event-service";

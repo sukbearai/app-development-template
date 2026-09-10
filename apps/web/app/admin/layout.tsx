@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { ApiError } from "@pstack/server/api-response";
-import { getCurrentUser } from "@pstack/server/auth-service";
+import { getCurrentUser } from "@pstack/server/modules/identity/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { PermissionNotice } from "@/components/admin/admin-ui";
+import { PermissionNotice } from "@/components/ui/page-layout";
 
 export const dynamic = "force-dynamic";
 

@@ -1,4 +1,4 @@
-import type { jsonRecordSchema } from "@pstack/contracts/schemas";
+import type { jsonRecordSchema } from "@pstack/contracts/primitives";
 export interface paths {
   "/api/system/metrics": {
     parameters: {

@@ -3,7 +3,7 @@ import { mswLoader } from "msw-storybook-addon/csf3";
 import { setupWorker } from "msw/browser";
 import "../app/globals.css";
 import { router } from "./navigation";
-import { AppQueryProvider } from "../components/query-provider";
+import { AppQueryProvider } from "../components/providers/query-provider";
 
 const preview: Preview = {
   decorators: [

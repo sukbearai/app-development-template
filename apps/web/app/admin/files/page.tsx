@@ -1,19 +1,13 @@
 import Link from "next/link";
-import { filePageQuerySchema } from "@pstack/contracts";
+import { filePageQuerySchema } from "@pstack/contracts/modules/uploads/contracts";
 import { cookies } from "next/headers";
-import { listRoles, requirePermission } from "@pstack/server/auth-service";
+import { listRoles, requirePermission } from "@pstack/server/modules/identity/service";
 import { env } from "@pstack/server/env";
-import { listFiles } from "@pstack/server/product-service";
+import { listFiles } from "@pstack/server/modules/uploads/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { UploadAssetForm } from "@/components/admin/upload-asset-form";
-import {
-  EmptyState,
-  PageHeader,
-  PermissionNotice,
-  Section,
-  formatBytes,
-  formatDateTime,
-} from "@/components/admin/admin-ui";
+import { UploadAssetForm } from "@/components/uploads/upload-asset-form";
+import { EmptyState, PageHeader, PermissionNotice, Section } from "@/components/ui/page-layout";
+import { formatBytes, formatDateTime } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 

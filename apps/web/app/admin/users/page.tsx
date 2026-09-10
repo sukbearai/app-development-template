@@ -1,13 +1,18 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { userPageQuerySchema } from "@pstack/contracts/admin-pages";
-import { listPermissions, listRoles, requirePermission } from "@pstack/server/auth-service";
-import { listUserPage } from "@pstack/server/admin-directory-service";
+import { userPageQuerySchema } from "@pstack/contracts/modules/identity/contracts";
+import {
+  listPermissions,
+  listRoles,
+  requirePermission,
+  listUserPage,
+} from "@pstack/server/modules/identity/service";
+
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { CreateUserForm } from "@/components/admin/admin-actions";
-import { PageHeader, PermissionNotice, Section } from "@/components/admin/admin-ui";
-import { DirectoryFilters } from "@/components/admin/directory-filters";
-import { UserDirectoryTable } from "@/components/admin/directory-tables";
+import { CreateUserForm } from "@/components/identity/identity-actions";
+import { PageHeader, PermissionNotice, Section } from "@/components/ui/page-layout";
+import { DirectoryFilters } from "@/components/ui/directory-filters";
+import { UserDirectoryTable } from "@/components/identity/user-directory-table";
 
 export const dynamic = "force-dynamic";
 

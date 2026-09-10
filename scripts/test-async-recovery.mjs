@@ -32,7 +32,8 @@ if (process.argv[2] === "--interrupt-restore") {
   });
   throw new Error("Restore did not reach the injected pre-binding interruption");
 } else if (process.argv[2] === "--inspect-due") {
-  const { createPostgresAsyncTaskStore } = await import("../services/worker/src/async-consumer.ts");
+  const { createPostgresAsyncTaskStore } =
+    await import("../services/worker/src/async-task-store.ts");
   const { closeDatabase } = await import("../packages/database/src/client.ts");
   const store = createPostgresAsyncTaskStore({ databaseUrl: process.env.DATABASE_URL });
   try {
@@ -42,8 +43,9 @@ if (process.argv[2] === "--interrupt-restore") {
   }
 } else if (process.argv[2] === "--publish-with-retention") {
   const { createProducer, processOutboxOnce } = await import("../services/worker/src/outbox.ts");
-  const { runKafkaConsumer, createPostgresAsyncTaskStore, processAsyncConsumerMessage } =
-    await import("../services/worker/src/async-consumer.ts");
+  const { runKafkaConsumer, processAsyncConsumerMessage } =
+      await import("../services/worker/src/async-consumer.ts"),
+    { createPostgresAsyncTaskStore } = await import("../services/worker/src/async-task-store.ts");
   const { loadKafkaRecovery } = await import("../services/worker/src/kafka-recovery.ts");
   const { asyncRuntimeTopics } = await import("../services/worker/src/env.ts");
   const { handleDomainEvent } = await import("../services/worker/src/domain-handler.ts");

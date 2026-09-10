@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Kafka, Partitioners, type Producer, type Admin } from "kafkajs";
-import { type Pool, type PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { getPool } from "@pstack/database/client";
 import { loadWorkerEnv } from "./env";
 import { workerIdentity } from "./worker-identity";

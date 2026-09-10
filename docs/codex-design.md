@@ -7,7 +7,7 @@
 Codex 会从项目的 `.agents/skills` 发现该技能，无需安装到个人技能目录或创建全局链接。重新加载技能或开始新会话后，可以这样调用：
 
 ```text
-$pstack-x-hallmark audit apps/web/components/admin/form-field.tsx
+$pstack-x-hallmark audit apps/web/components/ui/form-field.tsx
 $pstack-x-hallmark 改进用户列表在窄屏上的布局，保留现有视觉体系。
 $pstack-x-hallmark study <参考页面 URL>
 ```

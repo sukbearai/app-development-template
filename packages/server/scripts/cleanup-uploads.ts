@@ -1,4 +1,4 @@
-import { reconcileUploads } from "../src/product-service";
+import { reconcileUploads } from "../src/modules/uploads/service";
 import { closeDatabase } from "@pstack/database/client";
 import { closeS3 } from "../src/s3-client";
 import { closeRedis } from "../src/redis-client";

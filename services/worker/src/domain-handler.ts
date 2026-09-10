@@ -1,4 +1,4 @@
-import type { AsyncConsumerHandler } from "./async-consumer";
+import type { AsyncConsumerHandler } from "./async-task";
 
 /** Database receipt projection only. External side effects require receiver-owned idempotency. */
 export const handleDomainEvent: AsyncConsumerHandler = async (task) => {
