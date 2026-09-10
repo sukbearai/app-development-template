@@ -2,16 +2,14 @@
 
 ## [0.2.4](https://github.com/sukbearai/vibe-coding-template/compare/v0.2.3...v0.2.4) (2026-09-10)
 
-
 ### Features
 
-* **conventions:** 落实业务目录约定与源码行数门禁 ([8d85b4a](https://github.com/sukbearai/vibe-coding-template/commit/8d85b4ab6b0559b6bff3c12a8592861fdbf2a147))
-* **ui:** 接入 shadcn 组件与前缀样式合并 ([72b08dc](https://github.com/sukbearai/vibe-coding-template/commit/72b08dc5ae0ab971f400fe289727d77978dd3dfe))
-
+- **conventions:** 落实业务目录约定与源码行数门禁 ([8d85b4a](https://github.com/sukbearai/vibe-coding-template/commit/8d85b4ab6b0559b6bff3c12a8592861fdbf2a147))
+- **ui:** 接入 shadcn 组件与前缀样式合并 ([72b08dc](https://github.com/sukbearai/vibe-coding-template/commit/72b08dc5ae0ab971f400fe289727d77978dd3dfe))
 
 ### Bug Fixes
 
-* **deployment:** 修复公开制品演练的配置哈希核验 ([85c1583](https://github.com/sukbearai/vibe-coding-template/commit/85c15839e9accdea3c66bb5044ba413c849f6b85))
+- **deployment:** 修复公开制品演练的配置哈希核验 ([85c1583](https://github.com/sukbearai/vibe-coding-template/commit/85c15839e9accdea3c66bb5044ba413c849f6b85))
 
 ## [0.2.3](https://github.com/sukbearai/app-development-template/compare/v0.2.2...v0.2.3) (2026-09-09)
 
