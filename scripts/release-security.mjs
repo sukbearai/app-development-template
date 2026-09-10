@@ -313,6 +313,34 @@ export function trustArguments(repository) {
     "https://token.actions.githubusercontent.com",
   ];
 }
+function historicalRepository(release, repository, run) {
+  const names = ["web", "worker"].map((role) => {
+    const match = new RegExp(
+      `^ghcr\\.io/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)-${role}@sha256:[a-f0-9]{64}$`,
+    ).exec(release.images[role].reference);
+    assert.ok(match, "Invalid historical image repository");
+    return match[1];
+  });
+  assert.equal(names[0], names[1], "Historical image repositories differ");
+  if (names[0] === repository.toLowerCase()) return repository;
+  const identities = [repository, names[0]].map((name) => {
+    const identity = JSON.parse(
+      run("gh", ["api", "--hostname", "github.com", `repos/${name}`]).toString(),
+    );
+    assert.ok(
+      Number.isSafeInteger(identity.id) && identity.id > 0,
+      "GitHub repository identity is invalid",
+    );
+    assert.equal(
+      identity.full_name?.toLowerCase(),
+      repository.toLowerCase(),
+      "Historical repository does not resolve to the expected repository",
+    );
+    return identity.id;
+  });
+  assert.equal(identities[0], identities[1], "Historical GitHub repository identity differs");
+  return names[0];
+}
 export function provenance(candidate, security, role) {
   return {
     buildDefinition: {
@@ -350,8 +378,12 @@ export function checkAttestation(bytes, expected, reference, type) {
 }
 export async function verifyReleaseSecurity(root, release, repository, options = {}) {
   const run = options.run ?? securityExec;
+  let trust = trustArguments(repository);
+  if (options.allowRepositoryRename) {
+    repository = historicalRepository(release, repository, run);
+    trust = trustArguments(repository);
+  }
   const binary = options.binary ?? (await cosignBinary());
-  const trust = trustArguments(repository);
   const candidate = JSON.parse(
     await readFile(await securityReference(root, release.candidate), "utf8"),
   );
