@@ -88,7 +88,8 @@ else {if(args[0]!=='release'||args[1]!=='download')throw new Error('unexpected g
       assert.ok(file.startsWith(bundleRoot + path.sep));
       return JSON.parse(await readFile(file, "utf8"));
     },
-    verifySecurity: async (bundleRoot, parsed, repo) => {
+    verifySecurity: async (bundleRoot, parsed, repo, options) => {
+      assert.deepEqual(options, { allowRepositoryRename: true });
       calls.push({ bundleRoot, parsed, repo });
     },
   };

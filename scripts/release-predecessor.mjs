@@ -173,7 +173,7 @@ export async function preparePredecessor(options, dependencies = {}) {
           await evidenceReference(staging, extracted),
           api,
         );
-        await verifySecurity(staging, parsed, repository);
+        await verifySecurity(staging, parsed, repository, { allowRepositoryRename: true });
         await rename(staging, output);
         state.previous = {
           root: outputRelative,
@@ -202,7 +202,7 @@ export async function preparePredecessor(options, dependencies = {}) {
   const parsed = await verify(manifest, output);
   assert.equal(parsed.tag, state.previous.tag, "Retry predecessor changed");
   await verifyPublishedRelease(repository, parsed, await evidenceReference(output, manifest), api);
-  await verifySecurity(output, parsed, repository);
+  await verifySecurity(output, parsed, repository, { allowRepositoryRename: true });
   return state;
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

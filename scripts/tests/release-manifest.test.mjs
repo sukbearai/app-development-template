@@ -9,6 +9,78 @@ import {
 } from "../release-manifest.mjs";
 import { releaseFixture } from "./release-fixture.mjs";
 
+async function legacyRelease(t, version = "0.2.3") {
+  const f = await releaseFixture(t);
+  f.release.schemaVersion = 1;
+  f.release.version = version;
+  f.release.tag = `v${version}`;
+  f.evidence.checks = f.evidence.checks.filter((check) => check.name !== "conventions:check");
+  await saveReleaseEvidence(f);
+  return f;
+}
+async function saveReleaseEvidence(f) {
+  await f.put("artifacts/index.json", f.evidence);
+  f.release.evidence = await f.ref("artifacts/index.json");
+  await f.put("artifacts/release.json", f.release);
+}
+
+for (const version of ["0.2.2", "0.2.3-rc.1", "0.2.3"]) {
+  test(`published v1 release ${version} retains its original gates after conventions is introduced`, async (t) => {
+    const f = await legacyRelease(t, version);
+    assert.deepEqual(await verifyRelease(f.outputFile, f.root), f.release);
+  });
+}
+
+test("legacy releases still require every historical gate", async (t) => {
+  const f = await legacyRelease(t);
+  const checks = f.evidence.checks;
+  for (const omitted of checks) {
+    f.evidence.checks = checks.filter((check) => check.name !== omitted.name);
+    await saveReleaseEvidence(f);
+    await assert.rejects(verifyRelease(f.outputFile, f.root), {
+      message: `Missing mandatory release check: ${omitted.name}`,
+    });
+  }
+});
+
+test("legacy release archives retain their integrity checks", async (t) => {
+  const f = await legacyRelease(t);
+  await f.put(f.candidate.images.web.archive.path, "tampered");
+  await assert.rejects(verifyRelease(f.outputFile, f.root), /Release file content mismatch/);
+});
+
+for (const version of ["0.2.4-rc.1", "0.2.4", "0.10.0", "1.0.0"]) {
+  test(`release ${version} cannot downgrade to legacy schema v1`, async (t) => {
+    const f = await legacyRelease(t, version);
+    await assert.rejects(verifyRelease(f.outputFile, f.root), /schema v1 is limited/);
+  });
+}
+
+test("new manifests and candidate preflight cannot omit conventions through legacy compatibility", async (t) => {
+  const f = await releaseFixture(t);
+  assert.equal(f.release.schemaVersion, 2);
+  f.evidence.checks = f.evidence.checks.filter((check) => check.name !== "conventions:check");
+  await saveReleaseEvidence(f);
+  await assert.rejects(
+    verifyRelease(f.outputFile, f.root),
+    /Missing mandatory release check: conventions:check/,
+  );
+  await assert.rejects(
+    verifyCandidateInputs(f),
+    /Missing mandatory release check: conventions:check/,
+  );
+  await assert.rejects(createRelease(f), /Missing mandatory release check: conventions:check/);
+
+  f.release.schemaVersion = 1;
+  await f.put("artifacts/release.json", f.release);
+  assert.deepEqual(await verifyRelease(f.outputFile, f.root), f.release);
+  await assert.rejects(
+    verifyCandidateInputs(f),
+    /Missing mandatory release check: conventions:check/,
+  );
+  await assert.rejects(createRelease(f), /Missing mandatory release check: conventions:check/);
+});
+
 test("release manifest closes source, gates, archives and raw registry config identities", async (t) => {
   const fixture = await releaseFixture(t);
   assert.deepEqual(await verifyRelease(fixture.outputFile, fixture.root), fixture.release);

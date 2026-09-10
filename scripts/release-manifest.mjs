@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
+import { Version } from "release-please/build/src/version.js";
 import { z } from "zod";
 import { commandResult, printCommandResult } from "./engineering-command.mjs";
 import { RELEASE_GATES } from "./verification-plan.mjs";
@@ -16,6 +17,48 @@ import {
   sourceSchema,
   verifyEvidence,
 } from "./verification-evidence.mjs";
+
+const releaseChecksV1 = Object.freeze([
+  "format:check",
+  "sdk:check",
+  "lint",
+  "duplication:check",
+  "boundary:check",
+  "dependency:check",
+  "supply-chain:check",
+  "security:audit",
+  "typecheck",
+  "contract:check",
+  "migration:check",
+  "version:check",
+  "docs:check",
+  "test:tools",
+  "test:unit",
+  "test:integration",
+  "build",
+  "storybook:test",
+  "storybook:smoke",
+  "test:tracing-collector",
+  "test:monitor-collector",
+  "test:deployment",
+  "test:deployment:slots",
+  "db:integration",
+  "test:e2e",
+  "test:ui",
+  "test:ui:production",
+  "test:async-recovery",
+  "test:kafka-security",
+  "test:capacity",
+  "test:backup",
+  "test:app-backup",
+  "test:containers",
+]);
+const releaseChecksV2 = Object.freeze([...releaseChecksV1, "conventions:check"]);
+assert.deepEqual(
+  [...RELEASE_GATES].sort(),
+  [...releaseChecksV2].sort(),
+  "Release gates changed; add a new manifest schema policy without changing published policies",
+);
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const digest = z.string().regex(/^sha256:[a-f0-9]{64}$/);
@@ -47,7 +90,7 @@ export const receiptSchema = z.strictObject({
 });
 export const releaseSchema = z
   .strictObject({
-    schemaVersion: z.literal(1),
+    schemaVersion: z.union([z.literal(1), z.literal(2)]),
     version,
     tag: z.string(),
     source: sourceSchema,
@@ -71,7 +114,13 @@ export const releaseSchema = z
       rollbackProof: reference.nullable(),
     }),
   })
-  .refine((value) => value.tag === `v${value.version}`, "Release tag/version mismatch");
+  .refine((value) => value.tag === `v${value.version}`, "Release tag/version mismatch")
+  .refine(
+    (value) =>
+      value.schemaVersion !== 1 ||
+      Version.parse(value.version).compare(Version.parse("0.2.3")) <= 0,
+    "Manifest schema v1 is limited to releases through 0.2.3",
+  );
 export const mandatoryReleaseChecks = RELEASE_GATES;
 export const requiredContainerChecks = [
   "built Web image runs migration and administrator bootstrap",
@@ -102,6 +151,15 @@ export async function verifyCandidateInputs({
   evidenceFile,
   requireCheckout = true,
 }) {
+  return validateCandidateInputs(
+    { root, candidateFile, evidenceFile, requireCheckout },
+    mandatoryReleaseChecks,
+  );
+}
+async function validateCandidateInputs(
+  { root, candidateFile, evidenceFile, requireCheckout },
+  requiredChecks,
+) {
   const candidate = candidateSchema.parse(await readJson(candidateFile));
   assert.equal(candidate.source.dirty, false, "Release requires clean source");
   if (requireCheckout)
@@ -111,7 +169,7 @@ export async function verifyCandidateInputs({
       "Release checkout source mismatch",
     );
   const evidence = await verifyEvidence(evidenceFile, root, candidate.source);
-  for (const gate of mandatoryReleaseChecks)
+  for (const gate of requiredChecks)
     assert.ok(
       evidence.checks.some((check) => check.name === gate && check.status === "passed"),
       `Missing mandatory release check: ${gate}`,
@@ -144,13 +202,17 @@ export async function verifyCandidateInputs({
   }
   return { candidate, index: evidence };
 }
-async function validateInputs(root, candidateFile, evidenceFile, receiptFile) {
-  const { candidate, index: evidence } = await verifyCandidateInputs({
-    root,
-    candidateFile,
-    evidenceFile,
-    requireCheckout: false,
-  });
+async function validateInputs(
+  root,
+  candidateFile,
+  evidenceFile,
+  receiptFile,
+  requiredChecks = mandatoryReleaseChecks,
+) {
+  const { candidate, index: evidence } = await validateCandidateInputs(
+    { root, candidateFile, evidenceFile, requireCheckout: false },
+    requiredChecks,
+  );
   const receipt = receiptSchema.parse(await readJson(receiptFile));
   assert.deepEqual(receipt.source, candidate.source, "Registry receipt source mismatch");
   for (const role of ["web", "worker"]) {
@@ -226,7 +288,7 @@ export async function createRelease({
     rollbackProof = await evidenceReference(root, rollbackProofFile);
   }
   const release = releaseSchema.parse({
-    schemaVersion: 1,
+    schemaVersion: 2,
     version: pkg.version,
     tag: `v${pkg.version}`,
     source: inputs.candidate.source,
@@ -294,6 +356,7 @@ export async function verifyRelease(file, root) {
     await verifyReference(root, release.candidate),
     await verifyReference(root, release.evidence),
     await verifyReference(root, release.receipt),
+    release.schemaVersion === 1 ? releaseChecksV1 : releaseChecksV2,
   );
   assert.deepEqual(release.source, inputs.candidate.source, "Release source mismatch");
   assert.deepEqual(

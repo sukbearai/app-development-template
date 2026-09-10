@@ -23,7 +23,7 @@ export async function verifiedDeploymentBundle(root, manifestFile, repository) {
   const manifest = await evidenceReference(root, manifestFile);
   await verifyPublishedRelease(repository, release, manifest);
   const { verifyReleaseSecurity } = await import("./release-security.mjs");
-  await verifyReleaseSecurity(root, release, repository);
+  await verifyReleaseSecurity(root, release, repository, { allowRepositoryRename: true });
   return { release, manifest };
 }
 export async function readDeploymentTarget(file) {

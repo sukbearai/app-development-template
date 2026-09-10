@@ -153,7 +153,9 @@ async function publishVerifiedRelease(options, security, setStage) {
       await evidenceReference(previousRoot, securityPath(previousRoot, options.previous)),
       ghJson,
     );
-    await verifyReleaseSecurity(previousRoot, previous, options.repo);
+    await verifyReleaseSecurity(previousRoot, previous, options.repo, {
+      allowRepositoryRename: true,
+    });
     await verifyRollbackProof({
       root,
       proofFile: securityPath(root, options["rollback-proof"]),
