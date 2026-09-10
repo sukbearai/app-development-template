@@ -1,0 +1,52 @@
+@layer theme, base;
+
+@import "tailwindcss/theme.css" layer(theme) prefix(tw);
+@import "tw-animate-css";
+/* Keep utilities unlayered so legacy element rules cannot override them. */
+@import "tailwindcss/utilities.css" prefix(tw);
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--foreground);
+  --color-popover: var(--surface-raised);
+  --color-popover-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--surface-soft);
+  --color-secondary-foreground: var(--foreground);
+  --color-muted: var(--surface-soft);
+  --color-muted-foreground: var(--muted);
+  --color-accent: var(--surface-soft);
+  --color-accent-foreground: var(--foreground);
+  --color-destructive: var(--danger);
+  --color-border: var(--border);
+  --color-input: var(--border);
+  --color-ring: var(--primary);
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+@layer base {
+  :where(
+    [data-slot="button"],
+    [data-slot="dialog-trigger"],
+    [data-slot="input"],
+    [data-slot="dialog-close"],
+    [data-slot="dialog-content"],
+    [data-slot="dialog-title"],
+    [data-slot="dialog-description"]
+  ) {
+    margin: 0;
+    border: 0 solid var(--border);
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+}

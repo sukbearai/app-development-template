@@ -22,6 +22,7 @@
 
 - [开发请求与交互页面](client-development.md)
 - [组件开发](component-development.md)
+- [shadcn/ui 组件与样式接入](shadcn-ui.md)
 - [Codex 界面设计审查](codex-design.md)
 - [SDK](sdk.md)
 - [OpenTelemetry](tracing.md)
