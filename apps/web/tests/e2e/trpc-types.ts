@@ -1,4 +1,4 @@
-import type { createBrowserRpcClient } from "../../components/trpc-client";
+import type { createBrowserRpcClient } from "../../lib/trpc-client";
 
 export async function checkRpcTypes(client: ReturnType<typeof createBrowserRpcClient>) {
   const result = await client.users.list.query({ page: 1, search: "admin" });

@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { passwordSchema } from "@pstack/contracts";
+import { passwordSchema } from "@pstack/contracts/modules/identity/contracts";
 import { withTransaction } from "@pstack/database/client";
-import * as repo from "@pstack/database/repository";
+import * as repo from "@pstack/database/modules/identity/repository";
 import { hashPassword } from "./password";
 import { recordAudit } from "./event-service";
 

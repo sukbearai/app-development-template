@@ -74,13 +74,18 @@ test("all generic vendor rules are errors and quality gates run in both aggregat
   assert.equal(names.length, 15);
   assert.deepEqual(Object.keys(config.rules).sort(), names);
   for (const name of names) assert.equal(config.rules[name], "error");
-  assert.equal(config.overrides, undefined);
+  assert.equal(config.overrides.length, 2);
+  assert.deepEqual(config.overrides[0].rules["max-lines"], [
+    "error",
+    { max: 600, skipBlankLines: true, skipComments: true },
+  ]);
+  assert.equal(config.overrides[1].rules["max-lines"], "off");
   assert.equal(config.categories.correctness, "error");
   const manifest = await readJson("package.json");
   assert.equal(manifest.devDependencies.oxlint, "1.78.0");
   assert.equal(manifest.devDependencies["@oxlint/plugins"], "1.78.0");
   assert.equal(manifest.devDependencies.jscpd, "5.1.2");
-  for (const gate of ["lint", "duplication:check"]) {
+  for (const gate of ["lint", "duplication:check", "conventions:check"]) {
     assert.equal(manifest.scripts.verify, "node scripts/pr-verify.mjs --template");
     assert.ok(verificationPlan([], { template: true }).includes(gate));
     assert.ok(verificationPlan([], { full: true }).includes(gate));

@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { z, ZodError } from "zod";
 import { ApiError } from "./api-response";
 import { assertSafeWriteOrigin } from "./api-security";
-import { requirePermission } from "./auth-service";
+import { requirePermission } from "./modules/identity/service";
 
 export interface TrpcContext {
   request: Request;

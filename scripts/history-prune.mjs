@@ -35,7 +35,7 @@ export function parseRetentionArguments(argv, now = new Date()) {
 export async function main(argv = process.argv.slice(2)) {
   const options = parseRetentionArguments(argv);
   loadEnvironment(root);
-  const { runRetention } = await import("../packages/database/src/repository.ts");
+  const { runRetention } = await import("../packages/database/src/retention.ts");
   const { closeDatabase } = await import("../packages/database/src/client.ts");
   try {
     const counts = await runRetention(options);

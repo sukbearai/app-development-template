@@ -1,7 +1,7 @@
 import { env } from "./env";
 import { redisCommand } from "./redis-client";
 import { probeS3 } from "./s3-client";
-import { databaseProbe } from "@pstack/database/repository";
+import { databaseProbe } from "@pstack/database/client";
 import { Kafka, logLevel } from "kafkajs";
 import { readKafkaConfig } from "@pstack/kafka";
 type DependencyState = "ok" | "missing" | "not_configured" | "error";

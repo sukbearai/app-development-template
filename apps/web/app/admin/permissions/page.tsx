@@ -1,7 +1,11 @@
 import { cookies } from "next/headers";
-import { listPermissions, listRoles, requirePermission } from "@pstack/server/auth-service";
+import {
+  listPermissions,
+  listRoles,
+  requirePermission,
+} from "@pstack/server/modules/identity/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { EmptyState, PageHeader, Section, StatusBadge } from "@/components/admin/admin-ui";
+import { EmptyState, PageHeader, Section, StatusBadge } from "@/components/ui/page-layout";
 
 export const dynamic = "force-dynamic";
 

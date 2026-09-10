@@ -37,5 +37,33 @@
     "artifacts/**",
     "tools/anti-slop/**",
     "**/next-env.d.ts"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "apps/*/app/**/*",
+        "apps/*/components/**/*",
+        "apps/*/lib/**/*",
+        "apps/*/src/**/*",
+        "packages/*/src/**/*",
+        "services/*/src/**/*"
+      ],
+      "rules": {
+        "max-lines": [
+          "error",
+          {
+            "max": 600,
+            "skipBlankLines": true,
+            "skipComments": true
+          }
+        ]
+      }
+    },
+    {
+      "files": ["**/*.d.ts", "**/*.d.mts", "**/*.d.cts"],
+      "rules": {
+        "max-lines": "off"
+      }
+    }
   ]
 }

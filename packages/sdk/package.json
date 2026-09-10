@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test:unit": "tsx --test tests/*.test.mjs"
+    "test:unit": "node ../../scripts/run-tests.mjs unit"
   },
   "dependencies": {
     "@pstack/contracts": "workspace:*",

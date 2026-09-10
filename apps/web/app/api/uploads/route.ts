@@ -4,7 +4,7 @@ import { getTraceId, ok } from "@pstack/server/api-response";
 import { requireApiWritePermission } from "@/lib/api-authz";
 import { env } from "@pstack/server/env";
 import { withAccessLog } from "@pstack/server/logger";
-import { storeUploadedFile } from "@pstack/server/product-service";
+import { storeUploadedFile } from "@pstack/server/modules/uploads/service";
 import {
   assertInMemoryUploadSize,
   assertRequestContentLength,

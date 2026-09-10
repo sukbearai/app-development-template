@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { AuditEvent, OutboxEvent } from "@pstack/contracts";
-import * as repo from "@pstack/database/repository";
+import type { AuditEvent } from "@pstack/contracts/modules/audit/contracts";
+import type { OutboxEvent } from "@pstack/contracts/modules/outbox/contracts";
+import * as repo_audit from "@pstack/database/modules/audit/repository";
+import * as repo_outbox from "@pstack/database/modules/outbox/repository";
 import { withTransaction, type TransactionContext } from "@pstack/database/client";
 import { env } from "./env";
 
@@ -14,7 +16,7 @@ export async function recordAudit(
     ...input,
   };
   const persist = async (context: TransactionContext) => {
-    await repo.insertAuditEvent(event, context);
+    await repo_audit.insertAuditEvent(event, context);
     await createOutboxEvent(
       {
         topic: "audit.events",
@@ -57,7 +59,7 @@ export async function createOutboxEvent(
     createdAt: now,
     updatedAt: now,
   };
-  if (tx) await repo.insertOutboxEvent(event, tx);
-  else await withTransaction((context) => repo.insertOutboxEvent(event, context));
+  if (tx) await repo_outbox.insertOutboxEvent(event, tx);
+  else await withTransaction((context) => repo_outbox.insertOutboxEvent(event, context));
   return event;
 }

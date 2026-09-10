@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { reportBrowserFailure } from "@/components/browser-diagnostics";
+import { reportBrowserFailure } from "@/lib/browser-diagnostics";
 
 export default function PageError({
   reset,

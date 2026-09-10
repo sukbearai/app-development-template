@@ -2,9 +2,9 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ApiError } from "@pstack/server/api-response";
-import { getCurrentUser } from "@pstack/server/auth-service";
+import { getCurrentUser } from "@pstack/server/modules/identity/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { ChangePasswordForm } from "@/components/admin/password-actions";
+import { ChangePasswordForm } from "@/components/identity/password-actions";
 
 export const dynamic = "force-dynamic";
 

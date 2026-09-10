@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { z } from "zod";
-import { requestJson, ApiRequestError } from "../../components/api-client.ts";
+import {
+  requestJson,
+  ApiRequestError,
+  parseApiResponse,
+  parseRetryAfter,
+} from "../../lib/api-client.ts";
 
 test("client parses success with the caller schema and rejects wrong output", async (t) => {
   t.mock.method(globalThis, "fetch", async () =>
@@ -43,7 +48,6 @@ test("client does not show arbitrary proxy HTML to the user", async (t) => {
 
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { parseApiResponse, parseRetryAfter } from "../../components/api-client.ts";
 
 async function withServer(handler, run) {
   const server = createServer(handler);

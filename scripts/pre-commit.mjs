@@ -152,6 +152,10 @@ try {
     ".jscpd-baseline.json",
     "scripts/check-duplication.mjs",
     "scripts/check-dependencies.mjs",
+    "scripts/check-conventions.mjs",
+    "scripts/convention-policy.mjs",
+    "scripts/source-analysis.mjs",
+    "scripts/test-discovery.mjs",
     "scripts/source-scope.mjs",
     "scripts/source-scope.json",
     "tools/anti-slop/src/index.ts",
@@ -197,7 +201,7 @@ try {
     .join(path.delimiter);
   const { scripts } = JSON.parse(await readFile(path.join(snapshot, "package.json"), "utf8"));
   console.log(`pre-commit: checking the staged snapshot at ${snapshot}`);
-  for (const command of ["lint", "duplication:check", "dependency:check"])
+  for (const command of ["lint", "duplication:check", "dependency:check", "conventions:check"])
     await run(command, scripts?.[command]);
 } catch (error) {
   console.error(`pre-commit: ${error.message}`);

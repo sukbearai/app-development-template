@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { MutationObserver } from "@tanstack/react-query";
-import { ApiRequestError } from "../../components/api-client.ts";
+import { ApiRequestError } from "../../lib/api-client.ts";
 import {
   apiQueryRetryDelay,
   createAppQueryClient,
   handleApiSessionError,
   retryApiQuery,
-} from "../../components/api-query-policy.ts";
+} from "../../lib/api-query-policy.ts";
 
 const httpError = (status, retryAfterMs) =>
   new ApiRequestError("失败", {

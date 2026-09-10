@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ApiRequestError } from "../../components/api-client.ts";
-import { setSubmissionError } from "../../components/admin/form-field.tsx";
+import { ApiRequestError } from "../../lib/api-client.ts";
+import { setSubmissionError } from "../../lib/form-errors.ts";
 
 test("server validation assigns only registered fields and focuses the first field", () => {
   const assigned = [];

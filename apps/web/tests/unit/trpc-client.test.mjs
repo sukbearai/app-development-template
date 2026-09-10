@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { createServer } from "node:http";
 import { createTRPCClient, httpLink } from "@trpc/client";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
-import { rpcFetch, requestError } from "../../components/trpc-client.ts";
-import { createAppQueryClient, retryApiQuery } from "../../components/api-query-policy.ts";
+import { rpcFetch, requestError } from "../../lib/trpc-client.ts";
+import { createAppQueryClient, retryApiQuery } from "../../lib/api-query-policy.ts";
 
 test("real tRPC failures preserve business details, trace and public versus private session policy", async (t) => {
   const server = createServer((req, res) => {

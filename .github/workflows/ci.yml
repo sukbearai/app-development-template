@@ -71,6 +71,7 @@ jobs:
           pnpm duplication:check
           pnpm dependency:check
           pnpm boundary:check
+          pnpm conventions:check
           pnpm supply-chain:check
           pnpm contract:check
           pnpm typecheck

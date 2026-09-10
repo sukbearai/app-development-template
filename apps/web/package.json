@@ -11,7 +11,7 @@
     "typecheck": "tsc -p tsconfig.check.json --noEmit && tsc -p .storybook/tsconfig.json --noEmit",
     "api:docs": "tsx scripts/generate-openapi.mjs",
     "contract:check": "tsx scripts/contract-check.mjs",
-    "test:unit": "tsx --test tests/unit/*.test.mjs",
+    "test:unit": "node ../../scripts/run-tests.mjs unit",
     "test:e2e": "node ../../scripts/verify-app.mjs",
     "test:ui": "node ../../scripts/verify-app.mjs --ui",
     "smoke": "node scripts/smoke.mjs",

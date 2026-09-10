@@ -1,12 +1,9 @@
 import { closeDatabase } from "@pstack/database/client";
 import { inspectWorkerHeartbeat } from "./heartbeat";
-import type { KafkaConsumerOffset } from "@pstack/contracts";
-import {
-  createPostgresAsyncTaskStore,
-  processAsyncConsumerMessage,
-  type AsyncConsumerHandler,
-  type ConsumerMessage,
-} from "./async-consumer";
+import type { KafkaConsumerOffset } from "@pstack/contracts/async-contracts";
+import { createPostgresAsyncTaskStore } from "./async-task-store";
+import { processAsyncConsumerMessage } from "./async-consumer";
+import { type AsyncConsumerHandler, type ConsumerMessage } from "./async-task";
 import { flagEnabled, flagValue, printJson } from "./cli-utils";
 import { loadWorkerEnv } from "./env";
 import { workerIdentity } from "./worker-identity";

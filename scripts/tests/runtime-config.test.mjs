@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { tsImport } from "tsx/esm/api";
 
 const { buildRuntimePlanFromEnv } = await tsImport(
-  "../../packages/server/src/async-runtime-health-service.ts",
+  "../../packages/server/src/runtime-health-config.ts",
   import.meta.url,
 );
 const { buildAsyncRuntimePlan } = await tsImport(

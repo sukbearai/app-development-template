@@ -61,6 +61,8 @@ pnpm test:app-backup
 - [最新修复与验证结果](docs/production-repair-results.md)
 - [初始改造验证](docs/verification.md)
 - [开发架构](docs/architecture.md)
+- [目录与代码约定](docs/conventions.md)
+- [业务开发步骤](docs/module-development.md)
 - [工程能力建设方案](docs/engineering-adoption-plan.md)
 - [工程命令与验证证据](docs/engineering-tools.md)
 - [版本管理](docs/versioning.md)

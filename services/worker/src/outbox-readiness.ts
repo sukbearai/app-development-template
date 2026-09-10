@@ -10,7 +10,7 @@ import {
   type OutboxHealthThresholds,
 } from "@pstack/contracts/outbox-health";
 import { createPgDrizzleClient } from "@pstack/database/client";
-import { getAsyncQuarantineCounts } from "@pstack/database/repository";
+import { getAsyncQuarantineCounts } from "@pstack/database/modules/runtime/repository";
 import type { OutboxWorkerOptions } from "./outbox";
 
 export type OutboxAlert = OutboxHealthAlert;

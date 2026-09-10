@@ -1,8 +1,8 @@
-import { telemetryRequestSchema } from "@pstack/contracts";
+import { telemetryRequestSchema } from "@pstack/contracts/modules/telemetry/contracts";
 import { created, getTraceId, readJson } from "@pstack/server/api-response";
 import { assertSafeWriteOrigin } from "@pstack/server/api-security";
 import { withAccessLog } from "@pstack/server/logger";
-import { recordTelemetry } from "@pstack/server/product-service";
+import { recordTelemetry } from "@pstack/server/modules/telemetry/service";
 import { assertRequestRateLimit } from "@pstack/server/rate-limit";
 import { parseInput } from "@pstack/server/validation";
 

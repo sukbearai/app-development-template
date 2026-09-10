@@ -1,3 +1,5 @@
+import { sql } from "drizzle-orm";
+
 import { registerProcessCleanup } from "./process-lifecycle";
 import { loadEnvironment } from "./environment";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -49,4 +51,8 @@ export async function closeDatabase() {
   pool = undefined;
   database = undefined;
   await current?.end();
+}
+
+export async function databaseProbe() {
+  await getDatabase().execute(sql`select 1`);
 }

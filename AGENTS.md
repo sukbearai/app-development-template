@@ -2,9 +2,15 @@
 
 Use pstack for design, implementation and review. Project-specific instructions below define runtime and verification boundaries.
 
-After installing dependencies, run `pnpm hooks:install` once per repository to enable the native `.githooks/pre-commit` hook. It exports the Git index to a temporary staged snapshot, then runs `pnpm lint`, `pnpm duplication:check` and `pnpm dependency:check`; the working tree and index remain unchanged. Do not bypass the hook to avoid fixing violations; CI runs the same gates.
+After installing dependencies, run `pnpm hooks:install` once per repository to enable the native `.githooks/pre-commit` hook. It exports the Git index to a temporary staged snapshot, then runs `pnpm lint`, `pnpm duplication:check`, `pnpm dependency:check` and `pnpm conventions:check`; the working tree and index remain unchanged. Do not bypass the hook to avoid fixing violations; CI runs the same gates.
 
 ## Structure
+
+Business code lives in `src/modules/<domain>` within its owning package. Contracts expose `contracts.ts`, database modules expose `repository.ts`, server modules expose `service.ts`, and worker modules expose `handler.ts`. Server `router.ts` files are assembled only by `trpc-router.ts`. Other files are private to that module, including type imports and re-exports. Platform paths are explicit in `scripts/convention-policy.mjs`. See `docs/conventions.md` and `docs/module-development.md`.
+
+Web components live in `components/<domain>`, `ui`, `providers`, or `admin`; clients live in `lib` and shared hooks in `lib/hooks`. Use kebab-case paths and named exports except framework-reserved files. Business modules do not read `process.env`. Tests use `tests/unit`, `tests/integration`, and server `tests/web-runtime`; existing commands discover files recursively without per-test registration.
+
+Production source files have a 600-line limit enforced by Oxlint `max-lines`, excluding blank and comment-only lines. Split oversized files by responsibility, not by adding forwarding layers. Tests, tooling and declaration files are outside this size limit; their other lint rules remain enabled. There is no function-length limit.
 
 - `apps/web` owns vinext pages, explicit App Router handlers and browser components.
 - `packages/contracts` owns Zod HTTP/message schemas, derived types and the operation registry. It may be imported by the browser.
@@ -17,7 +23,7 @@ Browser modules cannot import server/database runtime code or credentials. The b
 
 ## Verification
 
-Start with git status and preserve unrelated work. Run `pnpm lint`, `pnpm duplication:check` and `pnpm dependency:check` before declaring work ready. Fix new violations; do not disable rules, add broad ignores, or refresh the duplication baseline just to pass. Baseline changes require explicit review of accepted clones. See `docs/quality-gates.md`. Use `pnpm typecheck`, `pnpm contract:check`, `pnpm migration:check` and affected package tests. `pnpm verify` runs the complete template checks. See `.agents/skills/verify-pstack-x/SKILL.md` for browser evidence and isolated databases.
+Start with git status and preserve unrelated work. Run `pnpm lint`, `pnpm duplication:check`, `pnpm dependency:check` and `pnpm conventions:check` before declaring work ready. Fix new violations; do not disable rules, add broad ignores, or refresh the duplication baseline just to pass. Baseline changes require explicit review of accepted clones. See `docs/quality-gates.md`. Use `pnpm typecheck`, `pnpm contract:check`, `pnpm migration:check` and affected package tests. `pnpm verify` runs the complete template checks. See `.agents/skills/verify-pstack-x/SKILL.md` for browser evidence and isolated databases.
 
 `pnpm test:e2e`, `pnpm test:ui` and `pnpm test:production` own disposable PostgreSQL containers. Never substitute a shared database to make tests pass. Distinguish source checks, PostgreSQL/Kafka/Redis/S3 integration, browser behavior and deployment evidence.
 

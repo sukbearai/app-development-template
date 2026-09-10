@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
-import { auditPageQuerySchema } from "@pstack/contracts/admin-pages";
-import { requirePermission } from "@pstack/server/auth-service";
-import { listAuditPage } from "@pstack/server/admin-directory-service";
+import { auditPageQuerySchema } from "@pstack/contracts/modules/audit/contracts";
+import { requirePermission } from "@pstack/server/modules/identity/service";
+import { listAuditPage } from "@pstack/server/modules/audit/service";
 import { sessionCookieName } from "@pstack/server/request-auth";
-import { PageHeader, Section } from "@/components/admin/admin-ui";
-import { DirectoryFilters } from "@/components/admin/directory-filters";
-import { AuditDirectoryTable } from "@/components/admin/directory-tables";
+import { PageHeader, Section } from "@/components/ui/page-layout";
+import { DirectoryFilters } from "@/components/ui/directory-filters";
+import { AuditDirectoryTable } from "@/components/audit/audit-directory-table";
 
 export const dynamic = "force-dynamic";
 

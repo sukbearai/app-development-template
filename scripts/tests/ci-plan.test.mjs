@@ -297,3 +297,30 @@ test("missing local PR head uses a matching GitHub commit object and rejects a d
   remoteTree = "b".repeat(40);
   assert.equal(await reusableRun(f.root, f.head, f.repository, api), null);
 });
+
+test("source, convention rules and discovery changes retain full verification", async (t) => {
+  const f = await fixture(t);
+  for (const file of [
+    "packages/server/src/modules/projects/service.ts",
+    "scripts/check-conventions.mjs",
+    "scripts/convention-policy.mjs",
+    "scripts/source-analysis.mjs",
+    "scripts/test-discovery.mjs",
+    "scripts/run-tests.mjs",
+    "scripts/tests/conventions.test.mjs",
+    "scripts/verification-plan.mjs",
+  ]) {
+    f.git("reset", "--hard", f.base);
+    const head = await f.save({ [file]: "export {};\n" });
+    assert.equal(changeScope(f.root, f.base, head).scope, "full", file);
+  }
+  const workflow = await readFile(
+    new URL("../../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+  const engineering = workflow
+    .split(/\n      - /)
+    .find((step) => step.startsWith("name: Check engineering changes"));
+  assert.match(engineering, /if: steps\.plan\.outputs\.scope == 'engineering'/);
+  assert.match(engineering, /pnpm conventions:check/);
+});
