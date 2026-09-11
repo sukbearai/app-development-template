@@ -17,3 +17,4 @@ docs/openapi.json
 packages/database/migrations/
 docs/api.md
 packages/sdk/src/schema.d.ts
+.agents/skills/**/SKILL.md

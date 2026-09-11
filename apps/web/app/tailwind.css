@@ -1,6 +1,7 @@
 @layer theme, base;
 
 @import "tailwindcss/theme.css" layer(theme) prefix(tw);
+@import "tailwind-animations" prefix(tw);
 @import "tw-animate-css";
 /* Keep utilities unlayered so legacy element rules cannot override them. */
 @import "tailwindcss/utilities.css" prefix(tw);
