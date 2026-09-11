@@ -1,7 +1,7 @@
 # Operations
 
 Node 22.13 or newer and pnpm 11.26.0 are required. Install dependencies with `pnpm install --frozen-lockfile`.
-Run `pnpm template:init --name my-project` to rename the root package and create `.env` without overwriting an existing file. Workspace package names stay stable. The initializer does not copy maintenance history, credentials or previous project state.
+Run `pnpm template:init --name my-project` to rename the root package, synchronize `APP_NAME` in `.env.example` and `.env`, and create `.env` when it is missing. Existing credentials and other `.env` settings stay unchanged. Workspace package names stay stable. The initializer does not copy maintenance history, credentials or previous project state.
 
 ## Local services
 
