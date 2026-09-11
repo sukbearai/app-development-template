@@ -45,12 +45,12 @@ COPY . .
 RUN pnpm --filter @pstack/web build
 
 FROM manifests AS web-dependencies
-RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x --filter @pstack/web... install --prod --frozen-lockfile --store-dir=/pnpm/store
+RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter . --filter @pstack/web... install --prod --frozen-lockfile --store-dir=/pnpm/store
 
 FROM web-dependencies AS web
 COPY . .
 COPY --from=build /app/apps/web/dist ./apps/web/dist
-RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x --filter @pstack/web... install --prod --offline --frozen-lockfile --store-dir=/pnpm/store
+RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter . --filter @pstack/web... install --prod --offline --frozen-lockfile --store-dir=/pnpm/store
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0 PORT=3000
 RUN mkdir -p /app/uploads && chown node:node /app/uploads
@@ -60,11 +60,11 @@ WORKDIR /app/apps/web
 CMD ["node", "scripts/start.mjs", "--hostname", "0.0.0.0", "--port", "3000"]
 
 FROM manifests AS worker-dependencies
-RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x --filter @pstack/worker... --filter @pstack/server... install --prod --frozen-lockfile --store-dir=/pnpm/store
+RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter . --filter @pstack/worker... --filter @pstack/server... install --prod --frozen-lockfile --store-dir=/pnpm/store
 
 FROM worker-dependencies AS worker
 COPY . .
-RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter pstack-x --filter @pstack/worker... --filter @pstack/server... install --prod --offline --frozen-lockfile --store-dir=/pnpm/store
+RUN --mount=type=cache,id=pstack-pnpm,target=/pnpm/store pnpm --filter . --filter @pstack/worker... --filter @pstack/server... install --prod --offline --frozen-lockfile --store-dir=/pnpm/store
 ENV NODE_ENV=production
 USER node
 WORKDIR /app/services/worker

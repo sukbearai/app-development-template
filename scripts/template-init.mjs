@@ -9,23 +9,30 @@ export function parseName(args) {
     throw new Error("Usage: pnpm template:init --name lowercase-project-name");
   return args[1];
 }
+
+function setAppName(contents, name) {
+  const line = `APP_NAME=${JSON.stringify(name)}`;
+  if (/^\s*APP_NAME\s*=.*$/m.test(contents)) return contents.replace(/^\s*APP_NAME\s*=.*$/m, line);
+  return `${line}\n${contents}`;
+}
+
 async function main() {
   const name = parseName(process.argv.slice(2).filter((arg) => arg !== "--"));
   const file = path.join(root, "package.json");
   const manifest = JSON.parse(await readFile(file, "utf8"));
   manifest.name = name;
   await writeFile(file, JSON.stringify(manifest, null, 2) + "\n");
+  const envExample = path.join(root, ".env.example");
+  await writeFile(envExample, setAppName(await readFile(envExample, "utf8"), name));
   try {
-    await copyFile(
-      path.join(root, ".env.example"),
-      path.join(root, ".env"),
-      constants.COPYFILE_EXCL,
-    );
+    await copyFile(envExample, path.join(root, ".env"), constants.COPYFILE_EXCL);
   } catch (error) {
     if (error.code !== "EEXIST") throw error;
+    const envFile = path.join(root, ".env");
+    await writeFile(envFile, setAppName(await readFile(envFile, "utf8"), name));
   }
   console.log(
-    `Project renamed to ${name}. Existing .env and workspace package names are preserved. Edit APP_NAME, credentials, and ports in .env before use.`,
+    `Project renamed to ${name}. APP_NAME is synchronized; other .env and workspace package names are preserved. Edit credentials and ports in .env before use.`,
   );
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

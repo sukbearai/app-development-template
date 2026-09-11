@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { copyFile, mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadEnvironment, postgresUrl } from "../env.mjs";
@@ -98,6 +99,70 @@ test("template rename requires an explicit bounded project name", () => {
   for (const args of [[], ["--name"], ["--name", "../escape"], ["--name", "$(id)"]])
     assert.throws(() => parseName(args));
   assert.equal(parseName(["--name", "new-project"]), "new-project");
+});
+
+test("template initialization synchronizes existing and missing environment files", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "pstack-template-init-"));
+  try {
+    await mkdir(path.join(root, "scripts"));
+    await copyFile(
+      new URL("../template-init.mjs", import.meta.url),
+      path.join(root, "scripts/template-init.mjs"),
+    );
+    await writeFile(path.join(root, "package.json"), '{"name":"pstack-x","private":true}\n');
+    await writeFile(
+      path.join(root, ".env.example"),
+      'APP_NAME="Pstack App"\nDATABASE_URL=postgres://example\n',
+    );
+    await writeFile(
+      path.join(root, ".env"),
+      'APP_NAME="Local name"\nDATABASE_URL=postgres://local-secret\n',
+    );
+
+    const result = spawnSync(process.execPath, ["scripts/template-init.mjs", "--name", "prodevo"], {
+      cwd: root,
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(
+      JSON.parse(await readFile(path.join(root, "package.json"), "utf8")).name,
+      "prodevo",
+    );
+    assert.equal(
+      await readFile(path.join(root, ".env.example"), "utf8"),
+      'APP_NAME="prodevo"\nDATABASE_URL=postgres://example\n',
+    );
+    assert.equal(
+      await readFile(path.join(root, ".env"), "utf8"),
+      'APP_NAME="prodevo"\nDATABASE_URL=postgres://local-secret\n',
+    );
+
+    await rm(path.join(root, ".env"));
+    const missingEnvResult = spawnSync(
+      process.execPath,
+      ["scripts/template-init.mjs", "--name", "next-project"],
+      { cwd: root, encoding: "utf8" },
+    );
+
+    assert.equal(missingEnvResult.status, 0, missingEnvResult.stderr);
+    assert.equal(
+      await readFile(path.join(root, ".env.example"), "utf8"),
+      'APP_NAME="next-project"\nDATABASE_URL=postgres://example\n',
+    );
+    assert.equal(
+      await readFile(path.join(root, ".env"), "utf8"),
+      'APP_NAME="next-project"\nDATABASE_URL=postgres://example\n',
+    );
+  } finally {
+    await rm(root, { recursive: true });
+  }
+});
+
+test("production dependency filters survive root package renames", async () => {
+  const dockerfile = await readFile(new URL("../../Dockerfile", import.meta.url), "utf8");
+  assert.ok(!dockerfile.includes("--filter pstack-x"));
+  assert.equal(dockerfile.match(/--filter \./g)?.length, 4);
 });
 
 test("PostgreSQL tool connection carries credentials in environment and rejects ambiguous overrides", () => {
