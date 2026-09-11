@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.6](https://github.com/sukbearai/vibe-coding-template/compare/v0.2.5...v0.2.6) (2026-09-11)
+
+
+### Features
+
+* **skill:** 接入 Tailwind 动效指导技能 ([bac4882](https://github.com/sukbearai/vibe-coding-template/commit/bac4882ec499c0e56b2e4506f93b981016b0c006))
+
+
+### Bug Fixes
+
+* **template:** 同步初始化项目身份 ([#17](https://github.com/sukbearai/vibe-coding-template/issues/17)) ([908742b](https://github.com/sukbearai/vibe-coding-template/commit/908742bf945fa9222a6d5053dbebf4d9202d066b))
+* **web:** 接入 Tailwind 动效依赖并排除技能格式检查 ([#16](https://github.com/sukbearai/vibe-coding-template/issues/16)) ([d500442](https://github.com/sukbearai/vibe-coding-template/commit/d500442aab3eb2d4ec9f2ac05a30ccfb8b0e7d78))
+
 ## [0.2.5](https://github.com/sukbearai/vibe-coding-template/compare/v0.2.4...v0.2.5) (2026-09-10)
 
 ### Bug Fixes
